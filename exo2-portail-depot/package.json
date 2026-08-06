@@ -1,0 +1,22 @@
+{
+  "name": "portail-depot",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Orchestration des deux applications (backend NestJS, frontend Vite).",
+  "scripts": {
+    "install:all": "pnpm -C backend install && pnpm -C frontend install",
+    "build": "pnpm run build:backend && pnpm run build:frontend",
+    "build:backend": "pnpm -C backend run build",
+    "build:frontend": "pnpm -C frontend run build",
+    "dev": "pnpm run \"/^dev:/\"",
+    "dev:backend": "pnpm -C backend run start:dev",
+    "dev:frontend": "pnpm -C frontend run dev",
+    "start": "pnpm run \"/^start:/\"",
+    "start:backend": "pnpm -C backend run start:prod",
+    "start:frontend": "pnpm -C frontend run start",
+    "test": "pnpm -C backend run test",
+    "test:e2e": "pnpm -C backend run test:e2e",
+    "lint": "pnpm -C backend run lint && pnpm -C frontend run lint"
+  },
+  "packageManager": "pnpm@11.20.0"
+}
