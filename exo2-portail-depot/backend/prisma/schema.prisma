@@ -1,0 +1,24 @@
+// Schema Prisma du portail de depot.
+//
+// A1 ne pose que la plomberie : aucune entite metier ici. Le modele
+// (Lawyer, DepositRequest, RequestedItem, UploadedFile, AccessLog) est
+// l'objet de l'issue A2, et c'est elle qui produira la premiere migration.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  // engineType "client" : pas de moteur de requete binaire, tout passe par
+  // l'adaptateur pg. Une dependance native de moins a faire survivre au
+  // `pnpm prune --prod` et au passage entre les deux etages de l'image.
+  engineType   = "client"
+  moduleFormat = "cjs"
+  runtime      = "nodejs"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Pas d'`url` ici : Prisma 7 l'interdit dans le schema (P1012). La chaine de
+  // connexion est fournie au CLI par prisma.config.js, et a l'execution par
+  // @prisma/adapter-pg (voir src/prisma/prisma.service.ts). Les deux lisent la
+  // meme DATABASE_URL, donc une seule source de verite.
+}

@@ -2,3 +2,8 @@ node_modules
 dist
 test
 *.log
+# Client Prisma genere sur la machine. Le build le regenere de toute facon
+# (`pnpm build` = `prisma generate && nest build`), mais le laisser entrer dans
+# le contexte masquerait une generation qui ne tourne plus : l'image demarrerait
+# sur un client perime au lieu d'echouer a la compilation.
+src/generated

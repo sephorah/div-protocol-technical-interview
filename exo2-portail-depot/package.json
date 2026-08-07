@@ -5,6 +5,9 @@
   "description": "Orchestration des deux applications (backend NestJS, frontend Vite).",
   "scripts": {
     "install:all": "pnpm -C backend install && pnpm -C frontend install",
+    "db:up": "docker compose -f docker-compose.dev.yml up -d",
+    "db:down": "docker compose -f docker-compose.dev.yml down",
+    "db:migrate": "pnpm -C backend run db:migrate",
     "build": "pnpm run build:backend && pnpm run build:frontend",
     "build:backend": "pnpm -C backend run build",
     "build:frontend": "pnpm -C frontend run build",

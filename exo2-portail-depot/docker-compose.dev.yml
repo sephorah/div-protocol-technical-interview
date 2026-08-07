@@ -1,0 +1,37 @@
+# Developpement : la base seule.
+#
+# L'API et le front continuent de tourner sur la machine via `pnpm dev`, pour
+# garder le rechargement a chaud. Il n'y a deliberement pas d'image de dev.
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   pnpm dev
+#
+# Le volume porte un nom distinct de celui de la production : une base de
+# developpement et une base de production sur le meme volume, c'est un
+# `migrate reset` de trop.
+services:
+  db:
+    image: postgres:17-alpine
+    init: true
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?definir POSTGRES_USER dans .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?definir POSTGRES_PASSWORD dans .env}
+      POSTGRES_DB: ${POSTGRES_DB:?definir POSTGRES_DB dans .env}
+    ports:
+      # 127.0.0.1 explicitement, jamais 0.0.0.0 : la machine de staging est
+      # partagee, et meme en local une base ouverte sur le reseau n'a aucune
+      # raison d'exister. 21632 est dans la plage attribuee (21600-21699) ;
+      # 5432 entrerait en collision avec un Postgres installe sur l'hote.
+      - '127.0.0.1:21632:5432'
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  pgdata_dev:

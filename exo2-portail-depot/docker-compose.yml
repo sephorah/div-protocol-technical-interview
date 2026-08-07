@@ -1,11 +1,61 @@
-# Production. En dev, on lance directement `pnpm dev` a la racine.
+# Production. En dev, on lance `pnpm dev` a la racine, avec la base seule
+# montee par docker-compose.dev.yml.
 services:
+  db:
+    image: postgres:17-alpine
+    init: true
+    # La forme `:?` fait echouer `docker compose up` en nommant la variable
+    # manquante. Sans elle, une variable vide demarrerait un Postgres avec un
+    # mot de passe vide, ce qui « marche » et est exactement le probleme.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?definir POSTGRES_USER dans .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?definir POSTGRES_PASSWORD dans .env}
+      POSTGRES_DB: ${POSTGRES_DB:?definir POSTGRES_DB dans .env}
+    volumes:
+      # Volume nomme : `docker compose down` sans -v preserve les donnees.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # `$$` echappe l'interpolation compose : c'est le shell du conteneur qui
+      # doit lire la variable, pas docker au moment du parsing.
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    # Aucun port publie : la base n'est joignable que par le reseau interne.
+
   backend:
     build: ./backend
     init: true
     environment:
       NODE_ENV: production
       PORT: 3000
+      # Reconstruite ici plutot que reprise de .env : la valeur de .env vise
+      # 127.0.0.1 pour `pnpm dev`, alors qu'en conteneur l'hote est le nom du
+      # service. Une seule variable pour deux reseaux ne peut pas marcher.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db:
+        # Postgres accepte les connexions plusieurs secondes apres que son
+        # conteneur est « demarre ». Sans cette condition, `migrate deploy`
+        # echoue au premier boot et l'API redemarre en boucle jusqu'a ce que
+        # ca passe — un demarrage qui finit par marcher n'est pas un
+        # demarrage qui marche.
+        condition: service_healthy
+    healthcheck:
+      # L'image n'a ni curl ni wget ; node 22 fournit fetch nativement.
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
     # Aucun port publie : seul le proxy joint les services, par le reseau interne.
 
@@ -17,10 +67,21 @@ services:
   proxy:
     image: nginx:alpine
     ports:
-      - '8080:80'
+      # 127.0.0.1 explicitement : la machine de staging est PARTAGEE avec
+      # d'autres candidats, et un bind sur 0.0.0.0 exposerait tout le portail
+      # — base comprise, via /api — a qui scanne la machine. 21600 est le port
+      # attribue vers lequel le proxy de la machine relaie le trafic HTTP
+      # (443 arrive en passthrough TLS sur 21601, cf. A7).
+      #
+      # Consequence en local : le portail est sur http://127.0.0.1:21600, plus
+      # sur :8080.
+      - '127.0.0.1:21600:80'
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - backend
       - frontend
     restart: unless-stopped
+
+volumes:
+  pgdata:

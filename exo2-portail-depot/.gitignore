@@ -6,6 +6,11 @@ dist/
 build/
 *.tsbuildinfo
 
+# Client Prisma genere depuis prisma/schema.prisma. Regenere par
+# `pnpm build` (et par `pnpm db:generate`), donc jamais versionne :
+# un client commite finit desynchronise du schema sans que rien ne le signale.
+backend/src/generated/
+
 # Tests
 coverage/
 
