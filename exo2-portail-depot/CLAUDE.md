@@ -280,8 +280,10 @@ parse it beyond the status code.
 `condition: service_healthy`. Postgres accepts connections several seconds after its container is
 "started", so without that condition `migrate deploy` fails on the first boot and the API
 restart-loops until it happens to work. `backend` waits on `minio` the same way, because
-`ensureBucket()` runs in `onModuleInit`: a MinIO that is not ready yet fails the API's *startup*,
-not merely its first upload. `backend` has its own healthcheck too, calling `/health`
+`assertBucketExists()` runs in `onModuleInit`: a MinIO that is not ready yet fails the API's
+*startup*, not merely its first upload. It also waits on `minio-init` with
+`condition: service_completed_successfully` — the bucket and the restricted user must exist before
+the API tries to authenticate as that user. `backend` has its own healthcheck too, calling `/health`
 with `node -e "fetch(...)"` — the image has neither curl nor wget, and node 22 ships `fetch`.
 
 `minio` uses `curl` on `/minio/health/live`; unlike the node images, `minio/minio` ships both `curl`
@@ -298,6 +300,11 @@ Every healthcheck sets **`start_interval: 1s`** alongside a long `interval`. Dur
 docker probes at `start_interval` instead of waiting a full `interval`, so a service flips to
 `healthy` as soon as it is — which is what `install.sh` blocks on. Without it the script waited a
 whole interval per service for nothing. Requires Docker ≥ 25.
+
+**`minio-init` is deliberately absent from `SERVICES` in `install.sh`.** The wait loop only accepts
+`healthy|running`, and that container provisions then exits 0 — adding it would stall the script for
+the full 300 s `HEALTH_TIMEOUT` on a container that did its job perfectly. Waiting on `backend`
+already covers it, since `backend` depends on it completing.
 
 `frontend` and `proxy` have healthchecks too, not just `db` and `backend`: `install.sh` concludes on
 `proxy` being healthy, and "the container started" would prove nothing. `proxy` also uses the long
@@ -340,7 +347,10 @@ Three details that are easy to undo by accident:
   and moves it into place, which resets the mode to the umask. Doing it before leaves `.env` at 644.
 - **Port 21600 is checked before the build**, otherwise the failure arrives minutes late. A port held
   by *our own* proxy is not a conflict (compose recreates it), or a second `./install.sh` would fail
-  against itself.
+  against itself. But that check must come **after** the `.env` step: `port_is_ours` shells out to
+  `docker compose ps`, which cannot parse a `.env` missing a `${VAR:?}` variable. With the order
+  reversed, a `.env` predating a new required variable made the script die on "port already in use"
+  — naming our own proxy as the intruder.
 - **An existing `.env` is topped up, not left alone.** `append_missing_keys` copies over any key
   `.env.example` has gained since, with its comments; `set_env_default` then fills only what is
   empty, so a value already chosen is never overwritten and secrets are never regenerated. Without
@@ -414,15 +424,30 @@ directory in `node_modules/argon2` — that would mean the prebuild stopped matc
 MinIO behind `@aws-sdk/client-s3` + `@aws-sdk/lib-storage`. `StorageService` (`src/storage/`) is
 `@Global` like `PrismaService`, so business modules do not import `StorageModule`.
 
-Six things are non-obvious and expensive to relearn:
+Seven things are non-obvious and expensive to relearn:
 
+- **The application never provisions.** `minio-init` (image `minio/mc`, script
+  `infra/minio/provision.sh`) creates the bucket, the policy and a restricted user, then exits;
+  `StorageService.assertBucketExists()` only checks, and **fails** if the bucket is missing. A3
+  shipped the opposite — `ensureBucket()` creating it at boot — and that was wrong three ways: the
+  API needed MinIO's *root* credentials, a misspelt `STORAGE_BUCKET` silently created the wrong
+  bucket and everything appeared to work, and two replicas booting together raced on
+  `CreateBucket`. Do not move creation back into the service; a unit test asserts no
+  `CreateBucketCommand` is ever sent.
+- **The env prefix says who reads the variable.** `STORAGE_*` is read by the application;
+  `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` never are — compose passes them only to `minio` and
+  `minio-init`. Verified in the running stack: `process.env.MINIO_ROOT_USER` is `undefined` inside
+  the backend, `CreateBucket` answers `AccessDenied`, and `ListBuckets` returns only `portail-depot`.
 - **Nothing in the code names MinIO** — only the endpoint knows. That is the whole point of the
-  `STORAGE_*` naming (not `MINIO_*`): MinIO is an implementation of S3, not the contract. Pointing at
+  `STORAGE_*` naming: MinIO is an implementation of S3, not the contract. Pointing at
   a managed S3 later is an endpoint change, not a rewrite.
-- **The bucket is created at boot**, by `ensureBucket()` in `onModuleInit` — *not* by a throwaway
-  `minio/mc` sidecar container doing `mc mb`. Idempotent, no ordering to arrange between two
-  services, and testable in Jest, which a sidecar would not be. The price is that the API holds
-  MinIO's **root** credentials; revisit with G3.
+- **The policy has two ARN scopes and that is where silent errors live.**
+  `arn:aws:s3:::<bucket>` covers `HeadBucket`/`ListObjectsV2`/`GetBucketLocation`;
+  `arn:aws:s3:::<bucket>/*` covers `GetObject`/`PutObject`/`DeleteObject`. `s3:ListBucket` is the
+  trap — the SDK call is named `ListObjectsV2`, but it queries the *bucket*, so the permission goes
+  on the ARN **without** `/*`. Placed on `/*` it is never found and MinIO answers a detail-free
+  `AccessDenied`. Multipart also needs `s3:ListMultipartUploadParts` and `s3:AbortMultipartUpload`,
+  which only large files reveal. See `infra/minio/README.md`.
 - **`putObject` uses `Upload`, never `PutObjectCommand`.** The latter demands `ContentLength`, which
   in C2 could only come from the client's declared `Content-Length` — the one value that must not be
   trusted. `Upload` needs no size up front and switches to multipart on its own. Do not "simplify"
@@ -446,6 +471,14 @@ test covers exactly that. Unlike `inspectUrl`, it has no "names no host" check: 
 WHATWG *special* schemes, so a hostless URL either throws or has its first path segment promoted to
 host; the branch would be dead code. `postgresql:` is not special, which is why the check is
 reachable there.
+
+**`storage.int-spec.ts` runs under the real restricted policy**, not root: it reads the very same
+`infra/minio/app-policy.json`, provisions the ephemeral container with it, and drives the service
+with the restricted credentials. That is what makes a missing permission fail in Jest rather than on
+a lawyer's first upload — the 12 MB case is the only thing exercising the multipart permissions. Two
+of its tests assert the *absence* of privilege (`CreateBucket` denied, other buckets invisible); the
+second asserts both that its own bucket is listed and that another is not, so an empty listing
+cannot pass it silently.
 
 `testcontainers` pulls three transitive build scripts (`cpu-features`, `protobufjs`, `ssh2`) that
 make `pnpm install --frozen-lockfile` exit 1. They are **explicitly refused** (`false`) in

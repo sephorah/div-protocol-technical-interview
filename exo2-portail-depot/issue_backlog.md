@@ -52,15 +52,16 @@ Dépendances : A1.
 Zéro fichier écrit sur le disque de l'API. `StorageService` (`src/storage/`) parle S3 via
 `@aws-sdk/client-s3` : rien dans le code ne nomme MinIO, seul l'endpoint le sait.
 
-- [x] Service `minio` dans le compose (+ bucket créé à l'init) — créé au démarrage par
-      `ensureBucket()` dans `onModuleInit`, **pas** par un conteneur `mc` jetable : idempotent, sans
-      ordonnancement à arranger, et testable
+- [x] Service `minio` dans le compose (+ bucket créé à l'init) — par un conteneur `minio-init`
+      (image `minio/mc`) qui provisionne bucket, policy et **utilisateur applicatif restreint**, puis
+      sort. L'API ne fait que constater que son bucket existe, et échoue sinon
 - [x] Module de stockage NestJS (SDK S3), clés via env — `@Global`, cinq variables `STORAGE_*`
       validées au démarrage (endpoint parsé, nom de bucket aux règles S3)
 - [x] Aucune écriture locale : upload en flux vers l'objet — `Upload` de `@aws-sdk/lib-storage`, qui
       n'exige pas de connaître la taille à l'avance et bascule seul en multipart
 - [x] Credentials dans `.env.example`, jamais en dur — générés aléatoirement par `install.sh`,
-      aucun port MinIO publié en production
+      aucun port MinIO publié en production. **Deux jeux distincts** : `MINIO_ROOT_*` administre le
+      serveur et n'atteint jamais le backend, `STORAGE_*` est l'utilisateur restreint au seul bucket
 
 Au passage : `/health` vérifie aussi le stockage (503 si MinIO est injoignable, ce qui est le signal
 de l'alerte F2), et la suppression se fait **par préfixe** — la cascade SQL efface les `storageKey`
