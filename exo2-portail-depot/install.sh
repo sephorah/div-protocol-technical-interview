@@ -18,6 +18,11 @@ cd "$(dirname "$0")"
 
 HTTP_PORT=21600           # port attribue, cible du proxy de la machine
 HEALTH_TIMEOUT=300        # secondes d'attente maximale des healthchecks
+# minio-init en est deliberement ABSENT : la boucle d'attente plus bas n'accepte
+# que healthy|running, or ce conteneur provisionne puis sort en 0. L'y ajouter
+# ferait patienter le script jusqu'au HEALTH_TIMEOUT sur un conteneur qui a
+# parfaitement fait son travail. L'attente sur backend le couvre deja, puisque
+# le backend en depend (service_completed_successfully).
 SERVICES="db minio backend frontend proxy"
 
 # Toutes les commandes docker passent par $DOCKER : selon la machine, ce sera
@@ -161,53 +166,15 @@ else
 fi
 
 # --------------------------------------------------------------------------
-# Port
-# --------------------------------------------------------------------------
-# Teste AVANT le build : sinon l'echec arrive apres plusieurs minutes. Un port
-# tenu par notre propre proxy n'est pas un conflit — compose recree le
-# conteneur — sinon un second ./install.sh echouerait sur lui-meme.
-port_is_ours() {
-  local ids; ids="$($DOCKER compose ps -q proxy 2>/dev/null || true)"
-  [ -n "$ids" ]
-}
-
-# Retourne 0 si le port est libre, 1 s'il est pris, 2 si on n'a pas su decider.
-# La distinction compte : un `docker run` qui echoue peut l'avoir fait pour tout
-# autre chose (image inaccessible, reseau coupe), et annoncer « port occupe »
-# dans ce cas enverrait chercher un conflit qui n'existe pas.
-port_state() {
-  if command -v ss >/dev/null; then
-    ss -ltnH "sport = :$1" 2>/dev/null | grep -q . && return 1
-    return 0
-  fi
-  # Sans `ss` : bash sait ouvrir une connexion TCP sans aucune dependance.
-  # Une connexion qui aboutit prouve que quelque chose ecoute ; un echec ne
-  # prouve rien de plus que « personne n'a repondu », ce qui suffit ici.
-  if timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; then
-    return 1
-  fi
-  return 0
-}
-
-step "Verification du port $HTTP_PORT"
-# `port_state ...; status=$?` ne convient pas : sous `set -e`, une commande
-# simple qui renvoie non-zero interrompt le script avant l'affectation, et
-# l'echec devient muet. Le `||` protege l'appel.
-port_status=0
-port_state "$HTTP_PORT" || port_status=$?
-if [ "$port_status" -eq 0 ] || port_is_ours; then
-  info "Disponible."
-else
-  info "Occupe par :"
-  (command -v ss >/dev/null && ss -ltnp "sport = :$HTTP_PORT" 2>/dev/null | tail -n +2) || true
-  die "le port $HTTP_PORT est deja utilise par un autre programme.
-       C'est le port attribue a ce projet (plage 21600-21699) : liberez-le, ou
-       arretez la pile qui l'occupe."
-fi
-
-# --------------------------------------------------------------------------
 # Configuration
 # --------------------------------------------------------------------------
+# AVANT la verification du port, et l'ordre est load-bearing : `port_is_ours`
+# appelle `docker compose ps`, qui ne peut pas parser un .env auquel manque une
+# variable `${VAR:?}`. Un .env anterieur a l'ajout d'une variable requise faisait
+# donc echouer la verification du port en annoncant un conflit inexistant — sur
+# notre propre proxy. Cette etape ne depend que de .env.example, elle peut venir
+# en premier.
+#
 # Secret aleatoire sans dependance : /dev/urandom, od et tr sont partout ou
 # tourne bash. L'hexadecimal evite tout caractere a echapper dans un .env.
 random_hex() { head -c "${1:-32}" /dev/urandom | od -An -tx1 | tr -d ' \n'; }
@@ -299,14 +266,67 @@ set_env_default DB_USER portail
 set_env_default DB_NAME portail_depot
 set_env_default DB_PASSWORD "$(random_hex 32)"
 set_env_default JWT_SECRET "$(random_hex 32)"
-# Identifiants MinIO : l'API les utilise pour creer le bucket, et le conteneur
-# minio les recoit comme identifiants root. Une seule paire, deux lecteurs.
+# Deux paires distinctes, et c'est tout l'objet du decoupage : MINIO_ROOT_*
+# administre le serveur (bucket, policy, utilisateur) et n'est passe qu'a minio
+# et minio-init ; STORAGE_* est l'utilisateur applicatif restreint, le seul a
+# atteindre le backend. Elles doivent differer, minio-init le verifie.
+#
+# Jamais regenerees si deja presentes (set_env_default) : un root regenere ne
+# correspondrait plus a celui qui a cree l'utilisateur applicatif, et le
+# provisionnement echouerait a l'authentification.
 set_env_default STORAGE_ACCESS_KEY "$(random_hex 16)"
 set_env_default STORAGE_SECRET_KEY "$(random_hex 32)"
+set_env_default MINIO_ROOT_USER "$(random_hex 16)"
+set_env_default MINIO_ROOT_PASSWORD "$(random_hex 32)"
 
 # chmod APRES les substitutions : set_env_value ecrit un fichier temporaire puis
 # le deplace, ce qui reinitialiserait les permissions au umask.
 chmod 600 .env
+
+# --------------------------------------------------------------------------
+# Port
+# --------------------------------------------------------------------------
+# Teste AVANT le build : sinon l'echec arrive apres plusieurs minutes. Un port
+# tenu par notre propre proxy n'est pas un conflit — compose recree le
+# conteneur — sinon un second ./install.sh echouerait sur lui-meme.
+port_is_ours() {
+  local ids; ids="$($DOCKER compose ps -q proxy 2>/dev/null || true)"
+  [ -n "$ids" ]
+}
+
+# Retourne 0 si le port est libre, 1 s'il est pris, 2 si on n'a pas su decider.
+# La distinction compte : un `docker run` qui echoue peut l'avoir fait pour tout
+# autre chose (image inaccessible, reseau coupe), et annoncer « port occupe »
+# dans ce cas enverrait chercher un conflit qui n'existe pas.
+port_state() {
+  if command -v ss >/dev/null; then
+    ss -ltnH "sport = :$1" 2>/dev/null | grep -q . && return 1
+    return 0
+  fi
+  # Sans `ss` : bash sait ouvrir une connexion TCP sans aucune dependance.
+  # Une connexion qui aboutit prouve que quelque chose ecoute ; un echec ne
+  # prouve rien de plus que « personne n'a repondu », ce qui suffit ici.
+  if timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; then
+    return 1
+  fi
+  return 0
+}
+
+step "Verification du port $HTTP_PORT"
+# `port_state ...; status=$?` ne convient pas : sous `set -e`, une commande
+# simple qui renvoie non-zero interrompt le script avant l'affectation, et
+# l'echec devient muet. Le `||` protege l'appel.
+port_status=0
+port_state "$HTTP_PORT" || port_status=$?
+if [ "$port_status" -eq 0 ] || port_is_ours; then
+  info "Disponible."
+else
+  info "Occupe par :"
+  (command -v ss >/dev/null && ss -ltnp "sport = :$HTTP_PORT" 2>/dev/null | tail -n +2) || true
+  die "le port $HTTP_PORT est deja utilise par un autre programme.
+       C'est le port attribue a ce projet (plage 21600-21699) : liberez-le, ou
+       arretez la pile qui l'occupe."
+fi
 
 # --------------------------------------------------------------------------
 # Build et demarrage

@@ -1,6 +1,5 @@
 import { Readable } from 'node:stream';
 import {
-  CreateBucketCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadBucketCommand,
@@ -70,46 +69,69 @@ describe('StorageService', () => {
     jest.restoreAllMocks();
   });
 
-  describe('ensureBucket', () => {
-    it('does not recreate a bucket that already exists', async () => {
+  describe('assertBucketExists', () => {
+    it('passes when the bucket is there', async () => {
       send.mockResolvedValue({});
 
-      await service.ensureBucket();
+      await expect(service.assertBucketExists()).resolves.toBeUndefined();
 
       expect(send).toHaveBeenCalledTimes(1);
       expect(sent()[0]).toBeInstanceOf(HeadBucketCommand);
     });
 
-    it('creates the bucket when it is missing', async () => {
-      send.mockRejectedValueOnce(notFound()).mockResolvedValueOnce({});
+    it('never creates the bucket', async () => {
+      // The guard rail of this whole design: provisioning belongs to
+      // minio-init, and the application's credentials carry no
+      // s3:CreateBucket. Reintroducing a creation here would silently require
+      // root credentials again.
+      send.mockRejectedValue(notFound());
 
-      await service.ensureBucket();
+      await expect(service.assertBucketExists()).rejects.toThrow();
 
-      const commands = sentCommands();
-      expect(commands[1].type).toBe(CreateBucketCommand.name);
-      expect(commands[1].input).toMatchObject({ Bucket: bucket });
+      expect(
+        sentCommands().some((command) =>
+          command.type.startsWith('CreateBucket'),
+        ),
+      ).toBe(false);
     });
 
-    it('rethrows an error that is not an absence', async () => {
-      // A 403 means the credentials are wrong. Treating it as "missing" would
-      // attempt a creation and hide the real cause behind a second failure.
+    it('fails on a missing bucket, naming it and pointing at provisioning', async () => {
+      // This is the message that catches a misspelt STORAGE_BUCKET, which is
+      // otherwise invisible: the name is syntactically valid.
+      send.mockRejectedValue(notFound());
+
+      await expect(service.assertBucketExists()).rejects.toThrow(
+        /Bucket "portail-depot" does not exist.*minio-init.*STORAGE_BUCKET/s,
+      );
+    });
+
+    it('fails differently on a denied access', async () => {
+      // Wrong credentials and a missing bucket send whoever reads the startup
+      // failure to opposite places; one message for both would waste that trip.
       send.mockRejectedValue(
         Object.assign(new Error('Forbidden'), {
-          name: 'Forbidden',
+          name: 'AccessDenied',
           $metadata: { httpStatusCode: 403 },
         }),
       );
 
-      await expect(service.ensureBucket()).rejects.toThrow('Forbidden');
-      expect(send).toHaveBeenCalledTimes(1);
+      await expect(service.assertBucketExists()).rejects.toThrow(
+        /denied.*STORAGE_ACCESS_KEY.*policy/s,
+      );
     });
 
-    it('is what onModuleInit runs, so the bucket exists before Nest listens', async () => {
-      send.mockResolvedValue({});
+    it('rethrows anything it cannot classify', async () => {
+      send.mockRejectedValue(new Error('connect ECONNREFUSED'));
 
-      await service.onModuleInit();
+      await expect(service.assertBucketExists()).rejects.toThrow(
+        'connect ECONNREFUSED',
+      );
+    });
 
-      expect(sent()[0]).toBeInstanceOf(HeadBucketCommand);
+    it('is what onModuleInit runs, so a missing bucket stops the boot', async () => {
+      send.mockRejectedValue(notFound());
+
+      await expect(service.onModuleInit()).rejects.toThrow('does not exist');
     });
   });
 

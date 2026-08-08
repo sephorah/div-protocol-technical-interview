@@ -38,9 +38,9 @@ describe('HealthController (e2e)', () => {
       .overrideProvider(StorageService)
       .useValue({
         ping,
-        // ensureBucket is what onModuleInit calls: left real, it would try to
-        // reach MinIO on every app.init() of this suite.
-        ensureBucket: jest.fn(),
+        // assertBucketExists is what onModuleInit calls: left real, it would
+        // try to reach MinIO on every app.init() of this suite.
+        assertBucketExists: jest.fn(),
         onModuleInit: jest.fn(),
         onModuleDestroy: jest.fn(),
       })

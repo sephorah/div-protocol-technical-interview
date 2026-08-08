@@ -46,10 +46,10 @@ services:
     init: true
     command: server /data --console-address ":9001"
     environment:
-      # Ces identifiants sont ceux de l'API : c'est elle qui cree le bucket au
-      # demarrage. `install.sh` les genere aleatoirement.
-      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:?definir STORAGE_ACCESS_KEY dans .env}
-      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:?definir STORAGE_SECRET_KEY dans .env}
+      # Identifiants d'administration du serveur. Le prefixe dit qui les lit :
+      # MINIO_* n'est passe qu'a minio et minio-init, jamais au backend.
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?definir MINIO_ROOT_USER dans .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?definir MINIO_ROOT_PASSWORD dans .env}
     volumes:
       - minio_data:/data
     healthcheck:
@@ -63,6 +63,28 @@ services:
     # Aucun port publie : la machine est PARTAGEE. Une console MinIO ouverte,
     # ce sont toutes les pieces des clients de l'avocat. Seul
     # docker-compose.dev.yml publie, sur 127.0.0.1.
+
+  # Provisionne le stockage (bucket, policy, utilisateur restreint) puis sort.
+  # Le detail et sa justification sont dans infra/minio/provision.sh.
+  #
+  # `restart: "no"` est indispensable : la valeur par defaut relancerait en
+  # boucle un conteneur qui a reussi.
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?definir MINIO_ROOT_USER dans .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?definir MINIO_ROOT_PASSWORD dans .env}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:?definir STORAGE_BUCKET dans .env}
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:?definir STORAGE_ACCESS_KEY dans .env}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:?definir STORAGE_SECRET_KEY dans .env}
+    volumes:
+      - ./infra/minio:/infra:ro
+    entrypoint: ['/bin/bash', '/infra/provision.sh']
+    restart: 'no'
 
   backend:
     build: ./backend
@@ -102,9 +124,14 @@ services:
         # demarrage qui marche.
         condition: service_healthy
       minio:
-        # ensureBucket() tourne dans onModuleInit : un MinIO pas encore pret
-        # ferait echouer le demarrage de l'API, pas seulement le premier upload.
+        # assertBucketExists() tourne dans onModuleInit : un MinIO pas encore
+        # pret ferait echouer le demarrage de l'API, pas seulement le premier
+        # upload.
         condition: service_healthy
+      minio-init:
+        # Le bucket et l'utilisateur restreint doivent exister AVANT que l'API
+        # tente de s'authentifier avec ce dernier.
+        condition: service_completed_successfully
     healthcheck:
       # L'image n'a ni curl ni wget ; node 22 fournit fetch nativement.
       test:

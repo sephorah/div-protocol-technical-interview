@@ -24,7 +24,7 @@ describe('AppController (e2e)', () => {
       .overrideProvider(StorageService)
       .useValue({
         ping: jest.fn(),
-        ensureBucket: jest.fn(),
+        assertBucketExists: jest.fn(),
         onModuleInit: jest.fn(),
         onModuleDestroy: jest.fn(),
       })
