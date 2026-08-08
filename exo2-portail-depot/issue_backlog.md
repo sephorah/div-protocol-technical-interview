@@ -72,13 +72,22 @@ testcontainers contre un vrai MinIO (`pnpm test:integration`, la seule qui exige
 
 Dépendances : aucune. **Débloque C2.**
 
-### A4. Secrets externalisés et `.env.example` complet — P1
+### A4. Secrets externalisés et `.env.example` complet — P1 — **fait**
 
-`.env.example` existe déjà mais devra couvrir tout le nouveau périmètre.
+L'essentiel était déjà tenu par A1 et A3. Cette issue a fermé le seul trou réel : `JWT_SECRET` et
+`JWT_EXPIRES` étaient documentées et générées par `install.sh`, mais ni passées au conteneur par le
+compose ni validées — les renseigner ne produisait rien, et rien ne le disait.
 
-- [ ] Toutes les variables (DB, MinIO, JWT, expiration par défaut, SMTP éventuel) documentées
-- [ ] Aucun secret commité ; `.env` reste gitignoré
-- [ ] Démarrage en échec explicite si une variable requise manque (validation de config)
+- [x] Toutes les variables (API, DB, MinIO, JWT) documentées, avec le rôle de chacune et **qui la
+      lit** : `STORAGE_*` est lu par l'application, `MINIO_ROOT_*` jamais. Tableau au README
+- [x] Aucun secret commité ; `.env` gitignoré, en `chmod 600`, absent de tout l'historique
+- [x] Démarrage en échec explicite si une variable requise manque, et **aucune valeur recopiée dans
+      un message d'erreur** — les journaux sont agrégés ailleurs
+
+Écarté : pas de variable pour la taille max ni les types autorisés — l'énoncé les **fige** (20 Mo,
+PDF/JPG/PNG), ce sont des constantes de C2 et non de la configuration de déploiement. Pas de durée
+de validité par défaut non plus : B2 en fait une entrée du formulaire. Aucun SMTP : l'énoncé ne
+mentionne aucun envoi de mail.
 
 ### A5. Réorganisation `infra/` — P0
 
@@ -186,7 +195,10 @@ Dépendances : A2, B3.
 
 - [ ] `POST /public/:token/files` : upload vers MinIO, métadonnées en base
 - [ ] Rattachement à une pièce attendue
-- [ ] Taille max et types autorisés configurables, erreurs lisibles
+- [ ] Taille max et types autorisés **appliqués**, erreurs lisibles. L'énoncé les fige — 20 Mo par
+      fichier, PDF/JPG/PNG — donc des constantes typées et testées, pas des variables d'environnement
+- [ ] Type réel vérifié par les *magic bytes*, jamais sur le `Content-Type` déclaré ni l'extension :
+      sans ça l'allowlist se contourne en mentant sur un en-tête (remonté de C4, qui est un bonus)
 - [ ] Re-dépôt d'une pièce déjà envoyée (remplacement ou versionnage — à trancher)
 
 Dépendances : A3, C1.
@@ -199,9 +211,11 @@ Dépendances : A3, C1.
 
 Dépendances : C1, C2, E1.
 
-### C4. Vérification de type de fichier et antivirus — P1
+### C4. Antivirus sur les pièces déposées — P2
 
-- [ ] Contrôle du type réel (magic bytes), pas seulement l'extension ni le `Content-Type` déclaré
+L'énoncé range l'antivirus dans les **bonus** — d'où P2 et non P1. Le contrôle du type réel, lui,
+est remonté en C2 : c'est la validation qui rend l'allowlist effective, pas un supplément.
+
 - [ ] Scan antivirus (ClamAV conteneurisé) avant mise à disposition de l'avocat
 - [ ] Fichier rejeté : statut visible côté client et côté avocat
 
@@ -224,7 +238,8 @@ Dépendances : B1–B4, C1–C3.
 
 ### D2. Choix d'un runner de tests frontend — P1
 
-Aucun runner n'est installé côté frontend (point ouvert dans `CLAUDE.md`).
+Aucun runner n'est installé côté frontend (point ouvert dans `CLAUDE.md`). À noter : l'énoncé ne
+demande du Jest que sur la logique métier, donc ce P1 est le nôtre, pas le sien.
 
 - [ ] Runner choisi et justifié, un test qui prouve la chaîne
 - [ ] Branché sur `pnpm test` à la racine
@@ -254,7 +269,7 @@ Le rendu Chakra v3 est obligatoire (P0) ; le respect fin de la charte est en dif
 - [ ] **Light only** : pas de mode sombre (`color-mode.tsx` à neutraliser en conséquence)
 - [ ] Ton formel, froid, technique ; phrases courtes ; aucune illustration émotionnelle
 
-### E2. Densité UI constante mobile / desktop — P2
+### E2. Densité UI constante mobile / desktop — P2 (l'énoncé la cite parmi les critères de design)
 
 - [ ] Mêmes espacements et même densité d'information aux deux tailles
 - [ ] Parcours client vérifié sur mobile (c'est le contexte d'usage réel)

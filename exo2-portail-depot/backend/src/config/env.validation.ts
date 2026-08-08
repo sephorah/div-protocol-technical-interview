@@ -44,6 +44,17 @@ const REQUIRED_STORAGE_KEYS = [
   'STORAGE_SECRET_KEY',
 ] as const;
 
+const REQUIRED_AUTH_KEYS = ['JWT_SECRET', 'JWT_EXPIRES'] as const;
+
+// Brute-forcing this secret is an offline attack -- one captured token is
+// enough, the API is never called -- so no rate limiting protects it.
+// install.sh generates 64 hexadecimal characters.
+const JWT_SECRET_MIN_LENGTH = 32;
+
+// The unit is mandatory: jsonwebtoken reads a bare number as seconds and a
+// numeric string as milliseconds, so "900" would mean 15 minutes or 0.9 second.
+const DURATION_PATTERN = /^\d+[smhd]$/;
+
 const URL_PROTOCOLS = new Set(['postgres:', 'postgresql:']);
 
 const HTTP_PROTOCOLS = new Set(['http:', 'https:']);
@@ -145,6 +156,46 @@ const inspectApp = (
 };
 
 /**
+ * Checks the lawyer authentication configuration (read by B1) and returns the
+ * normalised values.
+ *
+ * Validated before anything reads them, precisely because that is the failure
+ * mode this file cannot otherwise catch: a variable that is set, looks
+ * configured, and does nothing.
+ */
+const inspectAuth = (
+  raw: Record<string, unknown>,
+  issues: string[],
+): Record<(typeof REQUIRED_AUTH_KEYS)[number], string> => {
+  const missing = REQUIRED_AUTH_KEYS.filter(
+    (key) => readString(raw, key).length === 0,
+  );
+  if (missing.length > 0) {
+    issues.push(`Auth variables missing or empty: ${missing.join(', ')}.`);
+  }
+
+  const secret = readString(raw, 'JWT_SECRET');
+  if (
+    !missing.includes('JWT_SECRET') &&
+    secret.length < JWT_SECRET_MIN_LENGTH
+  ) {
+    // The length, never the value: this message ends up in aggregated logs.
+    issues.push(
+      `JWT_SECRET is shorter than ${JWT_SECRET_MIN_LENGTH} characters.`,
+    );
+  }
+
+  const expires = readString(raw, 'JWT_EXPIRES');
+  if (!missing.includes('JWT_EXPIRES') && !DURATION_PATTERN.test(expires)) {
+    issues.push(
+      'JWT_EXPIRES is not a duration with its unit (expected: 60s, 15m, 2h, 7d).',
+    );
+  }
+
+  return { JWT_SECRET: secret, JWT_EXPIRES: expires };
+};
+
+/**
  * Checks the object storage configuration and returns the normalised values.
  *
  * Like the application keys, these are checked on both database paths: whether
@@ -208,6 +259,7 @@ export const validateEnv = (
 ): Record<string, unknown> => {
   const issues: string[] = [];
   const app = inspectApp(raw, issues);
+  const auth = inspectAuth(raw, issues);
   const storage = inspectStorage(raw, issues);
 
   // An explicitly supplied DATABASE_URL wins: that is what makes it possible to
@@ -222,7 +274,7 @@ export const validateEnv = (
     if (issues.length > 0) {
       throw new Error(formatError(issues));
     }
-    return { ...raw, ...app, ...storage, DATABASE_URL: explicitUrl };
+    return { ...raw, ...app, ...auth, ...storage, DATABASE_URL: explicitUrl };
   }
 
   const missing = REQUIRED_DB_KEYS.filter(
@@ -258,6 +310,7 @@ export const validateEnv = (
     ...raw,
     ...env,
     ...app,
+    ...auth,
     ...storage,
     DATABASE_URL: buildDatabaseUrl(env),
   };

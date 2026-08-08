@@ -34,6 +34,38 @@ plage 21600–21699 nous est attribuée. Un repli en dur ferait écouter le serv
 endroit sans que rien ne le signale. `BIND_ADDRESS` vaut `127.0.0.1` sur la machine, et le
 compose le surcharge à `0.0.0.0` dans le conteneur, dont le réseau est isolé et sans port publié.
 
+## Configuration
+
+Un seul fichier, `.env` à la racine, lu à la fois par `docker compose` et par l'API. `.env.example`
+en est la documentation ; `./install.sh` le génère et tire au sort les secrets. **Rien n'a de valeur
+de repli dans le code** : une variable manquante fait échouer le démarrage en la nommant, plutôt que
+de faire écouter le service au mauvais endroit ou de démarrer Postgres sans mot de passe.
+
+| Variable | Secret | Défaut | Rôle |
+|---|---|---|---|
+| `PORT`, `API_PREFIX` | non | `21610`, `/api/v1` | écrites **aussi en dur** dans `nginx.conf` et le healthcheck du compose : les changer suppose de changer les trois ensemble |
+| `BIND_ADDRESS` | non | `127.0.0.1` | interface d'écoute. Le compose la surcharge à `0.0.0.0` dans le conteneur, dont le réseau est isolé |
+| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | mot de passe | — | l'URL de connexion est **assemblée** à partir d'elles, avec `encodeURIComponent` : n'importe quel mot de passe fonctionne |
+| `DATABASE_URL` | oui | *(vide)* | facultative, l'emporte sur les cinq précédentes — l'échappatoire pour une base managée ou de CI |
+| `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET` | non | MinIO local, `us-east-1`, `portail-depot` | endpoint S3. Le compose le surcharge en `http://minio:9000` |
+| `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | oui | — | utilisateur applicatif, restreint au seul bucket |
+| `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | oui | — | administration du serveur de stockage |
+| `JWT_SECRET`, `JWT_EXPIRES` | secret | —, `15m` | authentification avocat. 32 caractères minimum, unité de durée obligatoire |
+
+**Le préfixe dit qui lit la variable.** Tout ce qui commence par `STORAGE_` est lu par
+l'application ; `MINIO_ROOT_*` ne l'est **jamais** — le compose ne le passe qu'aux conteneurs
+`minio` et `minio-init`, qui provisionnent le bucket, la politique d'accès et l'utilisateur
+applicatif. L'API n'a donc pas le droit de créer un bucket, ni de voir les autres. C'est aussi ce
+qui rend le stockage remplaçable : rien dans le code ne nomme MinIO, seul l'endpoint le sait.
+
+**Aucune variable côté frontend**, délibérément : le SPA appelle l'API en relatif sur `/api/...`
+derrière le même proxy, donc aucune origine à configurer et aucun CORS à ouvrir. Un `VITE_API_URL`
+figerait de toute façon sa valeur au *build* de l'image, pas au déploiement.
+
+Les secrets ne sortent jamais du fichier : `.env` est gitignoré, en `chmod 600`, absent de
+l'historique git, et aucun message d'erreur de validation ne recopie une valeur — ils finiraient
+dans les journaux agrégés.
+
 ## Modèle de données
 
 Cinq entités. `Lawyer` est le seul acteur authentifié : le client n'a ni compte ni ligne en base,
