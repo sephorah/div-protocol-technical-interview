@@ -12,153 +12,155 @@ describe('validateEnv', () => {
     DB_HOST: 'db',
     DB_PORT: '5432',
     DB_USER: 'portail',
-    DB_PASSWORD: 'motdepasse',
+    DB_PASSWORD: 'password',
     DB_NAME: 'portail_depot',
   };
 
-  it('construit DATABASE_URL a partir des DB_*', () => {
+  it('builds DATABASE_URL from the DB_* variables', () => {
     expect(validateEnv({ ...db })).toMatchObject({
-      DATABASE_URL: 'postgresql://portail:motdepasse@db:5432/portail_depot',
+      DATABASE_URL: 'postgresql://portail:password@db:5432/portail_depot',
     });
   });
 
-  it('preserve les autres variables', () => {
+  it('preserves the other variables', () => {
     expect(validateEnv({ ...db, JWT_SECRET: 'x' })).toMatchObject({
       JWT_SECRET: 'x',
     });
   });
 
-  it('supprime les espaces autour des valeurs', () => {
+  it('trims surrounding whitespace', () => {
     expect(validateEnv({ ...db, DB_HOST: '  db  ' })).toMatchObject({
-      DATABASE_URL: 'postgresql://portail:motdepasse@db:5432/portail_depot',
+      DATABASE_URL: 'postgresql://portail:password@db:5432/portail_depot',
     });
   });
 
   /**
-   * Le cas qui a motive tout ce module : une URL concatenee dans le compose
-   * devenait inanalysable, ici elle est simplement encodee.
+   * The case that motivated this whole module: a URL concatenated in the
+   * compose file became unparseable, whereas here it is simply encoded.
    */
-  it('accepte un mot de passe contenant des caracteres reserves', () => {
+  it('accepts a password containing reserved characters', () => {
     const result = validateEnv({ ...db, DB_PASSWORD: 'pa/ss#1?x' });
 
     expect(() => new URL(result.DATABASE_URL as string)).not.toThrow();
   });
 
   it.each(['DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'])(
-    'refuse une configuration sans %s',
+    'rejects a configuration without %s',
     (key) => {
       expect(() => validateEnv({ ...db, [key]: '' })).toThrow(
-        new RegExp(`absentes ou vides.*${key}`),
+        new RegExp(`missing or empty.*${key}`),
       );
     },
   );
 
   it.each(['0', '70000', 'abc', '5432.5'])(
-    'refuse un DB_PORT invalide (%s)',
+    'rejects an invalid DB_PORT (%s)',
     (port) => {
       expect(() => validateEnv({ ...db, DB_PORT: port })).toThrow(
-        /DB_PORT n'est pas un port valide/,
+        /DB_PORT is not a valid port/,
       );
     },
   );
 
-  describe('DATABASE_URL fournie explicitement', () => {
-    const url = 'postgresql://user:pwd@ailleurs:5432/managed';
+  describe('explicitly supplied DATABASE_URL', () => {
+    const url = 'postgresql://user:pwd@elsewhere:5432/managed';
 
-    it('l emporte sur les DB_* (base managee, base de CI)', () => {
+    it('wins over the DB_* variables (managed database, CI database)', () => {
       expect(validateEnv({ ...db, DATABASE_URL: url })).toMatchObject({
         DATABASE_URL: url,
       });
     });
 
-    it('dispense des DB_*', () => {
+    it('makes the DB_* variables unnecessary', () => {
       expect(() => validateEnv({ ...app, DATABASE_URL: url })).not.toThrow();
     });
 
-    it('ne dispense PAS de PORT ni d API_PREFIX', () => {
+    it('does NOT waive PORT, API_PREFIX or BIND_ADDRESS', () => {
+      // Otherwise the "managed database" path would bypass every
+      // application-level check.
       expect(() => validateEnv({ DATABASE_URL: url })).toThrow(
-        /Variables d'application absentes ou vides : PORT, API_PREFIX, BIND_ADDRESS/,
+        /Application variables missing or empty: PORT, API_PREFIX, BIND_ADDRESS/,
       );
     });
 
-    it('refuse un protocole qui n est pas PostgreSQL', () => {
+    it('rejects a protocol that is not PostgreSQL', () => {
       expect(() =>
         validateEnv({ DATABASE_URL: 'mysql://user:p@db:3306/portail' }),
-      ).toThrow(/protocole PostgreSQL/);
+      ).toThrow(/PostgreSQL protocol/);
     });
 
-    it('refuse une URL sans base de donnees', () => {
+    it('rejects a URL with no database', () => {
       expect(() =>
         validateEnv({ DATABASE_URL: 'postgresql://user:p@db:5432' }),
-      ).toThrow(/aucune base de donnees/);
+      ).toThrow(/names no database/);
     });
 
-    it('refuse une URL sans hote', () => {
+    it('rejects a URL with no host', () => {
       expect(() =>
         validateEnv({ DATABASE_URL: 'postgresql:///portail' }),
-      ).toThrow(/aucun hote/);
+      ).toThrow(/names no host/);
     });
   });
 
-  describe('PORT et API_PREFIX', () => {
-    it('expose PORT comme un nombre, pret pour app.listen', () => {
+  describe('PORT, API_PREFIX and BIND_ADDRESS', () => {
+    it('exposes PORT as a number, ready for app.listen', () => {
       expect(validateEnv({ ...db })).toMatchObject({ PORT: 21610 });
     });
 
-    it('expose BIND_ADDRESS, sans quoi l API ecouterait sur 0.0.0.0', () => {
-      // app.listen(port) sans adresse ecoute sur toutes les interfaces. Sur la
-      // machine de staging, partagee avec d'autres candidats, cela rendrait
-      // l'API joignable en contournant le proxy.
+    it('exposes BIND_ADDRESS, without which the API would listen on 0.0.0.0', () => {
+      // app.listen(port) with no address listens on every interface. On the
+      // staging machine, shared with other candidates, that would make the API
+      // reachable around the proxy.
       expect(validateEnv({ ...db })).toMatchObject({
         BIND_ADDRESS: '127.0.0.1',
       });
     });
 
     it.each(['PORT', 'API_PREFIX', 'BIND_ADDRESS'])(
-      'refuse une configuration sans %s',
+      'rejects a configuration without %s',
       (key) => {
-        // Aucune valeur par defaut : sur une machine partagee, une API qui
-        // ecoute au mauvais endroit est pire qu'une API qui ne demarre pas.
+        // No default value: on a shared machine, an API listening in the wrong
+        // place is worse than an API that does not start.
         expect(() => validateEnv({ ...db, [key]: '' })).toThrow(
-          new RegExp(`Variables d'application absentes ou vides.*${key}`),
+          new RegExp(`Application variables missing or empty.*${key}`),
         );
       },
     );
 
     it.each(['0', '70000', 'abc', '3000.5'])(
-      'refuse un PORT invalide (%s)',
+      'rejects an invalid PORT (%s)',
       (port) => {
         expect(() => validateEnv({ ...db, PORT: port })).toThrow(
-          /PORT n'est pas un port valide/,
+          /PORT is not a valid port/,
         );
       },
     );
 
-    it.each(['api/v1', '/api/v1/', 'https://ailleurs/api'])(
-      'refuse un API_PREFIX mal forme (%s)',
+    it.each(['api/v1', '/api/v1/', 'https://elsewhere/api'])(
+      'rejects a malformed API_PREFIX (%s)',
       (prefix) => {
         expect(() => validateEnv({ ...db, API_PREFIX: prefix })).toThrow(
-          /API_PREFIX doit commencer par/,
+          /API_PREFIX must start with/,
         );
       },
     );
 
-    it('accepte « / », qui signifie « pas de prefixe »', () => {
+    it('accepts "/", meaning "no prefix"', () => {
       expect(() => validateEnv({ ...db, API_PREFIX: '/' })).not.toThrow();
     });
   });
 
-  it('ne recopie jamais un secret dans le message d erreur', () => {
+  it('never copies a secret into the error message', () => {
     expect(() =>
       validateEnv({
         ...db,
         DB_PORT: '',
-        DB_PASSWORD: 'MotDePasseTresSecret',
-        JWT_SECRET: 'SecretDeJetonTresSecret',
+        DB_PASSWORD: 'VerySecretPassword',
+        JWT_SECRET: 'VerySecretToken',
       }),
     ).toThrow(
       expect.objectContaining({
-        message: expect.not.stringMatching(/TresSecret/) as string,
+        message: expect.not.stringMatching(/VerySecret/) as string,
       }) as Error,
     );
   });

@@ -4,12 +4,12 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../generated/prisma/client';
 
 /**
- * Client Prisma expose comme un provider Nest, pour que son cycle de vie
- * suive celui de l'application plutot que celui du processus.
+ * Prisma client exposed as a Nest provider, so that its lifecycle follows the
+ * application's rather than the process's.
  *
- * `onModuleDestroy` n'est appele que si `app.enableShutdownHooks()` est actif
- * (voir main.ts). Sans lui, un SIGTERM laisse les connexions ouvertes cote
- * Postgres jusqu'a leur expiration.
+ * `onModuleDestroy` is only called if `app.enableShutdownHooks()` is active
+ * (see main.ts). Without it, a SIGTERM leaves the connections open on the
+ * Postgres side until they time out.
  */
 @Injectable()
 export class PrismaService
@@ -17,9 +17,9 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   constructor(config: ConfigService) {
-    // getOrThrow plutot que get : la validation au demarrage a deja garanti
-    // la presence de la variable, mais un provider ne doit pas dependre de
-    // l'ordre dans lequel les verifications ont eu lieu.
+    // getOrThrow rather than get: startup validation already guaranteed the
+    // variable is present, but a provider must not depend on the order in
+    // which the checks happened.
     const connectionString = config.getOrThrow<string>('DATABASE_URL');
 
     super({ adapter: new PrismaPg({ connectionString }) });

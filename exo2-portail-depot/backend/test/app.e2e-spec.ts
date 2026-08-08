@@ -12,8 +12,8 @@ describe('AppController (e2e)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
-      // Sans cette substitution, onModuleInit ouvrirait une vraie connexion :
-      // la suite echouerait sur toute machine sans Postgres.
+      // Without this substitution, onModuleInit would open a real connection:
+      // the suite would fail on any machine without Postgres.
       .overrideProvider(PrismaService)
       .useValue({
         $queryRaw: jest.fn(),

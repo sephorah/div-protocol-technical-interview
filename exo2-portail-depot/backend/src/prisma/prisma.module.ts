@@ -2,9 +2,9 @@ import { Global, Module } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 
 /**
- * @Global : la persistance sera utilisee par presque tous les modules metier
- * a venir (demandes, pieces, journal d'acces). Les faire tous importer
- * PrismaModule n'apporterait aucune information, seulement du bruit.
+ * @Global: persistence will be used by nearly every business module to come
+ * (requests, items, access log). Making them all import PrismaModule would add
+ * no information, only noise.
  */
 @Global()
 @Module({

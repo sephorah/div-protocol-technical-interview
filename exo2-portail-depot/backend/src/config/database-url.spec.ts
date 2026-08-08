@@ -5,37 +5,29 @@ describe('buildDatabaseUrl', () => {
     DB_HOST: 'db',
     DB_PORT: 5432,
     DB_USER: 'portail',
-    DB_PASSWORD: 'motdepasse',
+    DB_PASSWORD: 'password',
     DB_NAME: 'portail_depot',
   };
 
-  it('assemble une URL PostgreSQL complete', () => {
+  it('assembles a complete PostgreSQL URL', () => {
     expect(buildDatabaseUrl(base)).toBe(
-      'postgresql://portail:motdepasse@db:5432/portail_depot',
+      'postgresql://portail:password@db:5432/portail_depot',
     );
   });
 
-  it('accepte un port fourni en chaine', () => {
+  it('accepts a port given as a string', () => {
     expect(buildDatabaseUrl({ ...base, DB_PORT: '21632' })).toContain(
       ':21632/',
     );
   });
 
   /**
-   * Le coeur de la raison d'etre de cette fonction : avec une URL concatenee
-   * dans docker-compose.yml, chacun de ces mots de passe produisait une chaine
-   * inanalysable et l'API refusait de demarrer.
+   * The core reason this function exists: with a URL concatenated in
+   * docker-compose.yml, every one of these passwords produced an unparseable
+   * string and the API refused to start.
    */
-  it.each([
-    'pa/ss',
-    'pa#ss',
-    'pa?ss',
-    'pa%ss',
-    'p@ss',
-    'pa:ss',
-    'mot de passe',
-  ])(
-    'survit a un mot de passe contenant un caractere reserve (%s)',
+  it.each(['pa/ss', 'pa#ss', 'pa?ss', 'pa%ss', 'p@ss', 'pa:ss', 'pass word'])(
+    'survives a password containing a reserved character (%s)',
     (password) => {
       const url = buildDatabaseUrl({ ...base, DB_PASSWORD: password });
 
@@ -43,20 +35,20 @@ describe('buildDatabaseUrl', () => {
       expect(parsed.hostname).toBe('db');
       expect(parsed.port).toBe('5432');
       expect(parsed.pathname).toBe('/portail_depot');
-      // decodeURIComponent, et non parsed.password : ce dernier reste encode.
+      // decodeURIComponent, not parsed.password: the latter stays encoded.
       expect(decodeURIComponent(parsed.password)).toBe(password);
     },
   );
 
-  it('echappe aussi l utilisateur et le nom de base', () => {
+  it('escapes the user and the database name too', () => {
     const url = buildDatabaseUrl({
       ...base,
       DB_USER: 'a/b',
-      DB_NAME: 'base test',
+      DB_NAME: 'test database',
     });
 
     const parsed = new URL(url);
     expect(decodeURIComponent(parsed.username)).toBe('a/b');
-    expect(decodeURIComponent(parsed.pathname)).toBe('/base test');
+    expect(decodeURIComponent(parsed.pathname)).toBe('/test database');
   });
 });

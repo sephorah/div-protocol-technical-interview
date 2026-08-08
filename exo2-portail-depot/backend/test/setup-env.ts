@@ -1,16 +1,16 @@
 /**
- * Charge par `setupFiles` dans jest-e2e.json, donc execute avant que les
- * fichiers de test — et donc AppModule — ne soient importes.
+ * Loaded by `setupFiles` in jest-e2e.json, hence executed before the test files
+ * -- and therefore AppModule -- are imported.
  *
- * C'est necessaire : `ConfigModule.forRoot()` s'evalue au moment ou le
- * decorateur @Module est lu, c'est-a-dire a l'import. Poser les variables dans
- * un `beforeAll` arrive trop tard, la validation a deja echoue.
+ * That is necessary: `ConfigModule.forRoot()` is evaluated when the @Module
+ * decorator is read, i.e. at import time. Setting the variables in a
+ * `beforeAll` happens too late, validation has already failed.
  *
- * Consequence voulue : la suite ne depend d'aucun fichier .env, et tourne donc
- * a l'identique sur un poste, sur une machine vierge et en CI.
+ * Intended consequence: the suite depends on no .env file, and therefore runs
+ * identically on a workstation, on a bare machine and in CI.
  *
- * Ces valeurs n'ouvrent aucune connexion : PrismaService est remplace par un
- * double dans chaque suite.
+ * These values open no connection: PrismaService is replaced by a double in
+ * every suite.
  */
 process.env.PORT = '21610';
 process.env.API_PREFIX = '/api/v1';

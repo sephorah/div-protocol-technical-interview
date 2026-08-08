@@ -2,43 +2,42 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
-async function bootstrap() {
+const bootstrap = async (): Promise<void> => {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
 
-  // Toutes les routes vivent sous API_PREFIX (/api/v1). Attention : nginx ne
-  // doit alors PAS retirer le prefixe — un `proxy_pass` avec barre finale
-  // remplace la partie deja consommee et transformerait /api/v1/x en /x.
+  // Every route lives under API_PREFIX (/api/v1). Careful: nginx must then NOT
+  // strip the prefix -- a `proxy_pass` with a trailing slash replaces the part
+  // already consumed and would turn /api/v1/x into /x.
   app.setGlobalPrefix(config.getOrThrow<string>('API_PREFIX'));
 
-  // Sans ce branchement, Nest n'appelle JAMAIS onModuleDestroy sur SIGTERM :
-  // le $disconnect() de Prisma ne s'execute pas et les connexions restent
-  // ouvertes cote Postgres jusqu'a leur expiration. `init: true` dans compose
-  // garantit que le signal arrive au processus ; c'est cette ligne qui
-  // garantit qu'il sert a quelque chose.
+  // Without this hook, Nest NEVER calls onModuleDestroy on SIGTERM: Prisma's
+  // $disconnect() does not run and the connections stay open on the Postgres
+  // side until they time out. `init: true` in compose guarantees the signal
+  // reaches the process; this line is what makes it useful.
   app.enableShutdownHooks();
 
-  // Deux arguments, et les deux comptent :
+  // Two arguments, and both matter:
   //
-  // - getOrThrow et non `?? 3000` : la machine est partagee et seule la plage
-  //   21600-21699 nous est attribuee. Un repli en dur ferait ecouter l'API hors
-  //   de cette plage sans que rien ne le signale.
-  // - l'adresse est explicite : `app.listen(port)` ecoute sur 0.0.0.0. Sur la
-  //   machine de staging, l'API serait alors joignable par tous, court-circuitant
-  //   le proxy — donc la seule chose qui protege /health et limite la taille des
-  //   requetes. En conteneur la valeur est 0.0.0.0, ce qui est sans risque : le
-  //   reseau y est isole et aucun port n'est publie.
+  // - getOrThrow rather than `?? 3000`: the machine is shared and only the
+  //   21600-21699 range is assigned to us. A hardcoded fallback would make the
+  //   API listen outside that range with nothing to signal it.
+  // - the address is explicit: `app.listen(port)` listens on 0.0.0.0. On the
+  //   staging machine the API would then be reachable by anyone, bypassing the
+  //   proxy -- the only thing protecting /health and bounding request size. In
+  //   the container the value is 0.0.0.0, which is safe: the network there is
+  //   isolated and no port is published.
   await app.listen(
     config.getOrThrow<number>('PORT'),
     config.getOrThrow<string>('BIND_ADDRESS'),
   );
-}
-// Pas de `void bootstrap()` : ca ferait taire la regle sans rien traiter. Un
-// echec au demarrage (port occupe, module mal cable) sortirait alors en
-// unhandled rejection, avec une stack brute et un code de sortie subi. Ici le
-// message est explicite et le code de sortie vaut 1 — ce que `restart:
-// unless-stopped` et les logs de `docker compose` savent exploiter.
+};
+// Not `void bootstrap()`: that would silence the rule without handling
+// anything. A startup failure (port taken, module miswired) would then surface
+// as an unhandled rejection, with a raw stack and an incidental exit code. Here
+// the message is explicit and the exit code is 1 -- which `restart:
+// unless-stopped` and `docker compose logs` know how to act on.
 bootstrap().catch((err) => {
-  console.error("Echec du demarrage de l'API", err);
+  console.error('API failed to start', err);
   process.exit(1);
 });

@@ -12,13 +12,12 @@ export interface HealthReport {
 }
 
 /**
- * Sonde de sante de l'API.
+ * API health probe.
  *
- * Elle execute un vrai aller-retour SQL, pas une inspection d'objet : un
- * PrismaService instancie ne prouve rien, la connexion est paresseuse. Une
- * sonde qui repondrait 200 avec une base tombee serait pire qu'absente —
- * c'est elle que consomment le `healthcheck` docker et, plus tard, les
- * alertes Grafana (F2).
+ * It performs a real SQL round-trip, not an object inspection: an instantiated
+ * PrismaService proves nothing, the connection is lazy. A probe answering 200
+ * with a downed database would be worse than no probe at all -- this is what
+ * the docker `healthcheck` consumes, and later the Grafana alerts (F2).
  */
 @Controller('health')
 export class HealthController {
@@ -31,10 +30,10 @@ export class HealthController {
     try {
       await this.prisma.$queryRaw`SELECT 1`;
     } catch (error) {
-      // Journalise la cause reelle cote serveur, mais ne la renvoie pas au
-      // client : le message d'erreur d'un driver Postgres contient l'hote,
-      // le port, la base et parfois l'utilisateur.
-      this.logger.error('Sonde de sante : la base est injoignable', error);
+      // Log the real cause server-side, but do not return it to the client:
+      // a Postgres driver error message contains the host, the port, the
+      // database and sometimes the user.
+      this.logger.error('Health probe: the database is unreachable', error);
       throw new ServiceUnavailableException({
         status: 'error',
         db: 'down',

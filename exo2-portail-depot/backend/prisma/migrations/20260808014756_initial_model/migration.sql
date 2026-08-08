@@ -92,16 +92,15 @@ ALTER TABLE "RequestedItem" ADD CONSTRAINT "RequestedItem_requestId_fkey" FOREIG
 -- AddForeignKey
 ALTER TABLE "UploadedFile" ADD CONSTRAINT "UploadedFile_requestedItemId_fkey" FOREIGN KEY ("requestedItemId") REFERENCES "RequestedItem"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
--- Ajout manuel : Prisma ne sait pas exprimer un index conditionnel dans le
--- schema, et cette contrainte porte l'invariant central du lien public.
+-- Added by hand: Prisma cannot express a conditional index in the schema, and
+-- this constraint carries the public link's central invariant.
 --
--- « Un seul lien actif par demande » : la contrainte ne s'applique qu'aux
--- lignes non revoquees, ce qui laisse l'historique s'accumuler librement. Sans
--- le WHERE, un index unique sur requestId interdirait tout historique ; sans
--- index du tout, deux liens actifs pourraient coexister sur la meme demande,
--- et un ancien PIN resterait valide — exactement ce que ce modele existe pour
--- rendre impossible.
+-- "A single active link per request": the constraint only applies to
+-- non-revoked rows, which lets history accumulate freely. Without the WHERE, a
+-- unique index on requestId would forbid any history; without an index at all,
+-- two active links could coexist on the same request and an old PIN would stay
+-- valid -- exactly what this model exists to make impossible.
 --
--- A REPORTER si cette migration est un jour regeneree.
+-- MUST BE CARRIED OVER if this migration is ever regenerated.
 CREATE UNIQUE INDEX "PublicLink_requestId_active_key"
   ON "PublicLink" ("requestId") WHERE "revokedAt" IS NULL;

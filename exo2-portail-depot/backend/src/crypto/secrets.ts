@@ -1,42 +1,42 @@
 /**
- * Primitives cryptographiques du portail : generation et verification des
- * secrets qui protegent un lien de depot.
+ * Cryptographic primitives of the portal: generating and verifying the secrets
+ * that protect a deposit link.
  *
- * Elles vivent ici plutot que dans les services metier pour que les decisions
- * de securite tiennent en un seul fichier relisable, et pour que B1 (auth
- * avocat), B2 (creation de demande) et C1 (deverrouillage par PIN) partagent
- * exactement le meme traitement.
+ * They live here rather than in the business services so that the security
+ * decisions fit in one readable file, and so that B1 (lawyer auth), B2 (request
+ * creation) and C1 (PIN unlock) share exactly the same treatment.
  *
- * Regle commune : tout tirage aleatoire passe par node:crypto, jamais par
- * Math.random — ce dernier est un generateur pseudo-aleatoire de V8, dont la
- * suite se reconstitue a partir de quelques sorties observees.
+ * Shared rule: every random draw goes through node:crypto, never through
+ * Math.random -- the latter is a V8 pseudo-random generator whose sequence can
+ * be reconstructed from a handful of observed outputs.
  */
 
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import * as argon2 from 'argon2';
 
 /**
- * Parametres argon2id, configuration de reference OWASP
- * (19 Mio de memoire, 2 iterations, 1 voie).
+ * Argon2id parameters, the OWASP reference configuration
+ * (19 MiB of memory, 2 iterations, 1 lane).
  *
- * Le defaut de la bibliotheque (64 Mio, 3 iterations) a ete mesure a ~312 ms
- * par hachage sur cette machine, contre ~67 ms ici. L'ecart n'achete pas grand
- * chose — les hachages sont sales, donc le seul gain porte sur une attaque hors
- * ligne apres fuite de la base — et il se paie sur le chemin le plus expose du
- * portail : /public/:token/unlock, ouvert a un client anonyme. A 312 ms et
- * 64 Mio par requete, et tant que G1 (limitation de debit) n'existe pas, c'est
- * un facteur d'amplification confortable pour saturer l'API a peu de frais.
+ * The library default (64 MiB, 3 iterations) measured at ~312 ms per hash on
+ * this machine, against ~67 ms here. The gap buys little -- hashes are salted,
+ * so it only helps against an offline attack after a database leak -- and it is
+ * paid on the portal's most exposed path: /public/:token/unlock, open to an
+ * anonymous client. At 312 ms and 64 MiB per request, and for as long as G1
+ * (rate limiting) does not exist, that is a comfortable amplification factor
+ * for saturating the API on the cheap.
  *
- * Ces valeurs sont volontairement des constantes et non des variables
- * d'environnement : un parametre de cout mal renseigne degrade la securite en
- * silence. Les augmenter plus tard n'invalide pas les hachages existants, la
- * chaine PHC stockee portant ses propres parametres.
+ * These values are deliberately constants rather than environment variables: a
+ * mistyped cost parameter degrades security silently. Raising them later does
+ * not invalidate existing hashes, since the stored PHC string carries its own
+ * parameters.
+ *
+ * `satisfies` rather than a type annotation: argon2.hash has two overloads, and
+ * the one accepting `raw: true` returns a Buffer. Annotating the constant with
+ * HashOptions would make `raw` potentially present, hence the return type
+ * potentially binary. Leaving the type inferred selects the "PHC string"
+ * overload while still checking the keys.
  */
-// `satisfies` plutot qu'une annotation de type : argon2.hash a deux
-// surcharges, et celle qui accepte `raw: true` renvoie un Buffer. Annoter la
-// constante avec HashOptions rendrait `raw` potentiellement present, donc le
-// retour potentiellement binaire. En laissant le type infere, c'est la
-// surcharge « chaine PHC » qui est retenue — tout en verifiant les cles.
 const ARGON2_OPTIONS = {
   type: argon2.argon2id,
   memoryCost: 19456,
@@ -44,117 +44,112 @@ const ARGON2_OPTIONS = {
   parallelism: 1,
 } satisfies argon2.HashOptions;
 
-/** Longueur du token public, en octets. 32 octets = 256 bits d'entropie. */
+/** Public token length, in bytes. 32 bytes = 256 bits of entropy. */
 const TOKEN_BYTES = 32;
 
-/** Le PIN fait 4 chiffres, comme impose par l'enonce. */
+/** The PIN is 4 digits, as the exercise statement mandates. */
 const PIN_DIGITS = 4;
 
 /**
- * Token du lien public : 256 bits tires du generateur du systeme, encodes en
- * base64url.
+ * Public link token: 256 bits drawn from the operating system generator,
+ * encoded as base64url.
  *
- * base64url plutot qu'hexadecimal : 43 caracteres au lieu de 64 pour la meme
- * entropie, et un alphabet sur pour une URL comme pour un QR code — ce lien est
- * fait pour etre colle dans un courriel.
+ * base64url rather than hex: 43 characters instead of 64 for the same entropy,
+ * and an alphabet that is safe in a URL as well as in a QR code -- this link is
+ * meant to be pasted into an email.
  *
- * randomUUID() est ecarte : un UUIDv4 ne porte que 122 bits et sa structure est
- * reconnaissable au premier coup d'oeil.
+ * randomUUID() is ruled out: a UUIDv4 only carries 122 bits and its structure
+ * is recognisable at a glance.
  */
-export function generatePublicToken(): string {
-  return randomBytes(TOKEN_BYTES).toString('base64url');
-}
+export const generatePublicToken = (): string =>
+  randomBytes(TOKEN_BYTES).toString('base64url');
 
 /**
- * Ce qui est reellement stocke en base a la place du token.
+ * What is actually stored in the database in place of the token.
  *
- * Le token est une credential au porteur : le detenir suffit a atteindre la
- * demande. Le garder en clair reproduirait, sur le lien, la faute qu'on refuse
- * pour le mot de passe — une fuite de la base livrerait tous les liens actifs.
+ * The token is a bearer credential: holding it is enough to reach the request.
+ * Keeping it in clear would repeat, on the link, the mistake we refuse for the
+ * password -- a database leak would hand over every active link.
  *
- * SHA-256 et non argon2id : argon2 sert a rendre couteux le bruteforce d'un
- * secret a faible entropie. Un token de 256 bits ne se devine pas, et un
- * hachage rapide garde la recherche indexee en une seule lecture.
+ * SHA-256 rather than argon2id: argon2 exists to make brute-forcing a
+ * low-entropy secret expensive. A 256-bit token cannot be guessed, and a fast
+ * hash keeps the lookup indexed in a single read.
  */
-export function hashPublicToken(token: string): string {
-  return createHash('sha256').update(token, 'utf8').digest('hex');
-}
+export const hashPublicToken = (token: string): string =>
+  createHash('sha256').update(token, 'utf8').digest('hex');
 
 /**
- * PIN a 4 chiffres, zeros de tete conserves — d'ou le type string : « 0042 »
- * est un PIN valide, 42 n'est pas la meme chose.
+ * A 4-digit PIN, leading zeros preserved -- hence the string type: "0042" is a
+ * valid PIN, and 42 is not the same thing.
  *
- * randomInt est non biaise (il rejette les tirages qui deborderaient de
- * l'intervalle), la ou Math.floor(Math.random() * 10000) serait a la fois
- * biaise et previsible.
+ * randomInt is unbiased (it rejects draws that would overflow the range),
+ * whereas Math.floor(Math.random() * 10000) would be both biased and
+ * predictable.
  */
-export function generatePin(): string {
-  return String(randomInt(0, 10 ** PIN_DIGITS)).padStart(PIN_DIGITS, '0');
-}
+export const generatePin = (): string =>
+  String(randomInt(0, 10 ** PIN_DIGITS)).padStart(PIN_DIGITS, '0');
 
 /**
- * Hache un mot de passe ou un PIN en argon2id.
+ * Hashes a password or a PIN with argon2id.
  *
- * Le resultat est une chaine PHC (`$argon2id$v=19$m=...$sel$hachage`) qui
- * embarque sel et parametres : c'est elle qu'on stocke, et verifySecret relit
- * les parametres depuis le hachage plutot que depuis la configuration courante.
+ * The result is a PHC string (`$argon2id$v=19$m=...$salt$hash`) carrying both
+ * salt and parameters: that is what gets stored, and verifySecret reads the
+ * parameters back from the hash rather than from the current configuration.
  */
-export function hashSecret(value: string): Promise<string> {
-  return argon2.hash(value, ARGON2_OPTIONS);
-}
+export const hashSecret = (value: string): Promise<string> =>
+  argon2.hash(value, ARGON2_OPTIONS);
 
 /**
- * Verifie une valeur contre un hachage stocke.
+ * Verifies a value against a stored hash.
  *
- * Un hachage illisible (colonne tronquee, donnee migree a la main) renvoie
- * false au lieu de lever : sur le chemin de deverrouillage, une exception
- * remonterait en 500 la ou un PIN faux renvoie une erreur d'authentification,
- * ce qui donnerait a un attaquant un moyen de distinguer les deux cas.
+ * An unreadable hash (truncated column, hand-migrated data) returns false
+ * instead of throwing: on the unlock path, an exception would surface as a 500
+ * where a wrong PIN returns an authentication error, which would give an
+ * attacker a way to tell the two cases apart.
  */
-export async function verifySecret(
+export const verifySecret = async (
   value: string,
   storedHash: string,
-): Promise<boolean> {
+): Promise<boolean> => {
   try {
     return await argon2.verify(storedHash, value);
   } catch {
     return false;
   }
-}
+};
 
 /**
- * Cle de l'objet dans MinIO.
+ * Object key in MinIO.
  *
- * Prefixee par demande : MinIO n'a pas de repertoires, mais l'API S3 sait
- * lister et supprimer par prefixe. Supprimer une demande devient donc un
- * effacement sur `requests/<requestId>/`, qui reste correct meme quand la
- * cascade SQL a deja fait disparaitre les lignes portant les cles.
+ * Prefixed per request: MinIO has no directories, but the S3 API can list and
+ * delete by prefix. Deleting a request therefore becomes an erase over
+ * `requests/<requestId>/`, which stays correct even once the SQL cascade has
+ * removed the rows carrying the keys.
  *
- * Le nom depose par le client n'entre dans la cle qu'apres assainissement, et
- * il est de toute facon precede d'un identifiant aleatoire : deux fichiers de
- * meme nom ne peuvent pas se recouvrir, et aucune sequence `../` ne survit.
- * Le nom d'origine reste en base, pour l'affichage seulement.
+ * The client-supplied name only enters the key after sanitisation, and it is
+ * preceded by a random identifier anyway: two files of the same name cannot
+ * overwrite each other, and no `../` sequence survives. The original name stays
+ * in the database, for display only.
  */
-export function buildStorageKey(
+export const buildStorageKey = (
   requestId: string,
   itemId: string,
   originalName: string,
-): string {
+): string => {
   const safeName =
     originalName
       .normalize('NFKD')
-      // Tout ce qui n'est pas alphanumerique, point, tiret ou souligne devient
-      // un tiret : cela neutralise `/`, `\` et les octets de controle.
+      // Anything that is not alphanumeric, dot, dash or underscore becomes a
+      // dash: this neutralises `/`, `\` and control bytes.
       .replace(/[^A-Za-z0-9._-]/g, '-')
-      // Les points consecutifs sont reduits a un seul. Les separateurs ayant
-      // deja disparu, `..` ne peut plus remonter d'un cran ici — mais la cle
-      // finit par etre lue par d'autres outils (synchronisation, extraction
-      // d'archive) qui, eux, savent l'interpreter.
+      // Consecutive dots collapse into one. Separators are already gone, so
+      // `..` can no longer climb a level here -- but the key ends up read by
+      // other tools (sync, archive extraction) that do know how to interpret it.
       .replace(/\.{2,}/g, '.')
-      // Un nom reduit a des points ou a des tirets ne doit pas subsister comme
-      // segment de chemin, ni produire un fichier cache.
+      // A name reduced to dots or dashes must not survive as a path segment,
+      // nor produce a hidden file.
       .replace(/^[.-]+/, '')
-      .slice(0, 100) || 'fichier';
+      .slice(0, 100) || 'file';
 
   return `requests/${requestId}/items/${itemId}/${randomBytes(8).toString('hex')}-${safeName}`;
-}
+};

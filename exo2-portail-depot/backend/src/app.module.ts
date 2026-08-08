@@ -11,18 +11,18 @@ import { PrismaModule } from './prisma/prisma.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      // `.env` vit a la racine du depot, un cran au-dessus de backend/ :
-      // c'est le meme fichier que lit docker compose, pour qu'il n'existe
-      // qu'une seule source de verite. En conteneur il est absent et les
-      // variables viennent de l'environnement, ce que ConfigModule gere.
+      // `.env` lives at the repository root, one level above backend/: it is
+      // the very file docker compose reads, so that a single source of truth
+      // exists. In the container it is absent and the variables come from the
+      // environment, which ConfigModule handles.
       //
-      // Chemin derive de __dirname et non du repertoire courant : un
-      // `../.env` relatif designe le parent du cwd, donc le parent du depot
-      // des que l'API est lancee depuis la racine plutot que depuis backend/.
-      // L'API refusait alors de demarrer sur « DATABASE_URL absente » avec le
-      // fichier juste a cote. __dirname vaut backend/src en developpement et
-      // backend/dist une fois compile : deux crans menent a la racine dans
-      // les deux cas.
+      // The path derives from __dirname, not from the working directory: a
+      // relative `../.env` means the parent of the cwd, hence the parent of the
+      // repository as soon as the API is started from the root rather than from
+      // backend/. The API then refused to start on "DATABASE_URL missing" with
+      // the file sitting right next to it. __dirname is backend/src in
+      // development and backend/dist once compiled: two levels up reaches the
+      // root either way.
       envFilePath: [join(__dirname, '..', '..', '.env')],
       validate: validateEnv,
     }),

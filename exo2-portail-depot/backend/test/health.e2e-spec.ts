@@ -7,15 +7,15 @@ import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
 
 /**
- * Ce que ces tests prouvent : le contrat HTTP de la sonde. Un aller-retour SQL
- * qui aboutit donne 200 { db: 'up' }, un aller-retour qui echoue donne 503
- * { db: 'down' } — et non un 200 optimiste, ni un 500 qui melangerait la
- * sonde avec une panne applicative.
+ * What these tests prove: the probe's HTTP contract. A successful SQL
+ * round-trip yields 200 { db: 'up' }, a failing one yields 503 { db: 'down' } --
+ * not an optimistic 200, nor a 500 that would conflate the probe with an
+ * application failure.
  *
- * Ce qu'ils ne prouvent PAS : que la connexion a un vrai Postgres fonctionne.
- * PrismaService est remplace par un double. La chaine reelle se verifie par
- * `docker compose up` + `curl /api/health` (voir ai-plans), et une base de
- * test dediee arrivera avec A2/D1, quand il y aura des requetes metier.
+ * What they do NOT prove: that connecting to a real Postgres works.
+ * PrismaService is replaced by a double. The real chain is verified with
+ * `docker compose up` + `curl /api/v1/health` (see ai-plans), and a dedicated
+ * test database will come with D1, once business queries exist.
  */
 describe('HealthController (e2e)', () => {
   let app: INestApplication<App>;
@@ -34,16 +34,15 @@ describe('HealthController (e2e)', () => {
       })
       .compile();
 
-    // logger: false — les cas d'echec font journaliser la stack du driver par
-    // la sonde. C'est le comportement voulu en production, mais ca noierait
-    // la sortie des tests sous des traces attendues.
+    // logger: false -- the failure cases make the probe log the driver stack.
+    // That is the intended production behaviour, but it would drown the test
+    // output under expected traces.
     app = moduleFixture.createNestApplication({ logger: false });
 
-    // Le prefixe global est pose dans main.ts, que les tests ne traversent
-    // pas. Sans cette ligne, la suite interrogerait /health et resterait verte
-    // alors que la sonde reelle vit sous /api/v1/health — c'est precisement
-    // l'adresse dont dependent le healthcheck docker et la regle `deny all`
-    // de nginx.
+    // The global prefix is set in main.ts, which the tests do not go through.
+    // Without this line the suite would hit /health and stay green while the
+    // real probe lives under /api/v1/health -- precisely the address the docker
+    // healthcheck and the nginx `deny all` rule depend on.
     const apiPrefix = app.get(ConfigService).getOrThrow<string>('API_PREFIX');
     app.setGlobalPrefix(apiPrefix);
     healthPath = `${apiPrefix}/health`;
@@ -60,7 +59,7 @@ describe('HealthController (e2e)', () => {
     await app.close();
   });
 
-  it('repond 200 { status: ok, db: up } quand la base repond', async () => {
+  it('answers 200 { status: ok, db: up } when the database answers', async () => {
     queryRaw.mockResolvedValue([{ '?column?': 1 }]);
 
     await request(app.getHttpServer())
@@ -68,12 +67,12 @@ describe('HealthController (e2e)', () => {
       .expect(200)
       .expect({ status: 'ok', db: 'up' });
 
-    // La sonde doit reellement interroger la base, pas se contenter de
-    // constater que le provider existe : la connexion Prisma est paresseuse.
+    // The probe must actually query the database, not merely observe that the
+    // provider exists: the Prisma connection is lazy.
     expect(queryRaw).toHaveBeenCalledTimes(1);
   });
 
-  it('repond 503 { status: error, db: down } quand la base est injoignable', async () => {
+  it('answers 503 { status: error, db: down } when the database is unreachable', async () => {
     queryRaw.mockRejectedValue(
       new Error('connect ECONNREFUSED 127.0.0.1:5432'),
     );
@@ -84,19 +83,19 @@ describe('HealthController (e2e)', () => {
     });
   });
 
-  it('ne repond plus sur /health, hors prefixe', async () => {
-    // Garde-fou du couplage avec l'infrastructure : nginx interdit
-    // explicitement /api/v1/health et le healthcheck docker interroge cette
-    // meme adresse. Si le prefixe cessait de s'appliquer, la sonde
-    // redeviendrait publique sans qu'aucun autre test ne s'en apercoive.
+  it('no longer answers on /health, outside the prefix', async () => {
+    // Guard rail on the coupling with the infrastructure: nginx explicitly
+    // denies /api/v1/health and the docker healthcheck queries that same
+    // address. Were the prefix to stop applying, the probe would become public
+    // again without any other test noticing.
     queryRaw.mockResolvedValue([{ '?column?': 1 }]);
 
     await request(app.getHttpServer()).get('/health').expect(404);
   });
 
-  it("ne divulgue pas les details de connexion dans la reponse d'erreur", async () => {
-    // Le message d'un driver Postgres contient l'hote, le port, la base et
-    // parfois l'utilisateur. Il va dans les logs, pas dans la reponse HTTP.
+  it('does not leak connection details in the error response', async () => {
+    // A Postgres driver message contains the host, the port, the database and
+    // sometimes the user. It belongs in the logs, not in the HTTP response.
     queryRaw.mockRejectedValue(
       new Error('password authentication failed for user "portail" at db:5432'),
     );
