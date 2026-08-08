@@ -47,16 +47,29 @@ aurait demandé une migration de données.
 
 Dépendances : A1.
 
-### A3. Stockage objet MinIO conteneurisé — P0
+### A3. Stockage objet MinIO conteneurisé — P0 — **fait**
 
-Zéro fichier écrit sur le disque de l'API.
+Zéro fichier écrit sur le disque de l'API. `StorageService` (`src/storage/`) parle S3 via
+`@aws-sdk/client-s3` : rien dans le code ne nomme MinIO, seul l'endpoint le sait.
 
-- [ ] Service `minio` dans le compose (+ bucket créé à l'init)
-- [ ] Module de stockage NestJS (SDK S3), clés via env
-- [ ] Aucune écriture locale : upload en flux vers l'objet
-- [ ] Credentials dans `.env.example`, jamais en dur
+- [x] Service `minio` dans le compose (+ bucket créé à l'init) — créé au démarrage par
+      `ensureBucket()` dans `onModuleInit`, **pas** par un conteneur `mc` jetable : idempotent, sans
+      ordonnancement à arranger, et testable
+- [x] Module de stockage NestJS (SDK S3), clés via env — `@Global`, cinq variables `STORAGE_*`
+      validées au démarrage (endpoint parsé, nom de bucket aux règles S3)
+- [x] Aucune écriture locale : upload en flux vers l'objet — `Upload` de `@aws-sdk/lib-storage`, qui
+      n'exige pas de connaître la taille à l'avance et bascule seul en multipart
+- [x] Credentials dans `.env.example`, jamais en dur — générés aléatoirement par `install.sh`,
+      aucun port MinIO publié en production
 
-Dépendances : aucune. **Bloque C2.**
+Au passage : `/health` vérifie aussi le stockage (503 si MinIO est injoignable, ce qui est le signal
+de l'alerte F2), et la suppression se fait **par préfixe** — la cascade SQL efface les `storageKey`
+avant qu'on puisse les lire, alors que `requests/<requestId>/` se déduit du seul identifiant.
+
+Trois niveaux de tests : unitaires mockés, e2e avec doubles, et une suite d'intégration
+testcontainers contre un vrai MinIO (`pnpm test:integration`, la seule qui exige Docker).
+
+Dépendances : aucune. **Débloque C2.**
 
 ### A4. Secrets externalisés et `.env.example` complet — P1
 
