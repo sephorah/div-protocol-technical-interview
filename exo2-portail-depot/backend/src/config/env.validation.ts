@@ -2,20 +2,35 @@
  * Validation des variables d'environnement, executee par ConfigModule avant
  * que le moindre module ne soit instancie.
  *
- * Sans ce controle, une DATABASE_URL absente ne se manifeste qu'au premier
- * appel qui touche la base : 500 en production, sur une route sans rapport
- * apparent avec la configuration. Ici l'application refuse de demarrer et
- * `main.ts` transforme le rejet en message nomme + code de sortie 1, ce que
+ * Sans ce controle, une configuration de base absente ne se manifeste qu'au
+ * premier appel qui touche la base : 500 en production, sur une route sans
+ * rapport apparent avec la configuration. Ici l'application refuse de demarrer
+ * et `main.ts` transforme le rejet en message nomme + code de sortie 1, ce que
  * `restart: unless-stopped` et `docker compose logs` savent exploiter.
  *
- * Regle absolue : ne jamais recopier la valeur d'une variable dans un
- * message d'erreur. DATABASE_URL contient le mot de passe Postgres, et un
- * message d'erreur finit dans les logs, eux-memes agreges ailleurs.
+ * Regle absolue : ne jamais recopier la valeur d'une variable dans un message
+ * d'erreur. DB_PASSWORD et JWT_SECRET sont des secrets, et un message d'erreur
+ * finit dans les logs, eux-memes agreges ailleurs.
  */
 
-const ATTENDU = 'attendu : postgresql://utilisateur:motdepasse@hote:port/base';
+import { buildDatabaseUrl, DatabaseEnv } from './database-url';
 
-const PROTOCOLES = new Set(['postgres:', 'postgresql:']);
+const REQUIRED_DB_KEYS = [
+  'DB_HOST',
+  'DB_PORT',
+  'DB_USER',
+  'DB_PASSWORD',
+  'DB_NAME',
+] as const;
+
+const EXPECTED_URL =
+  'attendu : postgresql://utilisateur:motdepasse@hote:port/base';
+
+const URL_PROTOCOLS = new Set(['postgres:', 'postgresql:']);
+
+function readString(raw: Record<string, unknown>, key: string): string {
+  return typeof raw[key] === 'string' ? raw[key].trim() : '';
+}
 
 /**
  * Analyse la chaine plutot que de la comparer a une expression reguliere.
@@ -24,30 +39,24 @@ const PROTOCOLES = new Set(['postgres:', 'postgresql:']);
  * exploitable, ni base. La chaine passait le demarrage et echouait plus tard
  * dans le driver, avec un message moins clair — exactement ce que cette
  * validation existe pour eviter.
- *
- * `new URL` refuse en plus les mots de passe non encodes contenant / # ou ?,
- * qui rendent l'URL invalide. C'est le cas de figure produit par une
- * DATABASE_URL reconstruite dans docker-compose.yml a partir d'un
- * POSTGRES_PASSWORD contenant un caractere reserve : sans ce controle,
- * l'echec arrive au premier acces a la base, sans nommer sa cause.
  */
-function analyser(url: string): string | null {
-  let parsee: URL;
+function inspectUrl(url: string): string | null {
+  let parsed: URL;
   try {
-    parsee = new URL(url);
+    parsed = new URL(url);
   } catch {
-    return `DATABASE_URL n'est pas une URL analysable — un mot de passe contenant / # ? ou % doit etre encode-URL (${ATTENDU}).`;
+    return `DATABASE_URL n'est pas une URL analysable (${EXPECTED_URL}).`;
   }
 
-  if (!PROTOCOLES.has(parsee.protocol)) {
-    return `DATABASE_URL n'utilise pas le protocole PostgreSQL (${ATTENDU}).`;
+  if (!URL_PROTOCOLS.has(parsed.protocol)) {
+    return `DATABASE_URL n'utilise pas le protocole PostgreSQL (${EXPECTED_URL}).`;
   }
-  if (parsee.hostname.length === 0) {
-    return `DATABASE_URL ne designe aucun hote (${ATTENDU}).`;
+  if (parsed.hostname.length === 0) {
+    return `DATABASE_URL ne designe aucun hote (${EXPECTED_URL}).`;
   }
   // pathname vaut "/" quand aucune base n'est nommee, "/base" sinon.
-  if (parsee.pathname.replace(/^\//, '').length === 0) {
-    return `DATABASE_URL ne nomme aucune base de donnees (${ATTENDU}).`;
+  if (parsed.pathname.replace(/^\//, '').length === 0) {
+    return `DATABASE_URL ne nomme aucune base de donnees (${EXPECTED_URL}).`;
   }
 
   return null;
@@ -56,26 +65,60 @@ function analyser(url: string): string | null {
 export function validateEnv(
   raw: Record<string, unknown>,
 ): Record<string, unknown> {
-  const problemes: string[] = [];
+  const issues: string[] = [];
 
-  const databaseUrl =
-    typeof raw.DATABASE_URL === 'string' ? raw.DATABASE_URL.trim() : '';
+  // Une DATABASE_URL fournie explicitement l'emporte : c'est ce qui permet de
+  // viser une base managee ou une base de CI sans reecrire cinq variables.
+  const explicitUrl = readString(raw, 'DATABASE_URL');
 
-  if (databaseUrl.length === 0) {
-    problemes.push('DATABASE_URL est absente ou vide.');
-  } else {
-    const probleme = analyser(databaseUrl);
-    if (probleme !== null) {
-      problemes.push(probleme);
+  if (explicitUrl.length > 0) {
+    const issue = inspectUrl(explicitUrl);
+    if (issue !== null) {
+      issues.push(issue);
     }
+    if (issues.length > 0) {
+      throw new Error(formatError(issues));
+    }
+    return { ...raw, DATABASE_URL: explicitUrl };
   }
 
-  if (problemes.length > 0) {
-    throw new Error(
-      `Configuration d'environnement invalide :\n  - ${problemes.join('\n  - ')}\n` +
-        'Voir .env.example pour la liste des variables attendues.',
+  const missing = REQUIRED_DB_KEYS.filter(
+    (key) => readString(raw, key).length === 0,
+  );
+  if (missing.length > 0) {
+    issues.push(
+      `Variables de base de donnees absentes ou vides : ${missing.join(', ')}.`,
     );
   }
 
-  return { ...raw, DATABASE_URL: databaseUrl };
+  const port = Number(readString(raw, 'DB_PORT'));
+  if (
+    !missing.includes('DB_PORT') &&
+    (!Number.isInteger(port) || port < 1 || port > 65535)
+  ) {
+    issues.push("DB_PORT n'est pas un port valide (entier entre 1 et 65535).");
+  }
+
+  if (issues.length > 0) {
+    throw new Error(formatError(issues));
+  }
+
+  const env: DatabaseEnv = {
+    DB_HOST: readString(raw, 'DB_HOST'),
+    DB_PORT: port,
+    DB_USER: readString(raw, 'DB_USER'),
+    DB_PASSWORD: readString(raw, 'DB_PASSWORD'),
+    DB_NAME: readString(raw, 'DB_NAME'),
+  };
+
+  // DATABASE_URL est expose au reste de l'application : PrismaService et le
+  // CLI Prisma continuent de lire une seule variable, celle qu'ils attendent.
+  return { ...raw, ...env, DATABASE_URL: buildDatabaseUrl(env) };
+}
+
+function formatError(issues: string[]): string {
+  return (
+    `Configuration d'environnement invalide :\n  - ${issues.join('\n  - ')}\n` +
+    'Voir .env.example pour la liste des variables attendues.'
+  );
 }

@@ -1,31 +1,41 @@
 #!/usr/bin/env bash
-# Point d'entree du projet, prevu pour une machine vierge : il installe ce qui
-# manque (Node, pnpm), puis installe les dependances, build, et lance l'app.
+# Point d'entree du projet, prevu pour une machine vierge.
 #
-#   ./install.sh          installe, build et lance backend + frontend en local
-#   ./install.sh --build  s'arrete apres le build (CI, ou avant un docker compose)
+#   ./install.sh          monte toute la stack et affiche les URLs
+#   ./install.sh --build  construit les images sans demarrer (CI)
+#
+# Contrat : quand ce script rend la main sans erreur, l'application repond.
+# Pas « les conteneurs sont lances » — le portail repond. Il n'y a aucune
+# commande a taper ensuite, et rien a lire dans le README pour y arriver.
+#
+# Le developpement au quotidien, lui, n'utilise pas ce script : c'est
+# `pnpm db:up && pnpm dev`, qui suppose Node et pnpm deja installes.
 #
 # pipefail : un pipe echoue si n'importe quel maillon echoue, pas seulement le dernier.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-NODE_VERSION=22        # branche installee par nvm si Node manque
-NODE_MIN=22.13.0       # minimum reel : en dessous, pnpm 11 refuse de demarrer
-PNPM_VERSION=11.20.0
-NVM_VERSION=v0.40.6    # epinglee : `curl | bash` sur une branche mouvante n'est pas reproductible
-export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+HTTP_PORT=21600           # port attribue, cible du proxy de la machine
+HEALTH_TIMEOUT=300        # secondes d'attente maximale des healthchecks
+SERVICES="db backend frontend proxy"
 
-die() { echo "Erreur : $*" >&2; exit 1; }
-step() { echo; echo "==> $*"; }
+# Toutes les commandes docker passent par $DOCKER : selon la machine, ce sera
+# `docker` ou `sudo docker` (voir la cascade d'installation plus bas).
+DOCKER="docker"
+
+die() { printf '\nErreur : %s\n' "$*" >&2; exit 1; }
+step() { printf '\n==> %s\n' "$*"; }
+info() { printf '    %s\n' "$*"; }
+
 usage() {
   echo "Usage : ./install.sh [--build]"
-  echo "  (sans argument)  installe, build et lance backend + frontend"
-  echo "  --build          s'arrete apres le build"
+  echo "  (sans argument)  monte la stack complete et affiche les URLs"
+  echo "  --build          construit les images sans demarrer"
 }
 
 # Arguments valides en tete de script : sinon une faute de frappe (`--biuld`) se
-# paie apres un build complet, et demarre les serveurs au lieu de s'arreter.
+# paie apres plusieurs minutes de build, et demarre la stack au lieu de s'arreter.
 BUILD_ONLY=0
 [ "$#" -le 1 ] || die "un seul argument est accepte (recu : $*)."
 case "${1:-}" in
@@ -35,99 +45,298 @@ case "${1:-}" in
   *)           die "argument inconnu : $1 (attendu : --build, --help, ou aucun)." ;;
 esac
 
-# Comparaison sur les trois composantes : tester la majeure seule laisserait
-# passer un Node 22.0-22.12, trop ancien pour pnpm 11, avec un echec plus loin
-# dont le message ne designe pas la cause.
-node_ok() {
-  command -v node >/dev/null || return 1
-  node -e '
-    const min = process.argv[1].split(".").map(Number);
-    const cur = process.versions.node.split(".").map(Number);
-    for (let i = 0; i < 3; i++) {
-      if (cur[i] > min[i]) process.exit(0);
-      if (cur[i] < min[i]) process.exit(1);
+# --------------------------------------------------------------------------
+# Docker
+# --------------------------------------------------------------------------
+# On ne sait pas ce qu'il y a sur la machine de test, ni si l'utilisateur a les
+# droits. Le script descend donc une cascade et ne s'arrete qu'apres l'avoir
+# epuisee : docker deja utilisable -> installation privilegiee -> installation
+# rootless dans $HOME.
+
+docker_usable() { $DOCKER info >/dev/null 2>&1; }
+
+compose_v2_present() { $DOCKER compose version >/dev/null 2>&1; }
+
+# `sudo -v` valide (et met en cache) les droits. Appele une seule fois, tot :
+# l'eventuelle invite de mot de passe arrive avant les minutes de build, pas au
+# milieu. `sudo -n` teste d'abord le cas sans mot de passe, pour ne rien
+# demander quand ce n'est pas necessaire.
+can_sudo() {
+  command -v sudo >/dev/null || return 1
+  sudo -n true 2>/dev/null && return 0
+  [ -t 0 ] || return 1   # pas de terminal : impossible de saisir un mot de passe
+  info "Docker doit etre installe, ce qui demande les droits administrateur."
+  sudo -v
+}
+
+install_docker_privileged() {
+  local sudo_cmd=""
+  [ "$(id -u)" -eq 0 ] || sudo_cmd="sudo"
+  info "Installation via le script officiel https://get.docker.com"
+  curl -fsSL https://get.docker.com | ${sudo_cmd} sh
+  ${sudo_cmd} systemctl enable --now docker 2>/dev/null \
+    || ${sudo_cmd} service docker start 2>/dev/null \
+    || true
+  # Ni systemd ni SysV : c'est le cas d'un conteneur ou de WSL sans systemd,
+  # ou le demon existe mais n'est lance par personne. On le lance nous-memes.
+  if ! ${sudo_cmd} docker info >/dev/null 2>&1; then
+    info "Aucun gestionnaire de services : demarrage direct du demon."
+    ${sudo_cmd} sh -c 'dockerd >/tmp/dockerd.log 2>&1 &'
+    local waited=0
+    until ${sudo_cmd} docker info >/dev/null 2>&1; do
+      [ "$waited" -ge 30 ] && break
+      sleep 1; waited=$((waited + 1))
+    done
+  fi
+}
+
+# Le demon ecoute sur /var/run/docker.sock, en root:docker mode 660 : il faut
+# etre root ou membre du groupe `docker`. Une installation neuve cree le groupe
+# sans y mettre personne, et l'appartenance n'est lue qu'a l'ouverture de
+# session — `usermod -aG` ne change donc rien pour le shell en cours. On termine
+# le run en `sudo docker`, et on dit comment s'en passer la prochaine fois.
+use_sudo_docker_for_this_run() {
+  DOCKER="sudo docker"
+  info "Ce run utilise sudo pour parler a docker. Pour les suivants :"
+  info "  sudo usermod -aG docker $USER    (puis rouvrir la session)"
+}
+
+install_docker_rootless() {
+  info "Pas de droits administrateur : installation de Docker en mode rootless."
+  command -v newuidmap >/dev/null || die \
+    "le mode rootless exige newuidmap (paquet 'uidmap'), absent, et son
+       installation demande les droits administrateur. Faites lancer :
+         sudo apt-get install -y uidmap     (Debian/Ubuntu)
+         sudo dnf install -y shadow-utils   (Fedora/RHEL)
+       ou installez docker : curl -fsSL https://get.docker.com | sudo sh"
+  # L'installeur rootless verifie lui-meme ses prerequis (iptables, modules
+  # noyau, sous-uid) et affiche les commandes manquantes. On encadre son echec
+  # pour que la sortie ne se termine pas sur ses instructions sans contexte.
+  curl -fsSL https://get.docker.com/rootless | sh || die \
+    "l'installation de Docker rootless a echoue (prerequis manquants ci-dessus).
+       Ces prerequis s'installent avec les droits administrateur. Le plus simple
+       est alors de faire installer docker normalement :
+         curl -fsSL https://get.docker.com | sudo sh
+         sudo usermod -aG docker $USER    (puis rouvrir la session)"
+  export PATH="$HOME/bin:$PATH"
+  export DOCKER_HOST="unix:///run/user/$(id -u)/docker.sock"
+  # setsid + nohup : le demon doit survivre a la fin de ce script et a la
+  # fermeture du terminal. Lance en simple `&`, il resterait rattache a la
+  # session — le fermer emporterait le demon, et la stack deviendrait
+  # impilotable alors que les conteneurs, eux, tournent encore.
+  setsid nohup "$HOME/bin/dockerd-rootless.sh" >/tmp/dockerd-rootless.log 2>&1 &
+  disown 2>/dev/null || true
+  # Le demon met un instant a ouvrir sa socket.
+  local waited=0
+  until docker info >/dev/null 2>&1; do
+    [ "$waited" -ge 30 ] && die "le demon rootless n'a pas demarre (voir /tmp/dockerd-rootless.log)."
+    sleep 1; waited=$((waited + 1))
+  done
+  info "Docker rootless actif. Pour vos prochains terminaux :"
+  info "  export PATH=\$HOME/bin:\$PATH"
+  info "  export DOCKER_HOST=$DOCKER_HOST"
+}
+
+step "Verification de Docker"
+if docker_usable && compose_v2_present; then
+  info "Docker $($DOCKER --version | awk '{print $3}' | tr -d ,) deja utilisable."
+elif command -v docker >/dev/null && ! docker_usable && can_sudo && sudo docker info >/dev/null 2>&1; then
+  # Docker est la et tourne, mais l'utilisateur n'est pas dans le groupe.
+  use_sudo_docker_for_this_run
+else
+  command -v curl >/dev/null || die "curl est requis pour installer docker (apt install curl / dnf install curl)."
+  if [ "$(id -u)" -eq 0 ]; then
+    install_docker_privileged
+  elif can_sudo; then
+    install_docker_privileged
+    docker_usable || use_sudo_docker_for_this_run
+  else
+    install_docker_rootless
+  fi
+  docker_usable || die "docker reste injoignable apres installation."
+  compose_v2_present || die \
+    "le plugin 'docker compose' v2 est absent (l'ancien 'docker-compose' v1 ne
+       convient pas). Installez-le : sudo apt-get install -y docker-compose-plugin"
+  info "Docker installe et operationnel."
+fi
+
+# --------------------------------------------------------------------------
+# Port
+# --------------------------------------------------------------------------
+# Teste AVANT le build : sinon l'echec arrive apres plusieurs minutes. Un port
+# tenu par notre propre proxy n'est pas un conflit — compose recree le
+# conteneur — sinon un second ./install.sh echouerait sur lui-meme.
+port_is_ours() {
+  local ids; ids="$($DOCKER compose ps -q proxy 2>/dev/null || true)"
+  [ -n "$ids" ]
+}
+
+# Retourne 0 si le port est libre, 1 s'il est pris, 2 si on n'a pas su decider.
+# La distinction compte : un `docker run` qui echoue peut l'avoir fait pour tout
+# autre chose (image inaccessible, reseau coupe), et annoncer « port occupe »
+# dans ce cas enverrait chercher un conflit qui n'existe pas.
+port_state() {
+  if command -v ss >/dev/null; then
+    ss -ltnH "sport = :$1" 2>/dev/null | grep -q . && return 1
+    return 0
+  fi
+  # Sans `ss` : bash sait ouvrir une connexion TCP sans aucune dependance.
+  # Une connexion qui aboutit prouve que quelque chose ecoute ; un echec ne
+  # prouve rien de plus que « personne n'a repondu », ce qui suffit ici.
+  if timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; then
+    return 1
+  fi
+  return 0
+}
+
+step "Verification du port $HTTP_PORT"
+# `port_state ...; status=$?` ne convient pas : sous `set -e`, une commande
+# simple qui renvoie non-zero interrompt le script avant l'affectation, et
+# l'echec devient muet. Le `||` protege l'appel.
+port_status=0
+port_state "$HTTP_PORT" || port_status=$?
+if [ "$port_status" -eq 0 ] || port_is_ours; then
+  info "Disponible."
+else
+  info "Occupe par :"
+  (command -v ss >/dev/null && ss -ltnp "sport = :$HTTP_PORT" 2>/dev/null | tail -n +2) || true
+  die "le port $HTTP_PORT est deja utilise par un autre programme.
+       C'est le port attribue a ce projet (plage 21600-21699) : liberez-le, ou
+       arretez la pile qui l'occupe."
+fi
+
+# --------------------------------------------------------------------------
+# Configuration
+# --------------------------------------------------------------------------
+# Secret aleatoire sans dependance : /dev/urandom, od et tr sont partout ou
+# tourne bash. L'hexadecimal evite tout caractere a echapper dans un .env.
+random_hex() { head -c "${1:-32}" /dev/urandom | od -An -tx1 | tr -d ' \n'; }
+
+# Remplace la valeur d'une cle en conservant les commentaires de .env.example,
+# qui sont la documentation des variables.
+set_env_value() {
+  local key="$1" value="$2"
+  # La valeur peut contenir n'importe quoi : on passe par awk plutot que par
+  # une substitution sed, ou un `&` ou un `/` seraient interpretes.
+  awk -v k="$key" -v v="$value" \
+    'BEGIN{FS=OFS="="} $1==k && !done {print k "=" v; done=1; found=1; next} {print}
+     END{ if (!found) exit 3 }' \
+    .env > .env.tmp || {
+      rm -f .env.tmp
+      die "la cle $key est absente de .env.example : le .env genere serait
+       incomplet et l'echec n'apparaitrait qu'au demarrage. Corrigez
+       .env.example ou install.sh — les deux doivent lister les memes cles."
     }
-  ' "$NODE_MIN" 2>/dev/null
+  mv .env.tmp .env
 }
 
-# nvm.sh lit des variables non definies et n'est pas compatible avec `set -u`.
-# PREFIX / NPM_CONFIG_PREFIX (souvent poses par un ancien npm ou un toolchain
-# croise) font echouer `nvm use` : on les retire pour la duree du script.
-load_nvm() {
-  unset PREFIX NPM_CONFIG_PREFIX
-  set +u
-  # shellcheck disable=SC1091
-  . "$NVM_DIR/nvm.sh"
-  set -u
-}
-
-step "Verification de Node (>= ${NODE_MIN})"
-if node_ok; then
-  echo "Node $(node -v) deja present."
+step "Configuration (.env)"
+if [ -f .env ]; then
+  info ".env existant : conserve tel quel."
 else
-  if [ ! -s "$NVM_DIR/nvm.sh" ]; then
-    echo "Node absent ou trop ancien, et nvm introuvable : installation de nvm ${NVM_VERSION}."
-    nvm_url="https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh"
-    # PROFILE=/dev/null : l'installeur n'ecrit pas dans le .bashrc de l'utilisateur.
-    # C'est a lui de decider ; le script charge nvm lui-meme, plus bas.
-    if command -v curl >/dev/null; then
-      curl -fsSL "$nvm_url" | PROFILE=/dev/null bash
-    elif command -v wget >/dev/null; then
-      wget -qO- "$nvm_url" | PROFILE=/dev/null bash
-    else
-      die "curl ou wget est requis pour installer nvm (apt install curl / dnf install curl)."
-    fi
-  fi
-  [ -s "$NVM_DIR/nvm.sh" ] || die "nvm introuvable dans ${NVM_DIR} apres installation."
-  load_nvm
-  echo "Installation de Node ${NODE_VERSION} via nvm."
-  nvm install "$NODE_VERSION"
-  nvm alias default "$NODE_VERSION"
-  nvm use "$NODE_VERSION"
-  hash -r   # bash met en cache le chemin des binaires : sans ca, l'ancien node reste resolu
-  node_ok || die "Node >= ${NODE_MIN} toujours indisponible apres installation via nvm."
-  echo "Node $(node -v) installe."
-  echo "Note : ce shell-ci seulement. Pour vos prochains terminaux, ouvrez-en un nouveau"
-  echo "       ou ajoutez nvm a votre profil (voir ${NVM_DIR}/nvm.sh)."
+  [ -f .env.example ] || die ".env.example est introuvable — le depot est incomplet."
+  # umask avant toute ecriture : set_env_value passe par un fichier temporaire
+  # qui contiendrait le mot de passe en clair et lisible par tous, meme une
+  # fraction de seconde.
+  umask 077
+  cp .env.example .env
+  set_env_value DB_USER portail
+  set_env_value DB_NAME portail_depot
+  set_env_value DB_PASSWORD "$(random_hex 32)"
+  set_env_value JWT_SECRET "$(random_hex 32)"
+  # chmod APRES les substitutions : set_env_value ecrit un fichier temporaire
+  # puis le deplace, ce qui reinitialiserait les permissions au umask.
+  chmod 600 .env
+  info ".env genere avec des secrets aleatoires (fichier gitignore, chmod 600)."
 fi
 
-# corepack est livre avec Node et fournit le pnpm epingle par `packageManager`.
-# `npm i -g pnpm` installerait une version non epinglee : on ne s'en sert pas.
-step "Verification de pnpm (${PNPM_VERSION})"
-if [ "$(pnpm --version 2>/dev/null || true)" = "$PNPM_VERSION" ]; then
-  echo "pnpm ${PNPM_VERSION} deja present."
-else
-  command -v corepack >/dev/null || die "corepack introuvable alors qu'il est livre avec Node ${NODE_VERSION}."
-  # --install-directory : force le shim a cote du node courant, sinon un shim
-  # systeme prioritaire dans le PATH peut masquer la version qu'on active.
-  shim_dir="$(dirname "$(command -v node)")"
-  # Mais si Node vient du systeme (/usr/bin/node), ce dossier n'est pas
-  # inscriptible sans root et corepack echoue en EACCES. On se rabat alors sur
-  # un dossier utilisateur, place en tete du PATH pour la duree du script.
-  if [ ! -w "$shim_dir" ]; then
-    shim_dir="$HOME/.local/bin"
-    mkdir -p "$shim_dir"
-    export PATH="$shim_dir:$PATH"
-    echo "Node est installe au niveau systeme (dossier non inscriptible) :"
-    echo "shim pnpm place dans ${shim_dir}. Ajoutez-le a votre PATH pour le"
-    echo "retrouver dans vos autres terminaux."
-  fi
-  corepack enable --install-directory "$shim_dir"
-  corepack prepare "pnpm@${PNPM_VERSION}" --activate
-  hash -r
-  echo "pnpm $(pnpm --version) actif."
-fi
-
-step "Installation des dependances (backend + frontend)"
-pnpm run install:all
-
-step "Build"
-pnpm run build
-
+# --------------------------------------------------------------------------
+# Build et demarrage
+# --------------------------------------------------------------------------
 if [ "$BUILD_ONLY" = 1 ]; then
+  step "Construction des images"
+  $DOCKER compose build
   step "Build termine."
   exit 0
 fi
 
-step "Demarrage : API sur :3000, frontend sur :4000 (Ctrl+C pour arreter)"
-exec pnpm run start
+step "Construction des images et demarrage de la stack"
+info "Le premier appel construit deux images : comptez quelques minutes."
+$DOCKER compose up --build -d
+
+# --------------------------------------------------------------------------
+# Attente
+# --------------------------------------------------------------------------
+# C'est cette etape qui fait la difference entre « le script a rendu la main »
+# et « l'application repond ». Les migrations sont jouees par l'entrypoint du
+# backend : un backend healthy signifie qu'elles sont passees.
+health_of() {
+  local id; id="$($DOCKER compose ps -q "$1" 2>/dev/null || true)"
+  [ -n "$id" ] || { echo "absent"; return; }
+  $DOCKER inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$id" 2>/dev/null || echo absent
+}
+
+step "Attente des services (migrations comprises)"
+waited=0
+while :; do
+  pending=""
+  for service in $SERVICES; do
+    case "$(health_of "$service")" in
+      healthy|running) ;;
+      *) pending="$pending $service" ;;
+    esac
+  done
+  [ -z "$pending" ] && break
+
+  if [ "$waited" -ge "$HEALTH_TIMEOUT" ]; then
+    printf '\n'
+    $DOCKER compose ps
+    for service in $pending; do
+      printf '\n--- %s ---\n' "$service"
+      $DOCKER compose logs --tail=50 "$service"
+    done
+    die "services toujours pas prets apres ${HEALTH_TIMEOUT}s :$pending"
+  fi
+
+  printf '.'
+  sleep 2
+  waited=$((waited + 2))
+done
+printf '\n'
+info "db, backend, frontend, proxy : healthy."
+
+# Les healthchecks sondent depuis l'interieur des conteneurs. Ils prouvent que
+# nginx sert, pas que la publication du port fonctionne depuis la machine —
+# or c'est cela, le contrat. Verification cote hote, en bash pur : si curl est
+# la on va jusqu'au code HTTP, sinon on se contente d'ouvrir la connexion.
+if command -v curl >/dev/null; then
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:$HTTP_PORT/" || echo 000)"
+  [ "$code" = "200" ] || die "le portail ne repond pas depuis la machine (HTTP $code sur le port $HTTP_PORT)."
+  info "Le portail repond depuis la machine (HTTP 200)."
+elif timeout 5 bash -c "exec 3<>/dev/tcp/127.0.0.1/$HTTP_PORT" 2>/dev/null; then
+  info "Le portail accepte les connexions sur le port $HTTP_PORT."
+else
+  die "le port $HTTP_PORT n'accepte aucune connexion alors que les services sont sains."
+fi
+
+# Seed du compte avocat de demonstration et d'une demande. Le script reste muet
+# tant que le seed n'existe pas dans l'image (issues A2/B1) : il n'y a rien a
+# faire pour l'utilisateur, donc rien a afficher.
+if $DOCKER compose exec -T backend sh -c '[ -f dist/seed.js ]' 2>/dev/null; then
+  step "Donnees de demonstration"
+  $DOCKER compose exec -T backend node dist/seed.js
+fi
+
+cat <<BANNER
+
+  ============================================================
+   Le portail est demarre.
+
+     Portail   http://127.0.0.1:$HTTP_PORT
+     API       http://127.0.0.1:$HTTP_PORT/api
+
+   Arreter :   docker compose down
+   Journaux :  docker compose logs -f
+  ============================================================
+
+BANNER

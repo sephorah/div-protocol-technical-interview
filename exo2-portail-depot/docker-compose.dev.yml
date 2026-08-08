@@ -14,9 +14,9 @@ services:
     image: postgres:17-alpine
     init: true
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:?definir POSTGRES_USER dans .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?definir POSTGRES_PASSWORD dans .env}
-      POSTGRES_DB: ${POSTGRES_DB:?definir POSTGRES_DB dans .env}
+      POSTGRES_USER: ${DB_USER:?definir DB_USER dans .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?definir DB_PASSWORD dans .env}
+      POSTGRES_DB: ${DB_NAME:?definir DB_NAME dans .env}
     ports:
       # 127.0.0.1 explicitement, jamais 0.0.0.0 : la machine de staging est
       # partagee, et meme en local une base ouverte sur le reseau n'a aucune
@@ -27,10 +27,11 @@ services:
       - pgdata_dev:/var/lib/postgresql/data
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
-      interval: 5s
+      interval: 30s
       timeout: 5s
-      retries: 12
-      start_period: 10s
+      retries: 5
+      start_period: 30s
+      start_interval: 1s
     restart: unless-stopped
 
 volumes:

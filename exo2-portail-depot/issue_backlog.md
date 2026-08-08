@@ -16,15 +16,15 @@ docker compose + proxy nginx, lint bloquant des deux côtés) est déjà en plac
 
 ## Épique A — Socle & infrastructure
 
-### A1. Base de données et couche de persistance — P0
+### A1. Base de données et couche de persistance — P0 — **fait**
 
-Aucune base n'existe aujourd'hui. Choisir le SGBD (PostgreSQL conteneurisé) et l'ORM, brancher les
-migrations, ajouter le service au compose.
+PostgreSQL 17 conteneurisé + Prisma 7 (`@prisma/adapter-pg`), migrations jouées par
+`backend/docker-entrypoint.sh`, sonde `GET /health`.
 
-- [ ] Service `db` dans le compose, volume nommé, healthcheck
-- [ ] ORM configuré côté NestJS, connexion lue depuis l'env
-- [ ] Migrations versionnées, jouées au démarrage
-- [ ] Un `docker compose up` sur machine vierge donne un schéma prêt
+- [x] Service `db` dans le compose, volume nommé, healthcheck
+- [x] ORM configuré côté NestJS, connexion lue depuis l'env
+- [x] Migrations versionnées, jouées au démarrage
+- [x] Un `docker compose up` sur machine vierge donne un schéma prêt
 
 Dépendances : aucune. **Bloque A2, B1, B2, C1, C2.**
 

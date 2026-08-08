@@ -5,10 +5,10 @@
     "test",
     "dist",
     "**/*spec.ts",
-    // prisma.config.js est du JavaScript lu uniquement par le CLI Prisma.
+    // prisma.config.ts n'est lu que par le CLI Prisma, qui le charge via jiti.
     // S'il entrait dans la compilation, le rootDir deduit par tsc passerait de
     // src/ a la racine du paquet : la sortie deviendrait dist/src/main.js et
-    // `node dist/main` ne trouverait plus rien.
-    "prisma.config.js"
+    // `node dist/main` ne trouverait plus rien. C'est arrive une fois.
+    "prisma.config.ts"
   ]
 }

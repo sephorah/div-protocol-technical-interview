@@ -1,80 +1,103 @@
 import { validateEnv } from './env.validation';
 
-/**
- * Ces cas sont ceux qui ont motive le remplacement de la regex par un vrai
- * `new URL` : chacun passait l'ancienne validation et echouait plus tard,
- * dans le driver, avec un message sans rapport visible avec la configuration.
- */
 describe('validateEnv', () => {
-  const valide = 'postgresql://user:motdepasse@db:5432/portail_depot';
+  const db = {
+    DB_HOST: 'db',
+    DB_PORT: '5432',
+    DB_USER: 'portail',
+    DB_PASSWORD: 'motdepasse',
+    DB_NAME: 'portail_depot',
+  };
 
-  it('accepte une URL PostgreSQL complete', () => {
-    expect(validateEnv({ DATABASE_URL: valide })).toMatchObject({
-      DATABASE_URL: valide,
+  it('construit DATABASE_URL a partir des DB_*', () => {
+    expect(validateEnv({ ...db })).toMatchObject({
+      DATABASE_URL: 'postgresql://portail:motdepasse@db:5432/portail_depot',
     });
   });
 
-  it('accepte le protocole court postgres://', () => {
-    expect(() =>
-      validateEnv({ DATABASE_URL: 'postgres://user:p@db:5432/portail' }),
-    ).not.toThrow();
+  it('preserve les autres variables', () => {
+    expect(validateEnv({ ...db, JWT_SECRET: 'x' })).toMatchObject({
+      JWT_SECRET: 'x',
+    });
   });
 
-  it('preserve les autres variables et supprime les espaces', () => {
-    expect(
-      validateEnv({ DATABASE_URL: `  ${valide}  `, JWT_SECRET: 'x' }),
-    ).toEqual({ DATABASE_URL: valide, JWT_SECRET: 'x' });
+  it('supprime les espaces autour des valeurs', () => {
+    expect(validateEnv({ ...db, DB_HOST: '  db  ' })).toMatchObject({
+      DATABASE_URL: 'postgresql://portail:motdepasse@db:5432/portail_depot',
+    });
   });
 
-  it.each([
-    ['absente', undefined],
-    ['vide', ''],
-    ['blanche', '   '],
-  ])('refuse une DATABASE_URL %s', (_cas, valeur) => {
-    expect(() => validateEnv({ DATABASE_URL: valeur })).toThrow(
-      /absente ou vide/,
-    );
+  /**
+   * Le cas qui a motive tout ce module : une URL concatenee dans le compose
+   * devenait inanalysable, ici elle est simplement encodee.
+   */
+  it('accepte un mot de passe contenant des caracteres reserves', () => {
+    const result = validateEnv({ ...db, DB_PASSWORD: 'pa/ss#1?x' });
+
+    expect(() => new URL(result.DATABASE_URL as string)).not.toThrow();
   });
 
-  it('refuse un protocole qui n est pas PostgreSQL', () => {
-    expect(() =>
-      validateEnv({ DATABASE_URL: 'mysql://user:p@db:3306/portail' }),
-    ).toThrow(/protocole PostgreSQL/);
-  });
-
-  it('refuse une URL sans base de donnees', () => {
-    expect(() =>
-      validateEnv({ DATABASE_URL: 'postgresql://user:p@db:5432' }),
-    ).toThrow(/aucune base de donnees/);
-  });
-
-  it('refuse une URL sans hote', () => {
-    // Le cas produit par une DATABASE_URL tronquee : l ancienne regex
-    // `^postgres(ql)?:\/\/.+` l acceptait.
-    expect(() =>
-      validateEnv({ DATABASE_URL: 'postgresql:///portail' }),
-    ).toThrow(/aucun hote/);
-  });
-
-  it.each(['pa/ss', 'pa#ss', 'pa?ss'])(
-    'refuse un mot de passe non encode contenant un caractere reserve (%s)',
-    (motDePasse) => {
-      // C est ce que produit docker-compose.yml quand POSTGRES_PASSWORD
-      // contient un de ces caracteres : l URL devient inanalysable.
-      expect(() =>
-        validateEnv({
-          DATABASE_URL: `postgresql://user:${motDePasse}@db:5432/portail`,
-        }),
-      ).toThrow(/encode-URL/);
+  it.each(['DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'])(
+    'refuse une configuration sans %s',
+    (key) => {
+      expect(() => validateEnv({ ...db, [key]: '' })).toThrow(
+        new RegExp(`absentes ou vides.*${key}`),
+      );
     },
   );
 
-  it('ne recopie jamais la valeur dans le message d erreur', () => {
-    const secret = 'mysql://avocat:MotDePasseTresSecret@db:3306/portail';
+  it.each(['0', '70000', 'abc', '5432.5'])(
+    'refuse un DB_PORT invalide (%s)',
+    (port) => {
+      expect(() => validateEnv({ ...db, DB_PORT: port })).toThrow(
+        /DB_PORT n'est pas un port valide/,
+      );
+    },
+  );
 
-    expect(() => validateEnv({ DATABASE_URL: secret })).toThrow(
+  describe('DATABASE_URL fournie explicitement', () => {
+    const url = 'postgresql://user:pwd@ailleurs:5432/managed';
+
+    it('l emporte sur les DB_* (base managee, base de CI)', () => {
+      expect(validateEnv({ ...db, DATABASE_URL: url })).toMatchObject({
+        DATABASE_URL: url,
+      });
+    });
+
+    it('dispense des DB_*', () => {
+      expect(() => validateEnv({ DATABASE_URL: url })).not.toThrow();
+    });
+
+    it('refuse un protocole qui n est pas PostgreSQL', () => {
+      expect(() =>
+        validateEnv({ DATABASE_URL: 'mysql://user:p@db:3306/portail' }),
+      ).toThrow(/protocole PostgreSQL/);
+    });
+
+    it('refuse une URL sans base de donnees', () => {
+      expect(() =>
+        validateEnv({ DATABASE_URL: 'postgresql://user:p@db:5432' }),
+      ).toThrow(/aucune base de donnees/);
+    });
+
+    it('refuse une URL sans hote', () => {
+      expect(() =>
+        validateEnv({ DATABASE_URL: 'postgresql:///portail' }),
+      ).toThrow(/aucun hote/);
+    });
+  });
+
+  it('ne recopie jamais un secret dans le message d erreur', () => {
+    expect(() =>
+      validateEnv({
+        ...db,
+        DB_PORT: '',
+        DB_PASSWORD: 'MotDePasseTresSecret',
+        JWT_SECRET: 'SecretDeJetonTresSecret',
+      }),
+    ).toThrow(
       expect.objectContaining({
-        message: expect.not.stringContaining('MotDePasseTresSecret') as string,
+        message: expect.not.stringMatching(/TresSecret/) as string,
       }) as Error,
     );
   });

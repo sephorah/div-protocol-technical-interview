@@ -3,14 +3,17 @@
  * fichiers de test — et donc AppModule — ne soient importes.
  *
  * C'est necessaire : `ConfigModule.forRoot()` s'evalue au moment ou le
- * decorateur @Module est lu, c'est-a-dire a l'import. Poser la variable dans
+ * decorateur @Module est lu, c'est-a-dire a l'import. Poser les variables dans
  * un `beforeAll` arrive trop tard, la validation a deja echoue.
  *
  * Consequence voulue : la suite ne depend d'aucun fichier .env, et tourne donc
  * a l'identique sur un poste, sur une machine vierge et en CI.
  *
- * Cette URL n'ouvre aucune connexion : PrismaService est remplace par un
+ * Ces valeurs n'ouvrent aucune connexion : PrismaService est remplace par un
  * double dans chaque suite.
  */
-process.env.DATABASE_URL =
-  'postgresql://test:test@127.0.0.1:5432/portail_depot_test';
+process.env.DB_HOST = '127.0.0.1';
+process.env.DB_PORT = '5432';
+process.env.DB_USER = 'test';
+process.env.DB_PASSWORD = 'test';
+process.env.DB_NAME = 'portail_depot_test';

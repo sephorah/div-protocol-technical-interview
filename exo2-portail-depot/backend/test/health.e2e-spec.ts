@@ -20,7 +20,7 @@ describe('HealthController (e2e)', () => {
   let app: INestApplication<App>;
   const queryRaw = jest.fn();
 
-  const creerApp = async (): Promise<void> => {
+  const createApp = async (): Promise<void> => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -41,7 +41,7 @@ describe('HealthController (e2e)', () => {
 
   beforeEach(async () => {
     queryRaw.mockReset();
-    await creerApp();
+    await createApp();
   });
 
   afterEach(async () => {
@@ -79,13 +79,13 @@ describe('HealthController (e2e)', () => {
       new Error('password authentication failed for user "portail" at db:5432'),
     );
 
-    const reponse = await request(app.getHttpServer())
+    const response = await request(app.getHttpServer())
       .get('/health')
       .expect(503);
-    const corps = JSON.stringify(reponse.body);
+    const body = JSON.stringify(response.body);
 
-    expect(corps).not.toContain('password');
-    expect(corps).not.toContain('portail');
-    expect(corps).not.toContain('5432');
+    expect(body).not.toContain('password');
+    expect(body).not.toContain('portail');
+    expect(body).not.toContain('5432');
   });
 });
