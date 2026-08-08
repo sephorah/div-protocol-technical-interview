@@ -37,6 +37,33 @@ services:
     restart: unless-stopped
     # Aucun port publie : la base n'est joignable que par le reseau interne.
 
+  minio:
+    # Tag fige, et fige a cette release precisement : les images communautaires
+    # posterieures a mai 2025 ont retire la console web. Un `latest` ferait
+    # disparaitre l'interface d'administration du jour au lendemain, sans qu'une
+    # seule ligne du depot ait change.
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    init: true
+    command: server /data --console-address ":9001"
+    environment:
+      # Ces identifiants sont ceux de l'API : c'est elle qui cree le bucket au
+      # demarrage. `install.sh` les genere aleatoirement.
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:?definir STORAGE_ACCESS_KEY dans .env}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:?definir STORAGE_SECRET_KEY dans .env}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://127.0.0.1:9000/minio/health/live']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+      start_interval: 1s
+    restart: unless-stopped
+    # Aucun port publie : la machine est PARTAGEE. Une console MinIO ouverte,
+    # ce sont toutes les pieces des clients de l'avocat. Seul
+    # docker-compose.dev.yml publie, sur 127.0.0.1.
+
   backend:
     build: ./backend
     init: true
@@ -59,6 +86,13 @@ services:
       DB_USER: ${DB_USER:?definir DB_USER dans .env}
       DB_PASSWORD: ${DB_PASSWORD:?definir DB_PASSWORD dans .env}
       DB_NAME: ${DB_NAME:?definir DB_NAME dans .env}
+      # Meme logique que DB_HOST : .env vise le MinIO de `pnpm dev` sur
+      # 127.0.0.1:21690, ici c'est le nom du service sur le reseau interne.
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_REGION: ${STORAGE_REGION:?definir STORAGE_REGION dans .env}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:?definir STORAGE_BUCKET dans .env}
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:?definir STORAGE_ACCESS_KEY dans .env}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:?definir STORAGE_SECRET_KEY dans .env}
     depends_on:
       db:
         # Postgres accepte les connexions plusieurs secondes apres que son
@@ -66,6 +100,10 @@ services:
         # echoue au premier boot et l'API redemarre en boucle jusqu'a ce que
         # ca passe — un demarrage qui finit par marcher n'est pas un
         # demarrage qui marche.
+        condition: service_healthy
+      minio:
+        # ensureBucket() tourne dans onModuleInit : un MinIO pas encore pret
+        # ferait echouer le demarrage de l'API, pas seulement le premier upload.
         condition: service_healthy
     healthcheck:
       # L'image n'a ni curl ni wget ; node 22 fournit fetch nativement.
@@ -140,3 +178,6 @@ services:
 
 volumes:
   pgdata:
+  # Volume distinct de minio_data_dev, comme pgdata l'est de pgdata_dev : un
+  # nettoyage de developpement ne doit pas pouvoir atteindre les pieces reelles.
+  minio_data:

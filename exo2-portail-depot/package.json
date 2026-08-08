@@ -19,6 +19,7 @@
     "start:frontend": "pnpm -C frontend run start",
     "test": "pnpm -C backend run test",
     "test:e2e": "pnpm -C backend run test:e2e",
+    "test:integration": "pnpm -C backend run test:integration",
     "lint": "pnpm -C backend run lint && pnpm -C frontend run lint"
   },
   "packageManager": "pnpm@11.20.0"

@@ -12,3 +12,12 @@ allowBuilds:
   '@prisma/engines': true
   prisma: true
   unrs-resolver: true
+  # Transitifs de testcontainers (dockerode -> docker-modem -> ssh2), tous trois
+  # refuses : leurs scripts ne compilent que des accelerations natives
+  # optionnelles pour le transport SSH de dockerode, que nous n'utilisons pas —
+  # testcontainers passe par la socket unix locale. Refuser explicitement plutot
+  # que laisser pnpm avertir : la liste doit dire ce qui a ete decide, pas ce qui
+  # n'a pas encore ete regarde.
+  cpu-features: false
+  protobufjs: false
+  ssh2: false

@@ -18,7 +18,7 @@ cd "$(dirname "$0")"
 
 HTTP_PORT=21600           # port attribue, cible du proxy de la machine
 HEALTH_TIMEOUT=300        # secondes d'attente maximale des healthchecks
-SERVICES="db backend frontend proxy"
+SERVICES="db minio backend frontend proxy"
 
 # Toutes les commandes docker passent par $DOCKER : selon la machine, ce sera
 # `docker` ou `sudo docker` (voir la cascade d'installation plus bas).
@@ -230,25 +230,83 @@ set_env_value() {
   mv .env.tmp .env
 }
 
+# Vrai si la cle est absente de .env, ou presente avec une valeur vide.
+env_value_missing() {
+  ! grep -qE "^$1=." .env 2>/dev/null
+}
+
+# Ne renseigne la cle que si elle est vide : une valeur deja choisie par
+# l'utilisateur n'est jamais ecrasee. La forme `if` et non `&&` est volontaire :
+# `a && b` renverrait 1 quand la cle est deja remplie, ce que `set -e`
+# interpreterait comme un echec du script.
+set_env_default() {
+  if env_value_missing "$1"; then
+    set_env_value "$1" "$2"
+  fi
+}
+
+# Reporte dans .env les cles que .env.example a gagnees depuis sa creation.
+#
+# Sans cela, un .env genere avant l'ajout d'une variable requise reste perime :
+# `docker compose up` echoue sur `${VAR:?}` et le script ne rend plus la main en
+# 0, alors que c'est son contrat. Les commentaires de .env.example sont repris,
+# ils sont la documentation de la variable.
+# Ecrit le nombre de cles ajoutees sur la sortie standard ; le fichier, lui, est
+# modifie en place.
+append_missing_keys() {
+  local added=0 key
+  # Boucle alimentee par un heredoc et non par un pipe : `grep | while` execute
+  # la boucle dans un sous-shell, ou l'incrementation du compteur serait perdue.
+  while IFS= read -r key; do
+    [ -n "$key" ] || continue
+    grep -qE "^$key=" .env && continue
+    awk -v k="$key" '
+      # Accumule le bloc de commentaires en cours et ne l imprime qu avec la
+      # cle qu il documente.
+      /^#/ { block = block $0 "\n"; next }
+      $0 ~ "^" k "=" { printf "\n%s%s\n", block, $0; exit }
+      { block = "" }
+    ' .env.example >> .env
+    added=$((added + 1))
+  done <<EOF
+$(grep -oE '^[A-Z_][A-Z0-9_]*=' .env.example | tr -d '=')
+EOF
+  printf '%s\n' "$added"
+}
+
 step "Configuration (.env)"
+[ -f .env.example ] || die ".env.example est introuvable — le depot est incomplet."
+# umask avant toute ecriture : set_env_value passe par un fichier temporaire qui
+# contiendrait le mot de passe en clair et lisible par tous, meme une fraction
+# de seconde.
+umask 077
+
 if [ -f .env ]; then
-  info ".env existant : conserve tel quel."
+  added="$(append_missing_keys)"
+  if [ "$added" -gt 0 ]; then
+    info ".env existant : $added variable(s) ajoutee(s) depuis .env.example."
+  else
+    info ".env existant : deja complet, conserve tel quel."
+  fi
 else
-  [ -f .env.example ] || die ".env.example est introuvable — le depot est incomplet."
-  # umask avant toute ecriture : set_env_value passe par un fichier temporaire
-  # qui contiendrait le mot de passe en clair et lisible par tous, meme une
-  # fraction de seconde.
-  umask 077
   cp .env.example .env
-  set_env_value DB_USER portail
-  set_env_value DB_NAME portail_depot
-  set_env_value DB_PASSWORD "$(random_hex 32)"
-  set_env_value JWT_SECRET "$(random_hex 32)"
-  # chmod APRES les substitutions : set_env_value ecrit un fichier temporaire
-  # puis le deplace, ce qui reinitialiserait les permissions au umask.
-  chmod 600 .env
-  info ".env genere avec des secrets aleatoires (fichier gitignore, chmod 600)."
+  info ".env genere depuis .env.example."
 fi
+
+# Idempotent : ne remplit que ce qui est vide, donc rejouable sur un .env
+# partiel comme sur un .env neuf.
+set_env_default DB_USER portail
+set_env_default DB_NAME portail_depot
+set_env_default DB_PASSWORD "$(random_hex 32)"
+set_env_default JWT_SECRET "$(random_hex 32)"
+# Identifiants MinIO : l'API les utilise pour creer le bucket, et le conteneur
+# minio les recoit comme identifiants root. Une seule paire, deux lecteurs.
+set_env_default STORAGE_ACCESS_KEY "$(random_hex 16)"
+set_env_default STORAGE_SECRET_KEY "$(random_hex 32)"
+
+# chmod APRES les substitutions : set_env_value ecrit un fichier temporaire puis
+# le deplace, ce qui reinitialiserait les permissions au umask.
+chmod 600 .env
 
 # --------------------------------------------------------------------------
 # Build et demarrage
@@ -303,7 +361,9 @@ while :; do
   waited=$((waited + 2))
 done
 printf '\n'
-info "db, backend, frontend, proxy : healthy."
+# Derive de $SERVICES et non ecrit en dur : la liste avait cesse de mentionner
+# minio alors que la boucle l'attendait deja.
+info "$(echo "$SERVICES" | tr ' ' ',' | sed 's/,/, /g') : healthy."
 
 # Les healthchecks sondent depuis l'interieur des conteneurs. Ils prouvent que
 # nginx sert, pas que la publication du port fonctionne depuis la machine —

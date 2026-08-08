@@ -1,4 +1,4 @@
-# Developpement : la base seule.
+# Developpement : la base et le stockage objet.
 #
 # L'API et le front continuent de tourner sur la machine via `pnpm dev`, pour
 # garder le rechargement a chaud. Il n'y a deliberement pas d'image de dev.
@@ -34,5 +34,30 @@ services:
       start_interval: 1s
     restart: unless-stopped
 
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    init: true
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:?definir STORAGE_ACCESS_KEY dans .env}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:?definir STORAGE_SECRET_KEY dans .env}
+    ports:
+      # Meme regle que la base : 127.0.0.1 explicite, et dans la plage attribuee.
+      # 21690 est l'API S3 (ce que vise STORAGE_ENDPOINT en dev), 21691 la
+      # console web, utile pour verifier a l'oeil ce qu'un depot a ecrit.
+      - '127.0.0.1:21690:9000'
+      - '127.0.0.1:21691:9001'
+    volumes:
+      - minio_data_dev:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://127.0.0.1:9000/minio/health/live']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+      start_interval: 1s
+    restart: unless-stopped
+
 volumes:
   pgdata_dev:
+  minio_data_dev:

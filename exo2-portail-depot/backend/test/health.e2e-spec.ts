@@ -5,22 +5,25 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
+import { StorageService } from './../src/storage/storage.service';
 
 /**
- * What these tests prove: the probe's HTTP contract. A successful SQL
- * round-trip yields 200 { db: 'up' }, a failing one yields 503 { db: 'down' } --
- * not an optimistic 200, nor a 500 that would conflate the probe with an
- * application failure.
+ * What these tests prove: the probe's HTTP contract. Both dependencies
+ * answering yields 200, either one failing yields 503 naming which -- not an
+ * optimistic 200, nor a 500 that would conflate the probe with an application
+ * failure.
  *
- * What they do NOT prove: that connecting to a real Postgres works.
- * PrismaService is replaced by a double. The real chain is verified with
- * `docker compose up` + `curl /api/v1/health` (see ai-plans), and a dedicated
- * test database will come with D1, once business queries exist.
+ * What they do NOT prove: that connecting to a real Postgres or a real MinIO
+ * works. Both services are replaced by doubles. The real chain is verified by
+ * storage.int-spec.ts (testcontainers) and by `docker compose up` +
+ * `curl /api/v1/health` (see ai-plans); a dedicated test database will come with
+ * D1, once business queries exist.
  */
 describe('HealthController (e2e)', () => {
   let app: INestApplication<App>;
   let healthPath: string;
   const queryRaw = jest.fn();
+  const ping = jest.fn();
 
   const createApp = async (): Promise<void> => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -31,6 +34,15 @@ describe('HealthController (e2e)', () => {
         $queryRaw: queryRaw,
         $connect: jest.fn(),
         $disconnect: jest.fn(),
+      })
+      .overrideProvider(StorageService)
+      .useValue({
+        ping,
+        // ensureBucket is what onModuleInit calls: left real, it would try to
+        // reach MinIO on every app.init() of this suite.
+        ensureBucket: jest.fn(),
+        onModuleInit: jest.fn(),
+        onModuleDestroy: jest.fn(),
       })
       .compile();
 
@@ -52,6 +64,10 @@ describe('HealthController (e2e)', () => {
 
   beforeEach(async () => {
     queryRaw.mockReset();
+    ping.mockReset();
+    // Default: storage is up, so that each test only sets the failure it is
+    // about.
+    ping.mockResolvedValue(true);
     await createApp();
   });
 
@@ -59,20 +75,21 @@ describe('HealthController (e2e)', () => {
     await app.close();
   });
 
-  it('answers 200 { status: ok, db: up } when the database answers', async () => {
+  it('answers 200 when the database and the storage both answer', async () => {
     queryRaw.mockResolvedValue([{ '?column?': 1 }]);
 
     await request(app.getHttpServer())
       .get(healthPath)
       .expect(200)
-      .expect({ status: 'ok', db: 'up' });
+      .expect({ status: 'ok', db: 'up', storage: 'up' });
 
-    // The probe must actually query the database, not merely observe that the
-    // provider exists: the Prisma connection is lazy.
+    // The probe must actually query both, not merely observe that the providers
+    // exist: the Prisma connection is lazy and so is the S3 client.
     expect(queryRaw).toHaveBeenCalledTimes(1);
+    expect(ping).toHaveBeenCalledTimes(1);
   });
 
-  it('answers 503 { status: error, db: down } when the database is unreachable', async () => {
+  it('answers 503 { db: down } when the database is unreachable', async () => {
     queryRaw.mockRejectedValue(
       new Error('connect ECONNREFUSED 127.0.0.1:5432'),
     );
@@ -80,6 +97,33 @@ describe('HealthController (e2e)', () => {
     await request(app.getHttpServer()).get(healthPath).expect(503).expect({
       status: 'error',
       db: 'down',
+      storage: 'up',
+    });
+  });
+
+  it('answers 503 { storage: down } when the object storage is unreachable', async () => {
+    // A backend that cannot store anything is not healthy: every deposit would
+    // fail. This is also the signal F2 alerts on ("MinIO unreachable").
+    queryRaw.mockResolvedValue([{ '?column?': 1 }]);
+    ping.mockResolvedValue(false);
+
+    await request(app.getHttpServer()).get(healthPath).expect(503).expect({
+      status: 'error',
+      db: 'up',
+      storage: 'down',
+    });
+  });
+
+  it('reports both failures at once', async () => {
+    // Reporting only the first one would send whoever reads the probe after one
+    // of the two problems.
+    queryRaw.mockRejectedValue(new Error('down'));
+    ping.mockResolvedValue(false);
+
+    await request(app.getHttpServer()).get(healthPath).expect(503).expect({
+      status: 'error',
+      db: 'down',
+      storage: 'down',
     });
   });
 

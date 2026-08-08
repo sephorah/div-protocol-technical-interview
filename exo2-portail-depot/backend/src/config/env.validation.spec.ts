@@ -1,11 +1,23 @@
 import { validateEnv } from './env.validation';
 
 describe('validateEnv', () => {
-  const app = {
+  const storage = {
+    STORAGE_ENDPOINT: 'http://minio:9000',
+    STORAGE_REGION: 'us-east-1',
+    STORAGE_BUCKET: 'portail-depot',
+    STORAGE_ACCESS_KEY: 'access',
+    STORAGE_SECRET_KEY: 'secret',
+  };
+
+  // Application keys alone, without storage: the fixture the storage tests need
+  // in order to observe a configuration where the whole block is missing.
+  const appOnly = {
     PORT: '21610',
     API_PREFIX: '/api/v1',
     BIND_ADDRESS: '127.0.0.1',
   };
+
+  const app = { ...appOnly, ...storage };
 
   const db = {
     ...app,
@@ -150,6 +162,65 @@ describe('validateEnv', () => {
     });
   });
 
+  describe('object storage', () => {
+    it.each([
+      'STORAGE_ENDPOINT',
+      'STORAGE_REGION',
+      'STORAGE_BUCKET',
+      'STORAGE_ACCESS_KEY',
+      'STORAGE_SECRET_KEY',
+    ])('rejects a configuration without %s', (key) => {
+      expect(() => validateEnv({ ...db, [key]: '' })).toThrow(
+        new RegExp(`Storage variables missing or empty.*${key}`),
+      );
+    });
+
+    it('names every missing variable at once', () => {
+      // One restart per missing variable would be a poor way to discover a
+      // five-variable block.
+      expect(() => validateEnv({ ...appOnly })).toThrow(
+        /Storage variables missing or empty: STORAGE_ENDPOINT, STORAGE_REGION, STORAGE_BUCKET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY/,
+      );
+    });
+
+    it.each(['minio:9000', 'http://', '://minio'])(
+      'rejects an unusable STORAGE_ENDPOINT (%s)',
+      (endpoint) => {
+        expect(() =>
+          validateEnv({ ...db, STORAGE_ENDPOINT: endpoint }),
+        ).toThrow(/STORAGE_ENDPOINT/);
+      },
+    );
+
+    it('rejects a STORAGE_ENDPOINT that is not HTTP', () => {
+      expect(() =>
+        validateEnv({ ...db, STORAGE_ENDPOINT: 's3://minio:9000' }),
+      ).toThrow(/does not use the HTTP protocol/);
+    });
+
+    it.each(['Portail-Depot', 'ab', 'depot_portail', '-depot', 'depot-'])(
+      'rejects an invalid bucket name (%s)',
+      (bucket) => {
+        // A bucket name is only rejected by MinIO at CreateBucket, i.e. on the
+        // first real boot, long after the typo was written.
+        expect(() => validateEnv({ ...db, STORAGE_BUCKET: bucket })).toThrow(
+          /STORAGE_BUCKET is not a valid bucket name/,
+        );
+      },
+    );
+
+    it('survives an explicitly supplied DATABASE_URL', () => {
+      // That path returns early: forgetting to merge the storage keys into it
+      // would silently strip them from the configuration.
+      expect(
+        validateEnv({
+          ...app,
+          DATABASE_URL: 'postgresql://user:pwd@elsewhere:5432/managed',
+        }),
+      ).toMatchObject(storage);
+    });
+  });
+
   it('never copies a secret into the error message', () => {
     expect(() =>
       validateEnv({
@@ -157,6 +228,8 @@ describe('validateEnv', () => {
         DB_PORT: '',
         DB_PASSWORD: 'VerySecretPassword',
         JWT_SECRET: 'VerySecretToken',
+        STORAGE_BUCKET: 'INVALID',
+        STORAGE_SECRET_KEY: 'VerySecretStorageKey',
       }),
     ).toThrow(
       expect.objectContaining({
