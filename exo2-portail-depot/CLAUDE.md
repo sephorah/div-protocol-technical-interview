@@ -60,8 +60,11 @@ Layout:
 - `backend/` — NestJS API
 - `frontend/` — Vite SPA
 - `package.json` — root orchestration scripts (no app code)
-- `docker-compose.yml` — production stack: `db`, `backend`, `frontend`, `proxy`
-- `docker-compose.dev.yml` — **the database only**, for local `pnpm dev` (there is no dev image)
+- `infra/` — **all infrastructure, no application code** (A5): `docker-compose.yml` (production
+  stack: `db`, `minio`, `minio-init`, `backend`, `frontend`, `proxy`), `docker-compose.dev.yml`
+  (**database and storage only**, for local `pnpm dev` — there is no dev image), `nginx/nginx.conf`,
+  `minio/`. `prometheus/` (F1) and `grafana/` (F2) land here too. `infra/README.md` documents the
+  two non-obvious consequences of compose not being at the root — see § Docker.
 - `issue_backlog.md` — the backlog derived from the exercise statement; every feature branch
   should name the issue it closes
 - `README.md` — project title, staging subdomain, and a list of topics the final README must cover
@@ -116,7 +119,7 @@ secrets and error messages end up in aggregated logs.
 `encodeURIComponent`, and `validateEnv` exposes the result as `DATABASE_URL` so `PrismaService` and
 the Prisma CLI keep reading the single variable they expect. That is what makes **any** password
 work — the previous design wrote the URL whole in `.env` *and* re-concatenated it in
-`docker-compose.yml`, so a password containing `/`, `#` or `?` produced an invalid URL: `db` started
+`infra/docker-compose.yml`, so a password containing `/`, `#` or `?` produced an invalid URL: `db` started
 fine and `backend` failed with no visible link to the password. Between host and container only
 `DB_HOST`/`DB_PORT` differ, and compose overrides just those two.
 
@@ -124,6 +127,10 @@ A `DATABASE_URL` set explicitly still wins over the five variables — that is t
 managed or CI database. When it is used, it is *parsed* (`new URL`, then protocol / host / database
 name) rather than regex-matched, so a truncated `postgresql://x` is rejected at startup instead of
 failing later inside the driver.
+
+`.env` stays at the **repo root** even though the compose files moved to `infra/` — the API reads
+it too when it runs on the host, which is why every compose command carries `--env-file .env`
+(§ Docker).
 
 `.env` is resolved from `__dirname`, **not from the working directory** (`app.module.ts`). A
 relative `../.env` meant the parent of the *cwd*, so `node backend/dist/main` run from the repo
@@ -135,7 +142,8 @@ root either way.
 `:21610` (see § Ports and API prefix) and `frontend`'s `start` serves on `:4000` (4173 is vite
 preview's own port, 5173 is vite dev). In Docker each app has its own network namespace, so the
 frontend container still listens on
-`:3000` — that port lives in `frontend/Dockerfile` and `nginx.conf`, not in the `start` script.
+`:3000` — that port lives in `frontend/Dockerfile` and `infra/nginx/nginx.conf`, not in the
+`start` script.
 
 `dev` and `start` are `pnpm run "/^dev:/"` and `pnpm run "/^start:/"` — pnpm's regex form runs every
 matching script in the *same* package concurrently, with prefixed output. That is why the per-app
@@ -144,7 +152,8 @@ matching script in the *same* package concurrently, with prefixed output. That i
 apps are deliberately not a workspace.) Adding a new `dev:*` script wires it into `pnpm dev`
 automatically.
 
-Docker is driven with plain `docker compose` commands — see below.
+Docker is driven with `docker compose` commands, always from the repo root and always with both
+flags — see § Docker.
 
 From `backend/`:
 
@@ -210,8 +219,40 @@ treat a warning as work to do, not as a reason to widen an ignore.
 Production only — there is no dev image on purpose; local development is `pnpm dev`.
 
 ```bash
-docker compose up --build -d    # tout passe par le proxy sur 127.0.0.1:21600
+# depuis la racine, les deux drapeaux sont obligatoires (voir plus bas)
+docker compose -f infra/docker-compose.yml --env-file .env up --build -d
+pnpm stack:up                  # le meme, en plus court
+# tout passe par le proxy sur 127.0.0.1:21600
 ```
+
+**Both flags are load-bearing, and A5 is where that started.** Compose derives its *project
+directory* from the directory of the first `-f` file, and that is where it looks for `.env` and
+where it gets the project name from. Since the compose files live in `infra/`:
+
+- **`--env-file .env`** — otherwise compose looks for `infra/.env`, finds nothing, and every
+  `${VAR:?}` fails. `.env` stays at the root because the API reads it there too when it runs on the
+  host (`pnpm dev`, resolved from `__dirname`). **Never create `infra/.env`**: `install.sh` fills
+  only the root one, and a second secrets file that nobody populates fails in production only.
+  Verified: `docker compose --project-directory /tmp -f docker-compose.yml config`, run from a
+  directory that *does* have a `.env`, still fails on `required variable DB_NAME is missing` — the
+  cwd's `.env` is not consulted, only the project directory's.
+- **`name:` inside each compose file** — otherwise the project would be called `infra` and every
+  existing volume would go orphan. It also fixes a pre-existing bug: both files were at the root, so
+  both inherited the *same* project name. `pnpm db:up` while production was running did not start a
+  second stack — it recreated production's `db`/`minio`/`minio-init` with the dev config (empty
+  `_dev` volumes, two published ports) underneath a still-running `backend`. They are now
+  `exo2-portail-depot` and `exo2-portail-depot-dev`.
+
+Consequence: **relative paths inside those files are relative to `infra/`** — `../backend`,
+`./minio`, `./nginx/nginx.conf`. `--project-directory ..` was rejected for exactly that reason: it
+would restore root-relative paths inside a file that no longer lives at the root. The command is
+written once per consumer — `COMPOSE` in `install.sh`, the `stack:*`/`db:*` scripts, the final
+banner, `infra/README.md`.
+
+A misplaced `nginx.conf` mount is the **silent** failure mode of any move here: nginx then serves
+its default welcome page, `wget /` still returns 200, `proxy` goes healthy and `install.sh` reports
+success. What catches it is `curl http://127.0.0.1:21600/api/v1/health` returning **403** — the
+`deny all` rule only exists in our file.
 
 Both Dockerfiles are two-stage, each building from **its own directory** (`build: ./backend`), with
 its own `.dockerignore`. Paths inside are unprefixed (`dist/`, `node_modules/`).
@@ -252,7 +293,8 @@ toolchain: no `nest`/`tsc` in the backend image, no `vite` in the frontend one. 
 served by `serve -s dist` — the `-s` flag is what gives the SPA its history fallback, so deep links
 like `/depot/<token>` resolve instead of 404ing. Both run as the image's `node` user (uid 1000).
 
-`proxy` (stock `nginx:alpine` with `nginx.conf` bind-mounted) is the **only published port**:
+`proxy` (stock `nginx:alpine` with `infra/nginx/nginx.conf` bind-mounted) is the **only published
+port**:
 `127.0.0.1:21600:80` for everything. Both halves of that are load-bearing — the staging machine is
 **shared with other candidates**, so the bind address is explicit (a bare `21600:80` would listen
 on `0.0.0.0` and expose the whole portal, database included via `/api`), and 21600 is the assigned
@@ -262,12 +304,13 @@ backend, stripping the `/api` prefix via the trailing slash in `proxy_pass`. `db
 origin, **no CORS configuration is needed** — keep it that way when adding real API calls: hit
 `/api/...` as a relative URL rather than an absolute backend host.
 
-`/api/v1/health` is deliberately **`deny all`** in `nginx.conf` (an exact-match `location =`, which
+`/api/v1/health` is deliberately **`deny all`** in `infra/nginx/nginx.conf` (an exact-match
+`location =`, which
 nginx evaluates before prefix locations). The probe's consumers are all on the internal network —
 the backend's own Docker healthcheck hits `127.0.0.1:21610/api/v1/health` inside its container, and F1's
 Prometheus will too. Published, it would only tell a scanner which dependency is down. To read
 it by hand:
-`docker compose exec backend node -e "fetch('http://127.0.0.1:21610/api/v1/health').then(r=>r.text()).then(console.log)"`.
+`docker compose -f infra/docker-compose.yml --env-file .env exec backend node -e "fetch('http://127.0.0.1:21610/api/v1/health').then(r=>r.text()).then(console.log)"`.
 
 The probe answers `{ status, db, storage }` and **503 if either dependency is down**, not just the
 database. Both checks run in `Promise.all`, so a Postgres outage cannot mask a MinIO one in the
@@ -314,7 +357,7 @@ already covers it, since `backend` depends on it completing.
 — a `migrate reset` or a cleanup aimed at development must not be able to reach production data, or
 production's deposited files.
 
-**No MinIO port is published in production.** Only `docker-compose.dev.yml` publishes, on
+**No MinIO port is published in production.** Only `infra/docker-compose.dev.yml` publishes, on
 `127.0.0.1` and inside the assigned range: `21690` for the S3 API (what `STORAGE_ENDPOINT` targets
 during `pnpm dev`) and `21691` for the console. The machine is shared — an open MinIO console is
 every client's documents.
@@ -341,7 +384,16 @@ group membership is only read at login, so `usermod -aG` cannot help the current
 Debian/Ubuntu. After install, if neither `systemctl` nor `service` exists (containers, WSL without
 systemd), the script starts `dockerd` itself.
 
-Three details that are easy to undo by accident:
+**Every compose call goes through `$DOCKER compose $COMPOSE`**, where
+`COMPOSE="-f infra/docker-compose.yml --env-file .env"` — one variable, seven call sites (`ps`,
+`build`, `up`, `logs`, `exec`, and the two inside `port_is_ours`/`health_of`). Missing one is not a
+syntax error: that call would silently target a *different* project (compose would look for a
+compose file in the cwd, find none, and either fail or answer about nothing), so `port_is_ours`
+would stop recognising our own proxy. The only deliberate exception is `compose_v2_present`, which
+probes `docker compose version` and must not need a file. `cd "$(dirname "$0")"` at the top is what
+makes both relative paths valid regardless of the caller's cwd.
+
+Four details that are easy to undo by accident:
 
 - **`chmod 600 .env` must come after the value substitutions.** `set_env_value` writes a temp file
   and moves it into place, which resets the mode to the umask. Doing it before leaves `.env` at 644.
@@ -357,10 +409,15 @@ Three details that are easy to undo by accident:
   this, a `.env` predating A3 made `docker compose up` fail on `${STORAGE_ACCESS_KEY:?}` — the script
   stopped honouring "exit 0 means the portal answers". Note `set_env_default` uses `if`, not `&&`:
   `a && b` returns 1 when the key is already filled, which `set -e` would read as a script failure.
+- **The final banner must stay in raw docker commands.** It prints
+  `docker compose -f infra/docker-compose.yml --env-file .env down`, not `pnpm stack:down`: the
+  script no longer installs Node or pnpm, so the banner cannot tell the grader to run a pnpm script
+  they may not have. The heredoc is unquoted (`<<BANNER`), which is what interpolates `$COMPOSE` —
+  quoting the delimiter would print the variable name.
 
 **Adding a required variable therefore means touching three files together**: `.env.example` (the
 key and its documentation), `install.sh` (a `set_env_default` if it is a secret), and
-`docker-compose.yml` (the `${VAR:?}` entry). `set_env_value` exits 3 if the key is absent from
+`infra/docker-compose.yml` (the `${VAR:?}` entry). `set_env_value` exits 3 if the key is absent from
 `.env.example`, which is the guard against doing only two of the three.
 
 Measured (this machine): **2 min 11 s** cold with Docker present, **4 min 33 s** on a truly bare
@@ -497,7 +554,8 @@ made the API reachable around the proxy on a shared machine. It is `127.0.0.1` o
 `0.0.0.0` in the container (isolated network, no published port, and nginx must reach the service).
 
 Three files freeze these values and must change together, since nginx does not read the
-environment: `.env`, `nginx.conf` and the `healthcheck` in `docker-compose.yml`. In `nginx.conf`,
+environment: `.env`, `infra/nginx/nginx.conf` and the `healthcheck` in `infra/docker-compose.yml`.
+In `nginx.conf`,
 `proxy_pass http://backend:21610` carries **no trailing slash** — a trailing slash would strip the
 prefix Nest now serves itself, and everything would 404. The `deny all` rule targets
 `= /api/v1/health`: desynchronising it breaks nothing visible, it just makes the probe public

@@ -1,12 +1,36 @@
 # Production. En dev, on lance `pnpm dev` a la racine, avec la base seule
 # montee par docker-compose.dev.yml.
 #
+#   docker compose -f infra/docker-compose.yml --env-file .env up -d
+#
+# Depuis la RACINE du depot, et les deux drapeaux sont necessaires :
+#
+# - `--env-file .env` : compose cherche son .env dans le repertoire de projet,
+#   qu'il deduit du dossier du premier `-f` — donc infra/ ici. Or le .env vit a
+#   la racine, parce que `pnpm dev` fait tourner l'API sur la machine et que
+#   app.module.ts l'y resout depuis __dirname. Sans ce drapeau, toutes les
+#   variables sont manquantes et `${VAR:?}` fait echouer le demarrage.
+# - `name:` ci-dessous : sans lui, le nom du projet serait « infra » (le dossier
+#   du fichier), et tous les volumes existants deviendraient orphelins.
+#
+# Les chemins relatifs de ce fichier sont donc relatifs a infra/, pas a la
+# racine. `pnpm stack:up` / `stack:down` / `stack:logs` evitent de la retaper.
+#
 # PORT et API_PREFIX viennent du .env et valent la meme chose ici que sur la
 # machine : 21610 est dans la plage attribuee (21600-21699), donc rien
 # n'oblige a une valeur differente en conteneur, et une valeur unique supprime
 # une source d'erreur. Ils sont aussi ecrits en dur dans nginx.conf (qui ne lit
 # pas l'environnement) et dans le healthcheck ci-dessous : les changer suppose
 # de changer ces trois endroits ensemble.
+#
+# Nom fige, et non deduit du dossier : il l'etait, et changer de dossier de
+# checkout — ce que fera la machine de production en A6 — aurait suffi a rendre
+# invisibles les volumes de la stack precedente. Distinct de celui de
+# docker-compose.dev.yml : les deux fichiers partageaient le meme, si bien qu'un
+# `pnpm db:up` pendant que la production tourne recreait db et minio avec la
+# configuration de dev (volumes vides, ports publies) sous le nez du backend.
+name: exo2-portail-depot
+
 services:
   db:
     image: postgres:17-alpine
@@ -65,7 +89,7 @@ services:
     # docker-compose.dev.yml publie, sur 127.0.0.1.
 
   # Provisionne le stockage (bucket, policy, utilisateur restreint) puis sort.
-  # Le detail et sa justification sont dans infra/minio/provision.sh.
+  # Le detail et sa justification sont dans minio/provision.sh.
   #
   # `restart: "no"` est indispensable : la valeur par defaut relancerait en
   # boucle un conteneur qui a reussi.
@@ -82,12 +106,13 @@ services:
       STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:?definir STORAGE_ACCESS_KEY dans .env}
       STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:?definir STORAGE_SECRET_KEY dans .env}
     volumes:
-      - ./infra/minio:/infra:ro
+      - ./minio:/infra:ro
     entrypoint: ['/bin/bash', '/infra/provision.sh']
     restart: 'no'
 
   backend:
-    build: ./backend
+    # Contexte relatif a ce fichier, donc a infra/ : voir l'en-tete.
+    build: ../backend
     init: true
     environment:
       NODE_ENV: production
@@ -155,7 +180,7 @@ services:
     # Aucun port publie : seul le proxy joint les services, par le reseau interne.
 
   frontend:
-    build: ./frontend
+    build: ../frontend
     init: true
     healthcheck:
       # Meme technique que le backend : l'image n'a ni curl ni wget, node 22
@@ -188,7 +213,7 @@ services:
       # sur :8080.
       - '127.0.0.1:21600:80'
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     healthcheck:
       # busybox wget est present dans nginx:alpine. Le proxy en bonne sante est
       # la seule chose qui prouve que le portail repond a l'exterieur : c'est

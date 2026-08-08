@@ -89,13 +89,28 @@ PDF/JPG/PNG), ce sont des constantes de C2 et non de la configuration de déploi
 de validité par défaut non plus : B2 en fait une entrée du formulaire. Aucun SMTP : l'énoncé ne
 mentionne aucun envoi de mail.
 
-### A5. Réorganisation `infra/` — P0
+### A5. Réorganisation `infra/` — P0 — **fait**
 
-L'énoncé impose `infra/` (compose, Prometheus, Grafana, reverse proxy). Aujourd'hui
-`docker-compose.yml` et `nginx.conf` sont à la racine.
+L'énoncé impose `infra/` (compose, Prometheus, Grafana, reverse proxy). Les deux fichiers compose et
+`nginx.conf` y sont passés, `nginx.conf` sous `infra/nginx/` — comme `infra/minio/`, pour que A7
+(TLS) et F1/F2 (`prometheus/`, `grafana/`) s'ajoutent sans un second déplacement.
 
-- [ ] Déplacer compose + `nginx.conf` sous `infra/`, ajuster les chemins de build et `install.sh`
-- [ ] Vérifier que `./install.sh` reste one-click après déplacement
+- [x] Déplacer compose + `nginx.conf` sous `infra/`, ajuster les chemins de build et `install.sh`
+- [x] Vérifier que `./install.sh` reste one-click après déplacement
+
+Le déplacement n'est pas un `git mv` : compose déduit son **répertoire de projet** du dossier du
+premier `-f`, donc son `.env` et son nom de projet. D'où deux ajouts, documentés dans
+`infra/README.md` :
+
+- `--env-file .env` sur chaque appel — le `.env` reste à la racine, où `pnpm dev` le lit aussi ;
+- `name:` explicite dans chaque fichier, sans quoi le projet s'appellerait `infra` et tous les
+  volumes existants deviendraient orphelins.
+
+**Hors périmètre initial, réparé ici** : les deux fichiers compose étant à la racine, ils
+partageaient le même nom de projet. Un `pnpm db:up` pendant que la production tournait recréait donc
+`db` et `minio` de production avec la configuration de dev — volumes vides et ports 21632/21690/21691
+publiés — sous un `backend` toujours en marche. Les noms sont désormais `exo2-portail-depot` et
+`exo2-portail-depot-dev`.
 
 ### A6. Image Docker publiée sur registre et tirée en production — P0
 

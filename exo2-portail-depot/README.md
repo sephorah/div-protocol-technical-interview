@@ -15,7 +15,16 @@ que le portail répond. Il n'y a rien à faire ensuite, et rien à lire ici pour
 Le portail est alors sur **http://127.0.0.1:21600**.
 
 Comptez ~2 min si Docker est déjà présent, ~4 min sinon. Les appels suivants prennent quelques
-secondes. `docker compose down` arrête tout.
+secondes.
+
+L'infrastructure vit dans `infra/` (compose, reverse proxy, provisionnement du stockage). Les
+fichiers compose n'étant pas à la racine, la commande porte deux drapeaux — `infra/README.md`
+explique pourquoi aucun des deux n'est facultatif :
+
+```bash
+docker compose -f infra/docker-compose.yml --env-file .env down     # ou pnpm stack:down
+docker compose -f infra/docker-compose.yml --env-file .env logs -f  # ou pnpm stack:logs
+```
 
 ## Développement
 
@@ -36,14 +45,16 @@ compose le surcharge à `0.0.0.0` dans le conteneur, dont le réseau est isolé 
 
 ## Configuration
 
-Un seul fichier, `.env` à la racine, lu à la fois par `docker compose` et par l'API. `.env.example`
+Un seul fichier, `.env` à la racine — et à la racine même si le compose est dans `infra/`, parce que
+l'API le lit aussi quand elle tourne sur la machine (`pnpm dev`) : d'où le `--env-file .env` des
+commandes ci-dessus. Il est lu à la fois par `docker compose` et par l'API. `.env.example`
 en est la documentation ; `./install.sh` le génère et tire au sort les secrets. **Rien n'a de valeur
 de repli dans le code** : une variable manquante fait échouer le démarrage en la nommant, plutôt que
 de faire écouter le service au mauvais endroit ou de démarrer Postgres sans mot de passe.
 
 | Variable | Secret | Défaut | Rôle |
 |---|---|---|---|
-| `PORT`, `API_PREFIX` | non | `21610`, `/api/v1` | écrites **aussi en dur** dans `nginx.conf` et le healthcheck du compose : les changer suppose de changer les trois ensemble |
+| `PORT`, `API_PREFIX` | non | `21610`, `/api/v1` | écrites **aussi en dur** dans `infra/nginx/nginx.conf` et le healthcheck du compose : les changer suppose de changer les trois ensemble |
 | `BIND_ADDRESS` | non | `127.0.0.1` | interface d'écoute. Le compose la surcharge à `0.0.0.0` dans le conteneur, dont le réseau est isolé |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | mot de passe | — | l'URL de connexion est **assemblée** à partir d'elles, avec `encodeURIComponent` : n'importe quel mot de passe fonctionne |
 | `DATABASE_URL` | oui | *(vide)* | facultative, l'emporte sur les cinq précédentes — l'échappatoire pour une base managée ou de CI |
