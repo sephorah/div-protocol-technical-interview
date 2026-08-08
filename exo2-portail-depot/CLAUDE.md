@@ -43,8 +43,10 @@ Early scaffold with three real pieces of infrastructure. `backend/` is NestJS 11
 Vite + React 19 (default `react-ts` template). Issues **A1, A2 and A3 are done**: PostgreSQL 17 +
 Prisma 7, migrations applied at container start, a `GET /api/v1/health` probe, the full domain
 model with its crypto primitives (`src/crypto/secrets.ts`), and containerised MinIO behind an S3
-`StorageService`. There is still **no business module and no controller** beyond health — no auth
-(B1), no request creation (B2), no upload route (C2), no CI.
+`StorageService`. **A6 is done too**: the images are built and published to GHCR by a workflow, and
+the production stack pulls them. There is still **no business module and no controller** beyond
+health — no auth (B1), no request creation (B2), no upload route (C2), and no CI running lint or
+tests (D3 — the only workflow so far publishes images).
 Regenerate this file (`/init`) once the business modules exist.
 
 **pnpm is the package manager** in both apps (`pnpm-lock.yaml` is the source of truth) — do not run
@@ -61,10 +63,14 @@ Layout:
 - `frontend/` — Vite SPA
 - `package.json` — root orchestration scripts (no app code)
 - `infra/` — **all infrastructure, no application code** (A5): `docker-compose.yml` (production
-  stack: `db`, `minio`, `minio-init`, `backend`, `frontend`, `proxy`), `docker-compose.dev.yml`
-  (**database and storage only**, for local `pnpm dev` — there is no dev image), `nginx/nginx.conf`,
-  `minio/`. `prometheus/` (F1) and `grafana/` (F2) land here too. `infra/README.md` documents the
-  two non-obvious consequences of compose not being at the root — see § Docker.
+  stack: `db`, `minio`, `minio-init`, `backend`, `frontend`, `proxy` — **pulls, never builds**),
+  `docker-compose.build.yml` (the build layer, A6), `docker-compose.dev.yml` (**database and storage
+  only**, for local `pnpm dev` — there is no dev image), `nginx/nginx.conf`, `minio/`.
+  `prometheus/` (F1) and `grafana/` (F2) land here too. This directory plus `.env` is the whole of
+  what lives on the staging machine. `infra/README.md` documents the compose flags, the registry and
+  the deployment — see § Docker and § Images and registry.
+- `.github/workflows/` — **at the root of the git repository, one level up from this folder**:
+  `exo2-publish-images.yml` builds and publishes the two images (A6).
 - `issue_backlog.md` — the backlog derived from the exercise statement; every feature branch
   should name the issue it closes
 - `README.md` — project title, staging subdomain, and a list of topics the final README must cover
@@ -220,10 +226,13 @@ Production only — there is no dev image on purpose; local development is `pnpm
 
 ```bash
 # depuis la racine, les deux drapeaux sont obligatoires (voir plus bas)
-docker compose -f infra/docker-compose.yml --env-file .env up --build -d
-pnpm stack:up                  # le meme, en plus court
+docker compose -f infra/docker-compose.yml --env-file .env pull && \
+docker compose -f infra/docker-compose.yml --env-file .env up -d
+pnpm stack:pull && pnpm stack:up   # les memes, en plus court
 # tout passe par le proxy sur 127.0.0.1:21600
 ```
+
+**Since A6 the production compose builds nothing — it pulls** (see § Images and registry).
 
 **Both flags are load-bearing, and A5 is where that started.** Compose derives its *project
 directory* from the directory of the first `-f` file, and that is where it looks for `.env` and
@@ -254,8 +263,12 @@ its default welcome page, `wget /` still returns 200, `proxy` goes healthy and `
 success. What catches it is `curl http://127.0.0.1:21600/api/v1/health` returning **403** — the
 `deny all` rule only exists in our file.
 
-Both Dockerfiles are two-stage, each building from **its own directory** (`build: ./backend`), with
-its own `.dockerignore`. Paths inside are unprefixed (`dist/`, `node_modules/`).
+Both Dockerfiles are two-stage, each building from **its own directory**, with its own
+`.dockerignore`. Paths inside are unprefixed (`dist/`, `node_modules/`). The `build:` keys no longer
+live in `infra/docker-compose.yml` — they moved to `infra/docker-compose.build.yml` (§ Images and
+registry). The backend's `.dockerignore` also excludes `**/*.spec.ts`: `test/` only covered the e2e
+suites, and the runtime image copies `src/config/`, so two colocated spec files were shipping in a
+now-public image.
 
 **Runtime images contain no pnpm and no corepack**; the entrypoints are
 `backend/docker-entrypoint.sh` (which runs `prisma migrate deploy` then `exec node dist/main`) and
@@ -362,6 +375,54 @@ production's deposited files.
 during `pnpm dev`) and `21691` for the console. The machine is shared — an open MinIO console is
 every client's documents.
 
+## Images and registry (A6)
+
+`infra/docker-compose.yml` **pulls, it does not build**:
+`ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}:${IMAGE_TAG:-0.1.0}`. That is what makes
+`infra/` + `.env` a complete deployment unit, which is the statement's requirement — no source code
+on the staging machine. The workflow that publishes lives at
+**`.github/workflows/exo2-publish-images.yml`, at the root of the git repository
+(`div-protocol-internship/`), not in this folder**, and its `context:` is therefore
+`exo2-portail-depot/backend`.
+
+Six things are non-obvious:
+
+- **`IMAGE_TAG`'s default is written in the compose file, deliberately not in `.env`.** The version
+  belongs to the code, not to the machine. In `.env`, `install.sh` would never rewrite it
+  (`set_env_default` only fills empties), so a machine would stay pinned to a stale version with
+  nothing to signal it — and it would drag in the three-file rule (`.env.example`, `install.sh`,
+  compose). Overriding still works, and that is the rollback: `IMAGE_TAG=0.1.0 … up -d`.
+- **`infra/docker-compose.build.yml` is the only place a `build:` survives**, and it must never be
+  named `docker-compose.override.yml`: compose loads that name **automatically** whenever it sits in
+  the project directory, so a stack everyone believes is pulled would silently build. It keeps the
+  base file's `image:`, which tags the local build under the GHCR name — docker then prefers the
+  local image and the *production* compose starts offline. That is what `./install.sh --from-source`
+  does, and it is the only way to try the production compose before publishing: only `build` gets
+  the extra `-f`, `pull`/`up`/`ps`/`logs`/`exec` stay on the production file alone.
+- **The base file stays first in the `-f` order**: it sets the project directory, so reversing them
+  shifts every relative path.
+- **GHCR rather than Docker Hub.** `GITHUB_TOKEN` authenticates the run with no secret to store,
+  permissions are the repository's, and Docker Hub caps anonymous pulls at **100 per 6 h per IP** —
+  the staging machine is shared with other candidates, so its IP is too.
+- **A GHCR package is born private**, inherits the repository's permissions but **not** its
+  visibility, and no API endpoint changes that. Both packages must be flipped to *Public* by hand,
+  once. The account-wide default (*Packages → Package creation*) is deliberately not used: it would
+  apply to every future package of the account, private repositories included. Public visibility is
+  what avoids storing a registry credential on a shared machine.
+- **Actions are pinned to commit SHAs**, version in a comment: the job holds `packages: write`, and
+  a mutable `@v7` tag would put registry write access one upstream compromise away. There is no
+  `pull_request` trigger, for the same reason.
+
+Verification order matters: the local build catches *compose* mistakes (wrong image name, a variable
+lost with the `build:` key, a moved mount) in seconds and offline, but a locally rebuilt image is
+**not** the deployed artifact. Before tagging a version, run the image CI published —
+`IMAGE_TAG=sha-<short> docker compose -f infra/docker-compose.yml --env-file .env up -d`. That is
+why every push to `main` publishes a `sha-` tag alongside `edge`.
+
+Known trade-offs, both recorded in the README's limitations: `linux/amd64` only (emulating arm64
+under QEMU to compile `argon2` would take the job from ~3 min to ~15 min for a platform nobody
+deploys), and the production pins a **tag**, which is mutable — only a digest identifies content.
+
 ## install.sh
 
 The graders' very first test is `git clone` on a bare machine, `./install.sh`, wait. "If we have to
@@ -373,6 +434,16 @@ script is silent about it.
 It does one thing — the docker stack. Node/nvm/corepack bootstrapping was **removed**, not moved:
 the build happens inside the images, so installing Node would make the grader wait for nothing.
 `pnpm db:up && pnpm dev` is the development path and assumes Node 22 + pnpm 11 are present.
+
+**Since A6 the nominal path builds nothing**: `pull`, then `up -d`. The `pull` is its own step
+rather than a side effect of `up` so that its failure can be *explained* — `up` would only say
+`manifest unknown`. **A failed pull stops the script**; it does not fall back to building, because
+the staging machine has no sources and the fallback would only hide which of the three real causes
+applies (package still private, `IMAGE_TAG` does not exist, registry unreachable). For the same
+reason the script must **never** test for the existence of `backend/` or `frontend/` — a production
+checkout has neither, and that is the acceptance criterion. `--from-source` replaced the old
+`--build`, whose consumer was a CI that the GitHub Actions workflow now is; it adds the build layer
+to the `build` command **only**, so what then starts is the production compose alone.
 
 Docker is handled as a **cascade**, because a bare machine may not have it and `install.sh` cannot
 install a system daemon without root: already usable → root → passwordless sudo → sudo with one
@@ -386,7 +457,8 @@ systemd), the script starts `dockerd` itself.
 
 **Every compose call goes through `$DOCKER compose $COMPOSE`**, where
 `COMPOSE="-f infra/docker-compose.yml --env-file .env"` — one variable, seven call sites (`ps`,
-`build`, `up`, `logs`, `exec`, and the two inside `port_is_ours`/`health_of`). Missing one is not a
+`pull`, `up`, `logs`, `exec`, and the two inside `port_is_ours`/`health_of`). `COMPOSE_BUILD` adds
+the build layer and is used by the single `build` call. Missing one is not a
 syntax error: that call would silently target a *different* project (compose would look for a
 compose file in the cwd, find none, and either fail or answer about nothing), so `port_is_ours`
 would stop recognising our own proxy. The only deliberate exception is `compose_v2_present`, which
@@ -397,7 +469,8 @@ Four details that are easy to undo by accident:
 
 - **`chmod 600 .env` must come after the value substitutions.** `set_env_value` writes a temp file
   and moves it into place, which resets the mode to the umask. Doing it before leaves `.env` at 644.
-- **Port 21600 is checked before the build**, otherwise the failure arrives minutes late. A port held
+- **Port 21600 is checked before the images are fetched**, otherwise the failure arrives after the
+  download (or, with `--from-source`, minutes late). A port held
   by *our own* proxy is not a conflict (compose recreates it), or a second `./install.sh` would fail
   against itself. But that check must come **after** the `.env` step: `port_is_ours` shells out to
   `docker compose ps`, which cannot parse a `.env` missing a `${VAR:?}` variable. With the order
@@ -413,7 +486,9 @@ Four details that are easy to undo by accident:
   `docker compose -f infra/docker-compose.yml --env-file .env down`, not `pnpm stack:down`: the
   script no longer installs Node or pnpm, so the banner cannot tell the grader to run a pnpm script
   they may not have. The heredoc is unquoted (`<<BANNER`), which is what interpolates `$COMPOSE` —
-  quoting the delimiter would print the variable name.
+  quoting the delimiter would print the variable name. That interpolation is also why `COMPOSE` must
+  keep pointing at the production file alone: folding the build layer into it would print a `down`
+  command mentioning a file the staging machine does not have.
 
 **Adding a required variable therefore means touching three files together**: `.env.example` (the
 key and its documentation), `install.sh` (a `set_env_default` if it is a secret), and
@@ -434,6 +509,12 @@ in kind. Measured after A3, volumes destroyed and backend rebuilt for the new de
 A5 moved the compose files but changed no build stage. Re-measured after it: **13,2 s** with images
 cached, **3,9 s** with the stack already up, and **4 min 14 s** on a bare machine, Docker install
 included — the figures hold.
+
+**A6 removed the build from the nominal path**, which is the change of order of magnitude announced
+above: the cold run is now a download, not two `pnpm install` plus two `tsc`. Measured after A6:
+`--from-source` on warm layers **14,6 s** (that path still builds, it is the pre-publication check).
+The figures for the pull path are recorded in `ai-plans/2026-08-08-a6-images-publiees.md` — they can
+only be taken once the packages are public, and they replace the "2 min 11 s" above.
 
 The bare-machine path can only be exercised in a container, so it is the most likely to rot. Run it
 against `git archive HEAD`, not the working tree: a file left out of `git add` shows up there and is

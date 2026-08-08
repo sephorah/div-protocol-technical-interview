@@ -16,6 +16,13 @@
 # Les chemins relatifs de ce fichier sont donc relatifs a infra/, pas a la
 # racine. `pnpm stack:up` / `stack:down` / `stack:logs` evitent de la retaper.
 #
+# Depuis A6, ce fichier ne CONSTRUIT plus rien : backend et frontend sont tires
+# de GHCR, ou le workflow .github/workflows/exo2-publish-images.yml les publie.
+# Il ne reste ici que de la configuration (nginx.conf, minio/), donc infra/ et
+# .env suffisent a faire tourner le portail — c'est le critere « aucun code
+# source sur la machine ». Pour construire en local, il y a le calque
+# docker-compose.build.yml, jamais charge sans un `-f` explicite.
+#
 # PORT et API_PREFIX viennent du .env et valent la meme chose ici que sur la
 # machine : 21610 est dans la plage attribuee (21600-21699), donc rien
 # n'oblige a une valeur differente en conteneur, et une valeur unique supprime
@@ -111,8 +118,17 @@ services:
     restart: 'no'
 
   backend:
-    # Contexte relatif a ce fichier, donc a infra/ : voir l'en-tete.
-    build: ../backend
+    # Aucune section `build` : ce fichier ne sait que TIRER. C'est ce qui rend
+    # infra/ deployable seul, sans une ligne de code source sur la machine.
+    # Pour construire en local (verifier ce fichier avant de publier), il y a
+    # le calque docker-compose.build.yml — `./install.sh --from-source`.
+    #
+    # IMAGE_TAG a son defaut ICI et pas dans .env : la version appartient au
+    # code, pas a la machine. Dans .env, install.sh ne la reecrirait jamais
+    # (set_env_default ne remplit que le vide) et une machine resterait epinglee
+    # a une version perimee sans que rien ne le signale. La surcharger reste
+    # possible, et c'est le rollback : IMAGE_TAG=0.1.0 docker compose ... up -d
+    image: ghcr.io/sephorah/exo2-portail-depot-backend:${IMAGE_TAG:-0.1.0}
     init: true
     environment:
       NODE_ENV: production
@@ -180,7 +196,10 @@ services:
     # Aucun port publie : seul le proxy joint les services, par le reseau interne.
 
   frontend:
-    build: ../frontend
+    # Meme tag que le backend, et c'est voulu : les deux images sont publiees
+    # par le meme run, depuis le meme commit. Un tag par image permettrait de
+    # deployer un front et une API issus de commits differents.
+    image: ghcr.io/sephorah/exo2-portail-depot-frontend:${IMAGE_TAG:-0.1.0}
     init: true
     healthcheck:
       # Meme technique que le backend : l'image n'a ni curl ni wget, node 22

@@ -8,14 +8,16 @@ Sous-domaine : https://sephorah-aniambossou.stage2-div.rayan-drissi.com
 ./install.sh
 ```
 
-C'est tout. Le script installe Docker s'il manque, génère la configuration et ses secrets,
-construit les images, monte la stack, applique les migrations, et n'affiche les URLs qu'une fois
+C'est tout. Le script installe Docker s'il manque, génère la configuration et ses secrets, **tire
+les images publiées**, monte la stack, applique les migrations, et n'affiche les URLs qu'une fois
 que le portail répond. Il n'y a rien à faire ensuite, et rien à lire ici pour y arriver.
 
 Le portail est alors sur **http://127.0.0.1:21600**.
 
-Comptez ~2 min si Docker est déjà présent, ~4 min sinon. Les appels suivants prennent quelques
-secondes.
+Rien n'est compilé sur place : les images sont construites par le CI et publiées sur
+[GHCR](https://github.com/sephorah?tab=packages). `./install.sh --from-source` construit en local à
+la place — utile pour essayer le compose de production avant de publier, et impossible sur la
+machine de staging, qui n'a pas le code source.
 
 L'infrastructure vit dans `infra/` (compose, reverse proxy, provisionnement du stockage). Les
 fichiers compose n'étant pas à la racine, la commande porte deux drapeaux — `infra/README.md`
@@ -25,6 +27,12 @@ explique pourquoi aucun des deux n'est facultatif :
 docker compose -f infra/docker-compose.yml --env-file .env down     # ou pnpm stack:down
 docker compose -f infra/docker-compose.yml --env-file .env logs -f  # ou pnpm stack:logs
 ```
+
+**La machine de production ne contient aucun code source** : seuls `infra/`, `.env` et
+`install.sh` y vivent, et le compose de production ne sait que *tirer* les images
+(`ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}`). Le déploiement se fait par
+`git sparse-checkout` — voir `infra/README.md` §&nbsp;Déploiement. Déployer une version précise, ou
+revenir en arrière, tient dans une variable : `IMAGE_TAG=0.1.0`.
 
 ## Développement
 

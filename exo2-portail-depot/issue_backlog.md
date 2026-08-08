@@ -114,9 +114,9 @@ publiés — sous un `backend` toujours en marche. Les noms sont désormais `exo
 
 ### A6. Image Docker publiée sur registre et tirée en production — P0
 
-- [ ] Build et push des images backend + frontend (GHCR ou Docker Hub), tag versionné
-- [ ] Un compose de production qui **pull** les images (aucune section `build`)
-- [ ] Zéro code source sur la machine de prod : seuls compose, nginx, `.env` y vivent
+- [x] Build et push des images backend + frontend (GHCR ou Docker Hub), tag versionné
+- [x] Un compose de production qui **pull** les images (aucune section `build`)
+- [x] Zéro code source sur la machine de prod : seuls compose, nginx, `.env` y vivent
 
 Dépendances : A5.
 

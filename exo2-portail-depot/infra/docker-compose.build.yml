@@ -1,0 +1,40 @@
+# Calque de construction locale. JAMAIS utilise en production.
+#
+#   ./install.sh --from-source
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.build.yml \
+#                  --env-file .env build
+#
+# A quoi il sert. Depuis A6, docker-compose.yml ne sait que tirer les images de
+# GHCR : l'essayer sans rien publier demanderait de publier d'abord, c'est-a-dire
+# de tester en production. Ce fichier construit les memes images EN LEUR DONNANT
+# LE NOM GHCR ; docker ne va pas chercher au registre ce qu'il a deja en local,
+# donc `docker compose -f infra/docker-compose.yml up` seul remonte ensuite toute
+# la stack, hors ligne, avec exactement le fichier qui tournera sur la machine.
+# Ce qu'on verifie ainsi, ce n'est pas le code (les tests s'en chargent) : c'est
+# le compose — nom d'image, variables toujours passees apres le retrait du
+# `build:`, montages, depends_on.
+#
+# Ce n'est pas la verification finale pour autant : une image reconstruite en
+# local n'est pas l'artefact deploye (autre instant, autre cache, autre index de
+# paquets). Avant de poser un tag de version, on fait tourner l'image que le CI a
+# publiee : IMAGE_TAG=sha-<court> docker compose -f infra/docker-compose.yml up -d
+#
+# Le fichier ne s'appelle PAS docker-compose.override.yml : compose charge ce
+# nom-la automatiquement des qu'il est present dans le repertoire de projet, et
+# une stack qu'on croit tirer se mettrait a construire en silence. Un nom neutre
+# n'agit que passe en `-f`.
+#
+# L'ordre des `-f` n'est pas libre : docker-compose.yml doit rester PREMIER,
+# c'est lui qui fixe le repertoire de projet (infra/) dont dependent tous les
+# chemins relatifs.
+name: exo2-portail-depot
+
+services:
+  backend:
+    # Contexte relatif a infra/, comme les autres chemins de ces fichiers.
+    # `image:` n'est pas repete : il vient du fichier de base par fusion, et
+    # c'est precisement ce qui fait taguer le build local sous le nom GHCR.
+    build: ../backend
+
+  frontend:
+    build: ../frontend

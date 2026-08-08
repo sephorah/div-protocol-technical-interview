@@ -2,6 +2,13 @@ node_modules
 dist
 test
 *.log
+# Tests colocalises. `test/` couvrait les suites e2e, pas ceux-la : le
+# Dockerfile copie src/config/ dans l'image finale (prisma.config.ts en importe
+# buildDatabaseUrl), et embarquait donc deux .spec.ts. Sans consequence
+# fonctionnelle — tsconfig.build.json les exclut de la compilation — mais
+# l'image est publiee publiquement depuis A6, et une image de production ne
+# transporte pas ses tests.
+**/*.spec.ts
 # Client Prisma genere sur la machine. Le build le regenere de toute facon
 # (`pnpm build` = `prisma generate && nest build`), mais le laisser entrer dans
 # le contexte masquerait une generation qui ne tourne plus : l'image demarrerait
