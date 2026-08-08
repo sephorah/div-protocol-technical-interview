@@ -1,6 +1,5 @@
 import { Readable } from 'node:stream';
 import {
-  CreateBucketCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadBucketCommand,
@@ -52,7 +51,7 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit(): Promise<void> {
-    await this.ensureBucket();
+    await this.assertBucketExists();
   }
 
   onModuleDestroy(): void {
@@ -60,28 +59,37 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Creates the bucket if it is missing, and says nothing if it is already
-   * there.
+   * Checks that the bucket is there. It never creates it.
    *
-   * Runs at boot rather than in a one-shot `mc` container: the bucket then
-   * exists before Nest accepts a single request, with no ordering to arrange
-   * between two services.
+   * Provisioning belongs to `infra/minio/provision.sh`, run by the `minio-init`
+   * container: creating a bucket is an administrative act, and doing it here
+   * would force this service to hold MinIO's root credentials. Its own are
+   * restricted to this one bucket and carry no `s3:CreateBucket`.
+   *
+   * Failing instead of creating is also what catches a misspelt STORAGE_BUCKET.
+   * A service that created what it could not find would happily write to the
+   * wrong bucket, and everything would appear to work.
    */
-  async ensureBucket(): Promise<void> {
+  async assertBucketExists(): Promise<void> {
     try {
       await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
-      return;
     } catch (error) {
-      // Only a genuine absence justifies creating it. A 403 means the
-      // credentials are wrong, and creating a bucket would either fail or, on a
-      // permissive server, hide the real problem behind an empty bucket.
-      if (!this.isNotFound(error)) {
-        throw error;
+      // The two causes need different messages: they send whoever reads the
+      // startup failure to opposite places.
+      if (this.isNotFound(error)) {
+        throw new Error(
+          `Bucket "${this.bucket}" does not exist. Provisioning (minio-init) ` +
+            'has not run, or STORAGE_BUCKET does not name the provisioned bucket.',
+        );
       }
+      if (this.isForbidden(error)) {
+        throw new Error(
+          `Access to bucket "${this.bucket}" was denied. STORAGE_ACCESS_KEY / ` +
+            'STORAGE_SECRET_KEY are wrong, or the portail-app policy is not attached.',
+        );
+      }
+      throw error;
     }
-
-    await this.client.send(new CreateBucketCommand({ Bucket: this.bucket }));
-    this.logger.log(`Bucket "${this.bucket}" created`);
   }
 
   /**
@@ -201,10 +209,27 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
   private isNotFound(error: unknown): boolean {
     // MinIO answers HeadBucket with a bodyless 404, so the SDK cannot always
     // name the error: the status code is the only reliable signal.
-    const status = (error as { $metadata?: { httpStatusCode?: number } })
-      ?.$metadata?.httpStatusCode;
-    const name = (error as { name?: string })?.name;
+    return (
+      this.statusOf(error) === 404 ||
+      ['NotFound', 'NoSuchBucket'].includes(this.nameOf(error))
+    );
+  }
 
-    return status === 404 || name === 'NotFound' || name === 'NoSuchBucket';
+  private isForbidden(error: unknown): boolean {
+    return (
+      this.statusOf(error) === 403 ||
+      ['AccessDenied', 'Forbidden', 'InvalidAccessKeyId'].includes(
+        this.nameOf(error),
+      )
+    );
+  }
+
+  private statusOf(error: unknown): number | undefined {
+    return (error as { $metadata?: { httpStatusCode?: number } })?.$metadata
+      ?.httpStatusCode;
+  }
+
+  private nameOf(error: unknown): string {
+    return (error as { name?: string })?.name ?? '';
   }
 }

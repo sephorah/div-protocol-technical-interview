@@ -195,6 +195,73 @@ Pas de limite de taille ni de contrôle de type (C2), pas d'antivirus (C4), pas 
 d'utilisateur MinIO restreint (G3), pas de balayage des objets orphelins, pas de chiffrement au
 repos, pas de politique de rétention.
 
+## Révision du 2026-08-08 : le provisionnement quitte l'application
+
+**La décision « bucket créé au boot » ci-dessus a été renversée.** Interrogée sur la pratique de
+référence, la réponse honnête est que ce n'en était pas une : créer un bucket est un acte de
+provisionnement, au même titre que créer une base, et on ne laisse pas l'application provisionner son
+propre stockage. MinIO documente le sidecar `mc` comme motif standard ; en infrastructure réelle
+c'est du Terraform. Le tableau de décisions d'origine présentait un arbitrage de commodité —
+« testable », « un conteneur de moins » — comme la recommandation par défaut.
+
+Trois défauts en découlaient, dont deux non identifiés à l'époque :
+
+1. **Moindre privilège violé.** L'API détenait les identifiants root : une compromission donnait tout
+   le stockage. C'était le risque résiduel n°1, sous-pondéré.
+2. **Erreur de configuration invisible.** `STORAGE_BUCKET=portail-depot-old` est syntaxiquement
+   valide : l'API créait le mauvais bucket et tout « marchait » en écrivant à côté.
+3. **Bug latent multi-répliques** : deux `CreateBucket` concurrents renvoient
+   `BucketAlreadyOwnedByYou`, que `ensureBucket` ne traitait pas.
+
+### Ce qui a changé
+
+Un conteneur `minio-init` (image `minio/mc`, script `infra/minio/provision.sh`) crée le bucket, une
+policy limitée à ce seul bucket (`infra/minio/app-policy.json`) et l'utilisateur qui la porte, puis
+sort. `ensureBucket()` devient **`assertBucketExists()`** : `HeadBucket` seul, avec deux messages
+distincts selon que le bucket manque ou que l'accès est refusé — les deux causes envoient chercher à
+des endroits opposés.
+
+Les identifiants root passent dans `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD`, que le compose ne donne
+qu'à `minio` et `minio-init`. `STORAGE_ACCESS_KEY`/`SECRET_KEY` ne changent pas de nom et portent
+désormais l'utilisateur restreint : le constructeur de `StorageService` n'a pas bougé. **Le préfixe
+dit qui lit la variable.**
+
+### La preuve, dans la vraie stack
+
+```
+MINIO_ROOT_USER visible par le backend : undefined
+HeadBucket   -> OK
+CreateBucket -> refuse : AccessDenied
+ListBuckets  -> ["portail-depot"]
+```
+
+Sans ce contrôle, la révision n'aurait été qu'un déplacement de code. La suite d'intégration le
+rejoue aussi, et tourne désormais **sous la policy réelle** : elle lit le même `app-policy.json`,
+provisionne le conteneur éphémère avec, et pilote le service avec les identifiants restreints. Une
+permission oubliée échoue en Jest au lieu d'échouer au premier dépôt d'un avocat.
+
+`./install.sh` : exit 0, `minio-init` en `exited (0)`, 17 s depuis des volumes détruits, idempotent
+au second appel. Non-régression vérifiée : `/health` toujours 503 `storage: down` à l'arrêt de MinIO,
+aucun port MinIO sur l'hôte, `/api/v1/health` toujours 403 depuis l'extérieur.
+
+### Revue de code de la révision
+
+| # | Gravité | Constat | Suite donnée |
+|---|---|---|---|
+| 1 | **haute** | La vérification du port précédait la génération du `.env` ; or `port_is_ours` appelle `docker compose ps`, qui ne parse pas un `.env` incomplet | **Corrigé** : bloc Configuration déplacé avant bloc Port. Le symptôme était trompeur — « port 21600 déjà utilisé », en désignant notre propre proxy |
+| 2 | **haute** | Le `\|\| true` sur `policy attach` avalait aussi les vrais échecs, laissant l'utilisateur sans policy | **Corrigé** : en cas d'échec, on demande à MinIO ce que l'utilisateur porte réellement (`mc admin user info`, motif bash — l'image `mc` n'a pas `grep`) |
+| 3 | moyenne | Le commentaire affirmait que `attach` échoue si la policy est déjà attachée | **Corrigé** : mesuré sur le tag figé, il renvoie 0 ; minio#16897 datait de mc 2023. La garde reste, justifiée par le risque de changement de tag, pas par un bug actif |
+| 4 | faible | La suite d'intégration reproduit les étapes de `provision.sh` au lieu de l'invoquer | **Assumé** : l'artefact qui porte le risque, la policy, est bien partagé par lecture du même fichier |
+| 5 | faible | `minio-init` est dupliqué entre les deux composes | **Assumé** : les ancres YAML ne franchissent pas la frontière entre fichiers, et **A5** rouvre ces deux fichiers |
+
+### Risques résiduels après révision
+
+Le n°1 d'A3 est **levé**. Restent : les identifiants root vivent toujours dans `.env` (irréductible
+en compose — quelqu'un doit provisionner ; ce qui change est leur portée), et
+`s3:AbortMultipartUpload` n'est exercé par aucun test puisque `Upload` ne l'appelle qu'en cas
+d'échec. Inchangés : pas de limite de taille (**C2**), pas d'antivirus (**C4**), pas d'URL
+pré-signée (**G3**), pas de chiffrement au repos.
+
 ## Suite
 
 A3 débloque **C2**. Le chemin critique reste **B1 → B2**.
