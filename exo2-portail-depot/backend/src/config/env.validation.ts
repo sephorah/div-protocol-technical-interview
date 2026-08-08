@@ -36,7 +36,22 @@ const EXPECTED_URL = 'expected: postgresql://user:password@host:port/database';
  */
 const REQUIRED_APP_KEYS = ['PORT', 'API_PREFIX', 'BIND_ADDRESS'] as const;
 
+const REQUIRED_STORAGE_KEYS = [
+  'STORAGE_ENDPOINT',
+  'STORAGE_REGION',
+  'STORAGE_BUCKET',
+  'STORAGE_ACCESS_KEY',
+  'STORAGE_SECRET_KEY',
+] as const;
+
 const URL_PROTOCOLS = new Set(['postgres:', 'postgresql:']);
+
+const HTTP_PROTOCOLS = new Set(['http:', 'https:']);
+
+// Regles de nommage S3, que MinIO applique aussi : minuscules, 3 a 63
+// caracteres, bornes alphanumeriques. Verifiees ici parce qu'un nom invalide ne
+// se manifesterait qu'au CreateBucket du premier demarrage reel.
+const BUCKET_PATTERN = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 
 const formatError = (issues: string[]): string =>
   `Invalid environment configuration:\n  - ${issues.join('\n  - ')}\n` +
@@ -129,11 +144,71 @@ const inspectApp = (
   return { PORT: port, API_PREFIX: prefix, BIND_ADDRESS: bindAddress };
 };
 
+/**
+ * Checks the object storage configuration and returns the normalised values.
+ *
+ * Like the application keys, these are checked on both database paths: whether
+ * DATABASE_URL is supplied or assembled says nothing about where uploaded files
+ * are meant to go, and the API cannot accept a deposit without a bucket.
+ */
+const inspectStorage = (
+  raw: Record<string, unknown>,
+  issues: string[],
+): Record<(typeof REQUIRED_STORAGE_KEYS)[number], string> => {
+  const missing = REQUIRED_STORAGE_KEYS.filter(
+    (key) => readString(raw, key).length === 0,
+  );
+  if (missing.length > 0) {
+    issues.push(`Storage variables missing or empty: ${missing.join(', ')}.`);
+  }
+
+  const endpoint = readString(raw, 'STORAGE_ENDPOINT');
+  if (!missing.includes('STORAGE_ENDPOINT')) {
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(endpoint);
+    } catch {
+      parsed = null;
+    }
+
+    if (parsed === null) {
+      issues.push(
+        'STORAGE_ENDPOINT is not a parseable URL (expected: http://host:port).',
+      );
+    } else if (!HTTP_PROTOCOLS.has(parsed.protocol)) {
+      issues.push(
+        'STORAGE_ENDPOINT does not use the HTTP protocol (expected: http://host:port).',
+      );
+    }
+    // No "names no host" check, unlike inspectUrl: http and https are WHATWG
+    // "special" schemes, so a hostless URL either throws or has its first path
+    // segment promoted to host. The branch would be dead code. `postgresql:` is
+    // not special, which is why the check is reachable there.
+  }
+
+  const bucket = readString(raw, 'STORAGE_BUCKET');
+  if (!missing.includes('STORAGE_BUCKET') && !BUCKET_PATTERN.test(bucket)) {
+    issues.push(
+      'STORAGE_BUCKET is not a valid bucket name (lowercase, 3 to 63 characters, ' +
+        'letters, digits, dots and hyphens, starting and ending with a letter or a digit).',
+    );
+  }
+
+  return {
+    STORAGE_ENDPOINT: endpoint,
+    STORAGE_REGION: readString(raw, 'STORAGE_REGION'),
+    STORAGE_BUCKET: bucket,
+    STORAGE_ACCESS_KEY: readString(raw, 'STORAGE_ACCESS_KEY'),
+    STORAGE_SECRET_KEY: readString(raw, 'STORAGE_SECRET_KEY'),
+  };
+};
+
 export const validateEnv = (
   raw: Record<string, unknown>,
 ): Record<string, unknown> => {
   const issues: string[] = [];
   const app = inspectApp(raw, issues);
+  const storage = inspectStorage(raw, issues);
 
   // An explicitly supplied DATABASE_URL wins: that is what makes it possible to
   // target a managed or CI database without rewriting five variables.
@@ -147,7 +222,7 @@ export const validateEnv = (
     if (issues.length > 0) {
       throw new Error(formatError(issues));
     }
-    return { ...raw, ...app, DATABASE_URL: explicitUrl };
+    return { ...raw, ...app, ...storage, DATABASE_URL: explicitUrl };
   }
 
   const missing = REQUIRED_DB_KEYS.filter(
@@ -179,5 +254,11 @@ export const validateEnv = (
 
   // DATABASE_URL is exposed to the rest of the application: PrismaService and
   // the Prisma CLI keep reading the single variable they expect.
-  return { ...raw, ...env, ...app, DATABASE_URL: buildDatabaseUrl(env) };
+  return {
+    ...raw,
+    ...env,
+    ...app,
+    ...storage,
+    DATABASE_URL: buildDatabaseUrl(env),
+  };
 };
