@@ -404,11 +404,19 @@ Six things are non-obvious:
 - **GHCR rather than Docker Hub.** `GITHUB_TOKEN` authenticates the run with no secret to store,
   permissions are the repository's, and Docker Hub caps anonymous pulls at **100 per 6 h per IP** —
   the staging machine is shared with other candidates, so its IP is too.
-- **A GHCR package is born private**, inherits the repository's permissions but **not** its
-  visibility, and no API endpoint changes that. Both packages must be flipped to *Public* by hand,
-  once. The account-wide default (*Packages → Package creation*) is deliberately not used: it would
-  apply to every future package of the account, private repositories included. Public visibility is
-  what avoids storing a registry credential on a shared machine.
+- **Check the packages' visibility, never assume it.** GitHub's documentation says a personal
+  package is born *private* and inherits the repository's permissions but **not** its visibility.
+  Observed on the first push: both packages were anonymously pullable straight away (verified with
+  an anonymous registry token, no docker credentials involved). Either way the check is
+  `docker logout ghcr.io && docker pull …` — a 403 is indistinguishable from a missing image. If it
+  fails, flip **each** package in its own settings; do **not** use the account-wide default
+  (*Packages → Package creation*), which would apply to every future package of the account,
+  private repositories included. Public visibility is what avoids storing a registry credential on
+  a shared machine, and costs nothing here since the repository is public.
+- **`metadata-action` also publishes a `latest` tag** on a version tag (`flavor: latest=auto`).
+  Nothing pins it — the compose pins `IMAGE_TAG` — and it is left enabled because it tracks the
+  newest release on its own. Do not point production at it, for the same reason `edge` exists and
+  is unused there.
 - **Actions are pinned to commit SHAs**, version in a comment: the job holds `packages: write`, and
   a mutable `@v7` tag would put registry write access one upstream compromise away. There is no
   `pull_request` trigger, for the same reason.
@@ -510,11 +518,12 @@ A5 moved the compose files but changed no build stage. Re-measured after it: **1
 cached, **3,9 s** with the stack already up, and **4 min 14 s** on a bare machine, Docker install
 included — the figures hold.
 
-**A6 removed the build from the nominal path**, which is the change of order of magnitude announced
-above: the cold run is now a download, not two `pnpm install` plus two `tsc`. Measured after A6:
-`--from-source` on warm layers **14,6 s** (that path still builds, it is the pre-publication check).
-The figures for the pull path are recorded in `ai-plans/2026-08-08-a6-images-publiees.md` — they can
-only be taken once the packages are public, and they replace the "2 min 11 s" above.
+**A6 removed the build from the nominal path**, and the figures above are superseded. Measured after
+publication: **2 min 02 s** on a truly bare machine, Docker install included (was 4 min 14 s),
+**35,3 s** when Docker is present and only the portal images are missing, **14,8 s** with everything
+cached. `--from-source` still builds and takes 13,2 s on warm layers — it is the pre-publication
+check, not the one-click. Publishing itself takes **1 min 56 s** in CI, off the grader's critical
+path entirely.
 
 The bare-machine path can only be exercised in a container, so it is the most likely to rot. Run it
 against `git archive HEAD`, not the working tree: a file left out of `git add` shows up there and is

@@ -14,6 +14,9 @@ que le portail répond. Il n'y a rien à faire ensuite, et rien à lire ici pour
 
 Le portail est alors sur **http://127.0.0.1:21600**.
 
+Comptez **~2 min sur une machine vierge**, installation de Docker comprise, **~35 s** si Docker est
+déjà là, et une quinzaine de secondes ensuite.
+
 Rien n'est compilé sur place : les images sont construites par le CI et publiées sur
 [GHCR](https://github.com/sephorah?tab=packages). `./install.sh --from-source` construit en local à
 la place — utile pour essayer le compose de production avant de publier, et impossible sur la

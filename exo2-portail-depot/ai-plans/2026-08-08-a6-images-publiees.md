@@ -128,20 +128,41 @@ Faite avant publication :
 7. `pnpm lint` (backend + frontend, tous deux bloquants), `pnpm test` **113 tests**, `pnpm test:e2e`
    **7 tests** — tous verts. Aucun code applicatif n'a changé, mais le contrat reste vrai.
 
-À faire après publication (ne peut pas l'être avant) :
+Faite après publication :
 
-8. Passer les deux paquets en *Public*, puis `docker logout ghcr.io && docker pull …` anonyme.
-9. `IMAGE_TAG=sha-<court> … up -d` : faire tourner l'artefact du CI, rejouer 4 et 5, **puis
-   seulement** poser `exo2-v0.1.0`.
-10. Parcours évaluateur chronométré (`docker system prune -a`, `./install.sh`) — le chiffre qui
-    remplace les 2 min 11 s.
-11. Parcours production : sparse-checkout dans un dossier vierge, `find . -name '*.ts' | wc -l` → 0,
-    `./install.sh`, portail qui répond.
+8. **Visibilité** : les deux paquets étaient tirables **anonymement dès le premier push**, sans la
+   manipulation d'interface que la documentation GitHub laissait attendre. Constaté sans aucune
+   credential docker — jeton anonyme du registre, `HTTP 200` sur les deux manifestes, et
+   `tags: ["edge","sha-fc6102c"]`. Documentation corrigée en conséquence : vérifier, ne pas
+   supposer.
+9. **Artefact réel** : images locales supprimées, `IMAGE_TAG=sha-fc6102c` tiré et démarré.
+   Portail 200, sonde 403, conteneurs tournant bien sur `…:sha-fc6102c`, images `USER node`,
+   `amd64`, labels OCI portant `source` et `revision=fc6102c…`, ni `.env` ni `.spec.ts` dedans.
+   **Puis seulement** `exo2-v0.1.0` a été posé — run vert, tags `0.1.0`, `0.1`, `latest`.
+10. **Parcours évaluateur** : **2 min 02 s** sur machine vierge (conteneur privilégié, `git archive
+    HEAD`, installation de Docker comprise) contre 4 min 14 s avant A6 ; **35,3 s** avec Docker
+    présent et seules les images du portail à tirer ; **14,8 s** tout en cache. La publication en
+    CI prend 1 min 56 s, hors du chemin critique de l'évaluateur.
+11. **Parcours production** : `git clone --filter=blob:none --sparse` puis
+    `git sparse-checkout set --no-cone`, dans un dossier vierge. Contenu reçu : les quatre fichiers
+    compose/nginx/minio, `.env.example`, `install.sh` — **zéro fichier `.ts`, `.tsx` ou `.js`**.
+    `./install.sh` y démarre le portail en 14,8 s (200 / 403, migrations « No pending migrations »),
+    et `./install.sh --from-source` y refuse de tourner en renvoyant vers la forme sans argument.
 
 **Séquencement.** `workflow_dispatch` exige que le fichier de workflow existe sur la branche par
-défaut : la première publication ne peut donc avoir lieu qu'**après** la fusion sur `main`, qui la
-déclenche elle-même (le filtre `paths` couvre `backend/**`, et `.dockerignore` y est). Les étapes 8
-à 11 suivent la fusion, pas l'inverse.
+défaut : la première publication ne pouvait donc avoir lieu qu'**après** la fusion sur `main`, qui
+l'a déclenchée. Un obstacle imprévu : le jeton `gh` de la machine n'avait pas le scope `workflow`,
+et GitHub refuse à une OAuth App de créer un fichier sous `.github/workflows/` sans lui — réglé par
+`gh auth refresh -h github.com -s workflow`.
+
+**Deux corrections issues de la vérification post-publication** :
+
+- `git sparse-checkout set` est en mode *cone* par défaut et ne sélectionne que des **répertoires** :
+  la commande documentée échouait sur `'…/.env.example' is not a directory`. `--skip-checks`, que
+  git suggère, ne corrige rien (il traite le fichier comme un dossier, qui n'extrait rien). La forme
+  juste est `--no-cone` avec des motifs façon `.gitignore`.
+- La visibilité des paquets ne s'est pas comportée comme documenté (point 8) : la documentation du
+  dépôt dit désormais de la vérifier plutôt que de la supposer.
 
 ## Revue de code
 

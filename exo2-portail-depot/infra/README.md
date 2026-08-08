@@ -70,22 +70,25 @@ authentifie sans secret à gérer, les permissions sont celles du dépôt, et su
 plafonne les pulls anonymes à **100 par 6 h et par IP** — or la machine de staging est partagée avec
 d'autres candidats, donc son adresse IP aussi.
 
-**Une manipulation manuelle, une seule fois.** Un paquet GHCR naît **privé** : il hérite des
-permissions du dépôt, *pas* de sa visibilité, et aucun endpoint de l'API ne change cela. Après le
-premier push, passer **les deux paquets** en *Public* dans leurs Settings — sans quoi un `pull`
-anonyme répond 403, ce qui ressemble en tout point à une image inexistante. Le réglage de compte
-*Packages → Package creation → default visibility* le ferait automatiquement, mais il vaudrait pour
-**tous** les futurs paquets du compte, dépôts privés compris : écarté délibérément. La visibilité
-publique est ce qui évite de déposer un credential de registre sur une machine partagée ; elle est
-sans coût ici, le dépôt étant lui-même public. À sens unique : un paquet public ne redevient jamais
-privé.
+**La visibilité est à vérifier, pas à supposer.** Elle décide de tout : un paquet privé exigerait un
+`docker login` sur la machine de staging, donc **un credential de registre déposé sur une machine
+partagée avec d'autres candidats**. Publique, elle ne coûte rien ici — le dépôt l'est déjà.
 
-Vérifier que c'est bien fait :
+La documentation GitHub annonce qu'un paquet personnel naît **privé** et qu'il hérite des
+permissions du dépôt mais *pas* de sa visibilité. **Ce n'est pas ce qui s'est produit** : au premier
+push, les deux paquets étaient immédiatement tirables anonymement (constaté avec un jeton anonyme du
+registre, sans aucune credential docker). Ne pas s'y fier pour autant — le contrôle prend deux
+secondes, et un 403 ressemble en tout point à une image inexistante :
 
 ```bash
 docker logout ghcr.io
 docker pull ghcr.io/sephorah/exo2-portail-depot-backend:0.1.0   # doit réussir
 ```
+
+Si ça échoue : Packages → le paquet → Package settings → Danger Zone → Change visibility → Public,
+pour **chacun des deux**. Ne pas passer par le réglage de compte *Packages → Package creation →
+default visibility* : il vaudrait pour **tous** les futurs paquets du compte, dépôts privés compris.
+À sens unique dans les deux cas — un paquet public ne redevient jamais privé.
 
 ### Essayer ce compose avant de publier
 
@@ -110,11 +113,17 @@ et garde la traçabilité de version, là où un `scp -r infra` la perd :
 ```bash
 git clone --filter=blob:none --sparse https://github.com/sephorah/technical-interview.git
 cd technical-interview
-git sparse-checkout set exo2-portail-depot/infra \
-                        exo2-portail-depot/.env.example \
-                        exo2-portail-depot/install.sh
+git sparse-checkout set --no-cone '/exo2-portail-depot/infra/**' \
+                                  '/exo2-portail-depot/.env.example' \
+                                  '/exo2-portail-depot/install.sh'
 cd exo2-portail-depot && ./install.sh
 ```
+
+**`--no-cone` n'est pas décoratif.** Le mode *cone*, qui est le défaut, ne sait sélectionner que des
+**répertoires** : la même commande sans lui échoue sur `'exo2-portail-depot/.env.example' is not a
+directory`, et l'ajouter `--skip-checks` ne fait que traiter le fichier comme un dossier — il ne
+serait pas extrait. Le mode `--no-cone` accepte les motifs façon `.gitignore`, d'où les `/` initiaux
+et le `**`.
 
 `find . -name '*.ts' | wc -l` doit répondre `0`. Mettre à jour, c'est `git pull` puis `./install.sh`
 — cette machine n'a ni Node ni pnpm, donc pas les scripts `pnpm stack:*`, et `install.sh` enchaîne
