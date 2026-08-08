@@ -146,11 +146,46 @@ conteneur (réseau isolé, aucun port publié, et nginx doit joindre le service 
 | `ss -ltn` | **seul `127.0.0.1:21600`** écoute |
 | Prebuild argon2 | aucun `build/`, `$argon2id$v=19$m=19456,...` produit |
 
-**Aller-retour Prisma réel** contre la base de développement — les suites Jest remplaçant
-`PrismaService` par un double, aucune ne touche Postgres. Neuf assertions, toutes passées :
-création en cascade, recherche par hachage de token, PIN bon et PIN faux, **second lien actif
-refusé par l'index partiel**, régénération (2 liens en historique, 1 actif), second fichier sur la
-même pièce refusé, statut dérivé 1/2, et cascade complète à la suppression de l'avocat.
+### Tests ajoutés : ce qu'ils protègent
+
+**`src/crypto/secrets.spec.ts` — 21 tests, cinq groupes.**
+
+| Groupe | Vérifie | Invariant protégé |
+|---|---|---|
+| `generatePublicToken` | 43 caractères, alphabet URL-safe uniquement, 1000 tirages sans répétition | Les 256 bits d'entropie, et un lien collable dans un courriel sans échappement |
+| `hashPublicToken` | Déterminisme, longueur fixe, ne contient pas le token, distingue deux entrées voisines | Qu'un retour au stockage en clair ne passe pas inaperçu — le déterminisme est ce qui rend la recherche par token possible |
+| `generatePin` | 4 chiffres sur 1000 tirages, zéros de tête, > 450 valeurs distinctes sur 500 tirages | Un tirage non biaisé : un générateur dégénéré tomberait très en dessous du seuil |
+| `hashSecret` / `verifySecret` | Paramètres OWASP assertés **un par un**, sel aléatoire prouvé par deux hachages différents de la même valeur, `« 0042 » ≠ « 42 »`, et **hachage corrompu → `false` sans lever** | Le dernier point est le plus important : une exception remonterait en 500 là où un PIN faux renvoie une erreur d'authentification, offrant un moyen de distinguer les deux cas |
+| `buildStorageKey` | `../../../etc/passwd` ne produit ni `..` ni séparateur supplémentaire ; deux appels sur le même nom ne collisionnent pas | La traversée de chemin. **Ce test a échoué au premier passage** et révélé que l'assainissement laissait passer les points consécutifs |
+
+Les paramètres argon2 sont assertés séparément (`m=19456`, `t=2`, `p=1`) plutôt que par une
+expression régulière sur la chaîne entière : la bibliothèque les écrit dans l'ordre `m,p,t`, qui
+n'a aucune raison d'être stable d'une version à l'autre. Ce qui doit l'être, ce sont les valeurs.
+
+**`src/config/env.validation.spec.ts` — 8 tests ajoutés.** Chaque variable manquante est refusée en
+étant nommée, un `PORT` invalide est rejeté, un `API_PREFIX` mal formé aussi (`api/v1`, `/api/v1/`,
+une URL absolue), et `/` est accepté comme « pas de préfixe ». Le cas le plus utile : **une
+`DATABASE_URL` explicite ne dispense pas** de `PORT`/`API_PREFIX`/`BIND_ADDRESS` — sans quoi le
+chemin « base managée » contournerait toute la validation applicative.
+
+**`test/health.e2e-spec.ts` — 1 test ajouté, et un couplage rendu réel.** La suite applique
+désormais `setGlobalPrefix` comme `main.ts` : sans cela elle interrogeait `/health` et serait
+restée verte pendant que la sonde réelle vivait ailleurs. Le nouveau test vérifie que **`/health`
+répond 404 hors préfixe**, ce qui est le garde-fou du `deny all` nginx et du healthcheck docker,
+tous deux visant `/api/v1/health`.
+
+### Ce que ces tests ne prouvent pas
+
+**Rien du schéma.** Les suites remplacent `PrismaService` par un double, donc aucune n'atteint
+Postgres : cascades, index partiel et contraintes d'unicité ne sont couverts par aucun test
+automatisé. D'où l'**aller-retour Prisma réel** contre la base de développement, neuf assertions
+toutes passées : création en cascade, recherche par hachage de token, PIN bon et PIN faux,
+**second lien actif refusé par l'index partiel**, régénération (2 liens en historique, 1 actif),
+second fichier sur la même pièce refusé, statut dérivé 1/2, cascade complète à la suppression de
+l'avocat.
+
+C'est un script jeté, pas une suite — voir le constat n° 4 de la revue ci-dessous. **D1 doit le
+reprendre** contre une base de test dédiée.
 
 ## Revue de code
 
