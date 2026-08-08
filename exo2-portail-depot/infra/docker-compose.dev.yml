@@ -3,12 +3,24 @@
 # L'API et le front continuent de tourner sur la machine via `pnpm dev`, pour
 # garder le rechargement a chaud. Il n'y a deliberement pas d'image de dev.
 #
-#   docker compose -f docker-compose.dev.yml up -d
+#   pnpm db:up      # docker compose -f infra/docker-compose.dev.yml --env-file .env up -d
 #   pnpm dev
+#
+# Les deux drapeaux sont necessaires et l'en-tete de docker-compose.yml dit
+# pourquoi : le .env vit a la racine, compose le chercherait dans infra/.
 #
 # Le volume porte un nom distinct de celui de la production : une base de
 # developpement et une base de production sur le meme volume, c'est un
 # `migrate reset` de trop.
+#
+# Le nom de projet aussi, et c'etait le vrai trou : les deux fichiers compose
+# etant a la racine, ils heritaient du MEME nom de projet. Un `pnpm db:up`
+# pendant que la production tournait ne montait donc pas une seconde stack — il
+# recreait db, minio et minio-init de la production avec cette configuration-ci,
+# soit des volumes _dev vides et deux ports publies, pendant que le backend de
+# production continuait de tourner contre eux.
+name: exo2-portail-depot-dev
+
 services:
   db:
     image: postgres:17-alpine
@@ -74,7 +86,7 @@ services:
       STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:?definir STORAGE_ACCESS_KEY dans .env}
       STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:?definir STORAGE_SECRET_KEY dans .env}
     volumes:
-      - ./infra/minio:/infra:ro
+      - ./minio:/infra:ro
     entrypoint: ['/bin/bash', '/infra/provision.sh']
     restart: 'no'
 

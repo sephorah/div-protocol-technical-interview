@@ -29,6 +29,14 @@ SERVICES="db minio backend frontend proxy"
 # `docker` ou `sudo docker` (voir la cascade d'installation plus bas).
 DOCKER="docker"
 
+# Et toutes les commandes compose par `$DOCKER compose $COMPOSE`. Les deux
+# drapeaux sont indissociables du deplacement des fichiers sous infra/ :
+# compose deduit son repertoire de projet du dossier du premier `-f`, donc il
+# chercherait infra/.env, qui n'existe pas — le .env vit a la racine, ou
+# `pnpm dev` le lit aussi. Le `cd` ci-dessus rend ces deux chemins relatifs
+# valides quel que soit le repertoire d'ou le script est appele.
+COMPOSE="-f infra/docker-compose.yml --env-file .env"
+
 die() { printf '\nErreur : %s\n' "$*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
@@ -243,6 +251,10 @@ EOF
 
 step "Configuration (.env)"
 [ -f .env.example ] || die ".env.example est introuvable — le depot est incomplet."
+# Verifie avant le build : sinon l'absence du fichier compose ne se signalerait
+# qu'au premier appel a `docker compose`, apres l'etape de configuration, avec
+# un message qui parle de chemins et pas du depot.
+[ -f infra/docker-compose.yml ] || die "infra/docker-compose.yml est introuvable — le depot est incomplet."
 # umask avant toute ecriture : set_env_value passe par un fichier temporaire qui
 # contiendrait le mot de passe en clair et lisible par tous, meme une fraction
 # de seconde.
@@ -290,7 +302,7 @@ chmod 600 .env
 # tenu par notre propre proxy n'est pas un conflit — compose recree le
 # conteneur — sinon un second ./install.sh echouerait sur lui-meme.
 port_is_ours() {
-  local ids; ids="$($DOCKER compose ps -q proxy 2>/dev/null || true)"
+  local ids; ids="$($DOCKER compose $COMPOSE ps -q proxy 2>/dev/null || true)"
   [ -n "$ids" ]
 }
 
@@ -333,14 +345,14 @@ fi
 # --------------------------------------------------------------------------
 if [ "$BUILD_ONLY" = 1 ]; then
   step "Construction des images"
-  $DOCKER compose build
+  $DOCKER compose $COMPOSE build
   step "Build termine."
   exit 0
 fi
 
 step "Construction des images et demarrage de la stack"
 info "Le premier appel construit deux images : comptez quelques minutes."
-$DOCKER compose up --build -d
+$DOCKER compose $COMPOSE up --build -d
 
 # --------------------------------------------------------------------------
 # Attente
@@ -349,7 +361,7 @@ $DOCKER compose up --build -d
 # et « l'application repond ». Les migrations sont jouees par l'entrypoint du
 # backend : un backend healthy signifie qu'elles sont passees.
 health_of() {
-  local id; id="$($DOCKER compose ps -q "$1" 2>/dev/null || true)"
+  local id; id="$($DOCKER compose $COMPOSE ps -q "$1" 2>/dev/null || true)"
   [ -n "$id" ] || { echo "absent"; return; }
   $DOCKER inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$id" 2>/dev/null || echo absent
 }
@@ -368,10 +380,10 @@ while :; do
 
   if [ "$waited" -ge "$HEALTH_TIMEOUT" ]; then
     printf '\n'
-    $DOCKER compose ps
+    $DOCKER compose $COMPOSE ps
     for service in $pending; do
       printf '\n--- %s ---\n' "$service"
-      $DOCKER compose logs --tail=50 "$service"
+      $DOCKER compose $COMPOSE logs --tail=50 "$service"
     done
     die "services toujours pas prets apres ${HEALTH_TIMEOUT}s :$pending"
   fi
@@ -402,9 +414,9 @@ fi
 # Seed du compte avocat de demonstration et d'une demande. Le script reste muet
 # tant que le seed n'existe pas dans l'image (issues A2/B1) : il n'y a rien a
 # faire pour l'utilisateur, donc rien a afficher.
-if $DOCKER compose exec -T backend sh -c '[ -f dist/seed.js ]' 2>/dev/null; then
+if $DOCKER compose $COMPOSE exec -T backend sh -c '[ -f dist/seed.js ]' 2>/dev/null; then
   step "Donnees de demonstration"
-  $DOCKER compose exec -T backend node dist/seed.js
+  $DOCKER compose $COMPOSE exec -T backend node dist/seed.js
 fi
 
 cat <<BANNER
@@ -415,8 +427,10 @@ cat <<BANNER
      Portail   http://127.0.0.1:$HTTP_PORT
      API       http://127.0.0.1:$HTTP_PORT/api
 
-   Arreter :   docker compose down
-   Journaux :  docker compose logs -f
+   Arreter :   docker compose $COMPOSE down
+   Journaux :  docker compose $COMPOSE logs -f
+
+   (depuis la racine du depot ; ou pnpm stack:down / pnpm stack:logs)
   ============================================================
 
 BANNER
