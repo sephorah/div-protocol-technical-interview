@@ -431,7 +431,13 @@ A3 added a fourth image to pull (`minio/minio`) but no build stage, so the cold 
 in kind. Measured after A3, volumes destroyed and backend rebuilt for the new dependencies:
 **1 min 06 s**.
 
-The bare-machine path can only be exercised in a container, so it is the most likely to rot:
+A5 moved the compose files but changed no build stage. Re-measured after it: **13,2 s** with images
+cached, **3,9 s** with the stack already up, and **4 min 14 s** on a bare machine, Docker install
+included — the figures hold.
+
+The bare-machine path can only be exercised in a container, so it is the most likely to rot. Run it
+against `git archive HEAD`, not the working tree: a file left out of `git add` shows up there and is
+invisible otherwise.
 
 ```bash
 docker run --rm --privileged -v /var/lib/docker -v "$PWD:/src:ro" ubuntu:24.04 bash -c '...'

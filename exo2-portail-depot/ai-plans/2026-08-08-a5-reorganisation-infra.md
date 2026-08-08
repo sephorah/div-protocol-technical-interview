@@ -112,7 +112,13 @@ Le vrai manque de couverture est ailleurs et reste ouvert : rien en CI ne vérif
 | `port_is_ours` | `ss` voit bien 21600 occupé, et le script annonce « Disponible » : la fonction reconnaît notre propre proxy **avec** les nouveaux drapeaux. Sans eux, `docker compose ps -q proxy` répond `no configuration file provided` — le script aurait accusé son propre proxy |
 | second `./install.sh` d'affilée | exit 0 en **3,9 s** |
 | `pnpm lint` / `test` / `test:e2e` / `test:integration` | 113 + 7 + 9 tests verts, deux lints sans avertissement |
-| machine vierge (conteneur privilégié, arbre commité) | voir plus bas |
+| machine vierge (conteneur privilégié, sur l'arbre **commité**, donc exactement ce que clone un correcteur) | exit 0 en **4 min 14 s**, docker installé depuis rien, cinq services healthy, `/` → 200, `/api/v1/health` → 403, `.env` en **600** |
+
+La machine vierge est le chemin qui pourrit le plus vite : il n'est jamais exercé autrement, et c'est
+lui que le correcteur emprunte. Le test tourne sur `git archive HEAD`, pas sur l'arbre de travail —
+un fichier oublié dans un `git add` s'y verrait, alors qu'un test sur l'arbre local le masquerait.
+Les 4 min 14 s incluent l'installation de Docker (comparer aux 4 min 33 s mesurées en A8, pas aux
+13 s images en cache).
 
 ## Revue de code
 
