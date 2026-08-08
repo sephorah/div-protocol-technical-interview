@@ -1,5 +1,12 @@
 # Production. En dev, on lance `pnpm dev` a la racine, avec la base seule
 # montee par docker-compose.dev.yml.
+#
+# PORT et API_PREFIX viennent du .env et valent la meme chose ici que sur la
+# machine : 21610 est dans la plage attribuee (21600-21699), donc rien
+# n'oblige a une valeur differente en conteneur, et une valeur unique supprime
+# une source d'erreur. Ils sont aussi ecrits en dur dans nginx.conf (qui ne lit
+# pas l'environnement) et dans le healthcheck ci-dessous : les changer suppose
+# de changer ces trois endroits ensemble.
 services:
   db:
     image: postgres:17-alpine
@@ -35,7 +42,12 @@ services:
     init: true
     environment:
       NODE_ENV: production
-      PORT: 3000
+      PORT: ${PORT:?definir PORT dans .env}
+      API_PREFIX: ${API_PREFIX:?definir API_PREFIX dans .env}
+      # Surcharge deliberee du 127.0.0.1 de .env : ici le reseau du conteneur
+      # est isole et aucun port n'est publie, donc 0.0.0.0 n'expose rien — mais
+      # c'est necessaire pour que nginx joigne le service par le reseau interne.
+      BIND_ADDRESS: 0.0.0.0
       # Seuls l'hote et le port different entre la machine et le conteneur :
       # .env vise 127.0.0.1:21632 pour `pnpm dev`, ici c'est le nom du service
       # sur le reseau interne. Le reste (utilisateur, mot de passe, base) vient
@@ -62,7 +74,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://127.0.0.1:3000/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+          "fetch('http://127.0.0.1:21610/api/v1/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
         ]
       interval: 30s
       timeout: 5s

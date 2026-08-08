@@ -2,6 +2,11 @@
 # `pnpm install --frozen-lockfile` sort en 1 sur ERR_PNPM_IGNORED_BUILDS,
 # y compris dans le Dockerfile (qui COPY ce fichier avec le lockfile).
 allowBuilds:
+  # node-gyp-build : resout le binaire natif deja compile que le paquet embarque
+  # (prebuilds/linux-x64/argon2.musl.node pour node:22-alpine). Il ne compile
+  # que si aucun prebuild ne correspond a la plateforme, ce qui n'est pas notre
+  # cas — a verifier si l'installation se met un jour a durer des minutes.
+  argon2: true
   # Telecharge le moteur de requete Prisma. Sans lui : « Query engine binary
   # not found » au premier appel, pas au demarrage.
   '@prisma/engines': true

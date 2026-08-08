@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
@@ -18,6 +19,7 @@ import { PrismaService } from './../src/prisma/prisma.service';
  */
 describe('HealthController (e2e)', () => {
   let app: INestApplication<App>;
+  let healthPath: string;
   const queryRaw = jest.fn();
 
   const createApp = async (): Promise<void> => {
@@ -36,6 +38,16 @@ describe('HealthController (e2e)', () => {
     // la sonde. C'est le comportement voulu en production, mais ca noierait
     // la sortie des tests sous des traces attendues.
     app = moduleFixture.createNestApplication({ logger: false });
+
+    // Le prefixe global est pose dans main.ts, que les tests ne traversent
+    // pas. Sans cette ligne, la suite interrogerait /health et resterait verte
+    // alors que la sonde reelle vit sous /api/v1/health — c'est precisement
+    // l'adresse dont dependent le healthcheck docker et la regle `deny all`
+    // de nginx.
+    const apiPrefix = app.get(ConfigService).getOrThrow<string>('API_PREFIX');
+    app.setGlobalPrefix(apiPrefix);
+    healthPath = `${apiPrefix}/health`;
+
     await app.init();
   };
 
@@ -52,7 +64,7 @@ describe('HealthController (e2e)', () => {
     queryRaw.mockResolvedValue([{ '?column?': 1 }]);
 
     await request(app.getHttpServer())
-      .get('/health')
+      .get(healthPath)
       .expect(200)
       .expect({ status: 'ok', db: 'up' });
 
@@ -66,10 +78,20 @@ describe('HealthController (e2e)', () => {
       new Error('connect ECONNREFUSED 127.0.0.1:5432'),
     );
 
-    await request(app.getHttpServer()).get('/health').expect(503).expect({
+    await request(app.getHttpServer()).get(healthPath).expect(503).expect({
       status: 'error',
       db: 'down',
     });
+  });
+
+  it('ne repond plus sur /health, hors prefixe', async () => {
+    // Garde-fou du couplage avec l'infrastructure : nginx interdit
+    // explicitement /api/v1/health et le healthcheck docker interroge cette
+    // meme adresse. Si le prefixe cessait de s'appliquer, la sonde
+    // redeviendrait publique sans qu'aucun autre test ne s'en apercoive.
+    queryRaw.mockResolvedValue([{ '?column?': 1 }]);
+
+    await request(app.getHttpServer()).get('/health').expect(404);
   });
 
   it("ne divulgue pas les details de connexion dans la reponse d'erreur", async () => {
@@ -80,7 +102,7 @@ describe('HealthController (e2e)', () => {
     );
 
     const response = await request(app.getHttpServer())
-      .get('/health')
+      .get(healthPath)
       .expect(503);
     const body = JSON.stringify(response.body);
 

@@ -44,5 +44,7 @@ COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/src/config ./src/config
 COPY --from=build /app/docker-entrypoint.sh ./docker-entrypoint.sh
 USER node
-EXPOSE 3000
+# Documentaire uniquement : aucun port n'est publie, le proxy est le seul point
+# d'entree. La valeur reelle vient de PORT (.env), l'API refuse de demarrer sans.
+EXPOSE 21610
 ENTRYPOINT ["./docker-entrypoint.sh"]

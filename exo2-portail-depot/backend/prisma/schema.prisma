@@ -1,8 +1,24 @@
 // Schema Prisma du portail de depot.
 //
-// A1 ne pose que la plomberie : aucune entite metier ici. Le modele
-// (Lawyer, DepositRequest, RequestedItem, UploadedFile, AccessLog) est
-// l'objet de l'issue A2, et c'est elle qui produira la premiere migration.
+// Trois choix de modelisation ne se devinent pas a la lecture des champs :
+//
+// 1. Le STATUT d'une demande (en attente / complete / expiree) n'est PAS une
+//    colonne. « expiree » depend de l'horloge : une colonne resterait a
+//    « en attente » apres l'expiration tant qu'aucun job ne la retourne, et le
+//    tableau de bord mentirait. Il est calcule a la lecture depuis expiresAt et
+//    le compte de pieces recues. Meme raison pour « nombre de pieces
+//    attendues », qui est un count(RequestedItem).
+//
+// 2. Il n'y a PAS de table AccessLog. L'enonce classe le journal d'audit en
+//    bonus (issue G2) : la table ne serait ecrite par personne et lue par
+//    personne, et son cout d'ajout sera le meme plus tard. PublicLink prepare
+//    le terrain, G2 rattachera ses evenements a un lien precis.
+//
+// 3. UploadedFile.mimeType est une String et non un enum. L'enonce fige
+//    PDF/JPG/PNG, mais C2 exige des types autorises *configurables* : un enum
+//    Postgres imposerait une migration pour changer une liste de validation.
+//    L'allowlist et la taille maximale vivent dans la configuration, la base ne
+//    fait que constater ce qui a ete depose.
 
 generator client {
   provider = "prisma-client"
@@ -18,7 +34,134 @@ generator client {
 datasource db {
   provider = "postgresql"
   // Pas d'`url` ici : Prisma 7 l'interdit dans le schema (P1012). La chaine de
-  // connexion est fournie au CLI par prisma.config.js, et a l'execution par
+  // connexion est fournie au CLI par prisma.config.ts, et a l'execution par
   // @prisma/adapter-pg (voir src/prisma/prisma.service.ts). Les deux lisent la
   // meme DATABASE_URL, donc une seule source de verite.
+}
+
+/// L'avocat, seul acteur authentifie du portail. Le client reste anonyme :
+/// il n'a qu'un lien et un PIN, et n'existe donc dans aucune table.
+model Lawyer {
+  id String @id @default(uuid())
+
+  name String
+  /// Normalise en minuscules par le code avant ecriture : sans cela
+  /// « Martin@x.fr » et « martin@x.fr » creent deux comptes distincts.
+  email String @unique
+  /// argon2id, chaine PHC (sel et parametres inclus). Jamais de clair, meme
+  /// transitoire — voir src/crypto/secrets.ts.
+  passwordHash String
+
+  createdAt DateTime @default(now())
+
+  requests DepositRequest[]
+}
+
+/// Une demande de pieces adressee a un client, par exemple
+/// « Dossier Martin, pieces 2026 ».
+model DepositRequest {
+  id String @id @default(uuid())
+
+  title     String
+  createdAt DateTime @default(now())
+
+  lawyerId String
+  lawyer   Lawyer @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+
+  items RequestedItem[]
+  links PublicLink[]
+
+  @@index([lawyerId])
+}
+
+/// Le lien public expirable protege par PIN. Table dediee et non trois
+/// colonnes sur DepositRequest, pour deux raisons :
+///
+/// - regenerer un lien cree une ligne et revoque la precedente, donc il est
+///   structurellement impossible qu'un ancien PIN reste valide sur un nouveau
+///   lien — l'invariant tient au schema, pas a la discipline applicative ;
+/// - l'historique des liens existe des maintenant, alors que l'extraire apres
+///   coup aurait demande une migration de donnees et la reecriture de toute
+///   requete touchant le token, le PIN ou l'expiration.
+model PublicLink {
+  id String @id @default(uuid())
+
+  /// SHA-256 du token, jamais le token lui-meme : c'est une credential au
+  /// porteur, au meme titre qu'un mot de passe. En clair, une fuite de la base
+  /// livrerait tous les liens actifs. SHA-256 et non argon2id : argon2 sert a
+  /// ralentir le bruteforce d'un secret a faible entropie, or le token porte
+  /// 256 bits et ne se devine pas — un hachage rapide suffit et garde la
+  /// recherche indexee.
+  tokenHash String @unique
+  /// argon2id, comme le mot de passe. Un PIN a 4 chiffres est le secret le plus
+  /// faible du systeme : il merite la fonction de derivation la plus lente.
+  pinHash   String
+
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  /// Non nul = lien remplace ou revoque. Un seul lien actif par demande, via un
+  /// index unique partiel ajoute a la main dans la migration (Prisma ne sait
+  /// pas exprimer un index conditionnel) :
+  ///
+  ///   CREATE UNIQUE INDEX "PublicLink_requestId_active_key"
+  ///     ON "PublicLink" ("requestId") WHERE "revokedAt" IS NULL;
+  ///
+  /// A ne pas perdre lors d'une regeneration de migration.
+  revokedAt DateTime?
+
+  requestId String
+  request   DepositRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+}
+
+/// Une piece attendue, par exemple « Carte d'identite ». Pas de colonne de
+/// statut : « recue » signifie qu'un UploadedFile lui est rattache.
+model RequestedItem {
+  id String @id @default(uuid())
+
+  label     String
+  createdAt DateTime @default(now())
+
+  requestId String
+  request   DepositRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  file UploadedFile?
+
+  @@index([requestId])
+}
+
+/// Le fichier reellement depose. Aucune cle etrangere directe vers
+/// DepositRequest : on y accede par RequestedItem, et une seconde relation
+/// ouvrirait la porte a un fichier dont la piece appartient a une autre demande.
+model UploadedFile {
+  id String @id @default(uuid())
+
+  /// Cle de l'objet dans MinIO. Prefixee par demande
+  /// (requests/<requestId>/items/<itemId>/...) pour que la suppression d'une
+  /// demande puisse effacer les objets par prefixe, y compris apres la cascade
+  /// SQL qui a deja fait disparaitre les lignes. Voir buildStorageKey().
+  storageKey String @unique
+  /// Nom depose par le client, conserve pour l'affichage uniquement : il n'est
+  /// jamais utilise comme chemin.
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  status       UploadStatus @default(pending)
+
+  createdAt DateTime @default(now())
+
+  /// Unique : une piece attendue porte au plus un fichier. Un nouveau depot
+  /// remplace le precedent, objet MinIO compris — il n'y a pas de versionnage.
+  requestedItemId String        @unique
+  requestedItem   RequestedItem @relation(fields: [requestedItemId], references: [id], onDelete: Cascade)
+}
+
+/// `failed` existe des maintenant parce que C4 (verification du type reel et
+/// scan antivirus) en a besoin : un fichier rejete doit rester visible des deux
+/// cotes plutot que disparaitre.
+enum UploadStatus {
+  pending
+  complete
+  failed
 }

@@ -28,15 +28,22 @@ PostgreSQL 17 conteneurisé + Prisma 7 (`@prisma/adapter-pg`), migrations jouée
 
 Dépendances : aucune. **Bloque A2, B1, B2, C1, C2.**
 
-### A2. Modèle de données — P0
+### A2. Modèle de données — P0 — **fait**
 
-Entités : `Lawyer`, `DepositRequest`, `RequestedItem` (pièce attendue), `UploadedFile`,
-`AccessLog`. Statuts de demande : `pending` / `complete` / `expired`.
+Entités : `Lawyer`, `DepositRequest`, `PublicLink`, `RequestedItem`, `UploadedFile`. Statuts de
+demande `pending` / `complete` / `expired` **dérivés à la lecture**, pas stockés — « expirée »
+dépend de l'horloge, une colonne mentirait jusqu'au passage d'un job.
 
-- [ ] Entités + relations + index (token unique)
-- [ ] Le PIN est stocké **haché** (argon2/bcrypt), jamais en clair
-- [ ] `expiresAt` sur la demande, token public non devinable (≥ 128 bits d'entropie)
-- [ ] Modèle documenté dans le README (section « Modèle de données »)
+- [x] Entités + relations + index (`tokenHash` unique, index unique **partiel** garantissant un
+      seul lien actif par demande)
+- [x] Le PIN est stocké **haché** — argon2id, paramètres OWASP, jamais en clair
+- [x] `expiresAt` sur le lien, token public non devinable (**256 bits**, `randomBytes` en
+      base64url) — et lui-même stocké haché en SHA-256, jamais en clair
+- [x] Modèle documenté dans le README (section « Modèle de données », avec les limites)
+
+Écarté volontairement : **`AccessLog`**, l'énoncé classant le journal d'audit en bonus (voir G2).
+Son coût d'ajout sera identique plus tard, contrairement à `PublicLink` dont l'extraction tardive
+aurait demandé une migration de données.
 
 Dépendances : A1.
 
