@@ -17,7 +17,12 @@ describe('validateEnv', () => {
     BIND_ADDRESS: '127.0.0.1',
   };
 
-  const app = { ...appOnly, ...storage };
+  const auth = {
+    JWT_SECRET: 'a'.repeat(32),
+    JWT_EXPIRES: '15m',
+  };
+
+  const app = { ...appOnly, ...auth, ...storage };
 
   const db = {
     ...app,
@@ -35,8 +40,9 @@ describe('validateEnv', () => {
   });
 
   it('preserves the other variables', () => {
-    expect(validateEnv({ ...db, JWT_SECRET: 'x' })).toMatchObject({
-      JWT_SECRET: 'x',
+    // Whatever the validation does not know about reaches ConfigService intact.
+    expect(validateEnv({ ...db, NODE_ENV: 'production' })).toMatchObject({
+      NODE_ENV: 'production',
     });
   });
 
@@ -218,6 +224,61 @@ describe('validateEnv', () => {
           DATABASE_URL: 'postgresql://user:pwd@elsewhere:5432/managed',
         }),
       ).toMatchObject(storage);
+    });
+  });
+
+  describe('lawyer authentication', () => {
+    it.each(['JWT_SECRET', 'JWT_EXPIRES'])(
+      'rejects a configuration without %s',
+      (key) => {
+        // Both were documented and generated long before anything read them.
+        // Unvalidated, they stayed dead configuration: setting them changed
+        // nothing and nothing said so.
+        expect(() => validateEnv({ ...db, [key]: '' })).toThrow(
+          new RegExp(`Auth variables missing or empty.*${key}`),
+        );
+      },
+    );
+
+    it('rejects a JWT_SECRET shorter than 32 characters', () => {
+      // The attack is offline: one captured token is enough to brute-force the
+      // secret without ever calling the API, so no rate limiting protects it.
+      expect(() => validateEnv({ ...db, JWT_SECRET: 'a'.repeat(31) })).toThrow(
+        /JWT_SECRET is shorter than 32 characters/,
+      );
+    });
+
+    it('accepts a JWT_SECRET of exactly 32 characters', () => {
+      expect(() =>
+        validateEnv({ ...db, JWT_SECRET: 'a'.repeat(32) }),
+      ).not.toThrow();
+    });
+
+    it.each(['900', '15 m', '15min', 'quinze minutes', 'm15'])(
+      'rejects a JWT_EXPIRES without a usable unit (%s)',
+      (expires) => {
+        // "900" is the dangerous one: jsonwebtoken reads a bare number as
+        // seconds and a numeric string as milliseconds, so a quote decides
+        // between a 15-minute session and a 0.9-second one.
+        expect(() => validateEnv({ ...db, JWT_EXPIRES: expires })).toThrow(
+          /JWT_EXPIRES is not a duration with its unit/,
+        );
+      },
+    );
+
+    it.each(['60s', '15m', '2h', '7d'])('accepts %s', (expires) => {
+      expect(() => validateEnv({ ...db, JWT_EXPIRES: expires })).not.toThrow();
+    });
+
+    it('survives an explicitly supplied DATABASE_URL', () => {
+      // Same trap as the storage block: that path returns early, and forgetting
+      // to merge the auth keys into it would strip them silently.
+      expect(
+        validateEnv({
+          ...app,
+          DATABASE_URL: 'postgresql://user:pwd@elsewhere:5432/managed',
+        }),
+      ).toMatchObject(auth);
     });
   });
 

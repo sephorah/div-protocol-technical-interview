@@ -25,3 +25,6 @@ process.env.STORAGE_REGION = 'us-east-1';
 process.env.STORAGE_BUCKET = 'portail-depot-test';
 process.env.STORAGE_ACCESS_KEY = 'test';
 process.env.STORAGE_SECRET_KEY = 'test';
+// 32 characters minimum, enforced by validateEnv.
+process.env.JWT_SECRET = 'test-jwt-secret-for-the-e2e-suites';
+process.env.JWT_EXPIRES = '15m';
