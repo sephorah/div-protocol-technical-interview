@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Point d'entree du projet, prevu pour une machine vierge.
 #
-#   ./install.sh          monte toute la stack et affiche les URLs
-#   ./install.sh --build  construit les images sans demarrer (CI)
+#   ./install.sh                monte toute la stack et affiche les URLs
+#   ./install.sh --from-source  construit les images au lieu de les tirer
 #
 # Contrat : quand ce script rend la main sans erreur, l'application repond.
 # Pas « les conteneurs sont lances » — le portail repond. Il n'y a aucune
@@ -10,6 +10,11 @@
 #
 # Le developpement au quotidien, lui, n'utilise pas ce script : c'est
 # `pnpm db:up && pnpm dev`, qui suppose Node et pnpm deja installes.
+#
+# Depuis A6, le cas nominal ne construit RIEN : les images sont tirees de GHCR,
+# ou le workflow les publie. Ce script tourne donc aussi bien sur un checkout
+# complet que sur la machine de staging, qui n'a que infra/, .env.example et ce
+# fichier — d'ou l'absence deliberee de tout controle sur backend/ ou frontend/.
 #
 # pipefail : un pipe echoue si n'importe quel maillon echoue, pas seulement le dernier.
 set -euo pipefail
@@ -37,25 +42,35 @@ DOCKER="docker"
 # valides quel que soit le repertoire d'ou le script est appele.
 COMPOSE="-f infra/docker-compose.yml --env-file .env"
 
+# Calque de construction locale, ajoute a la SEULE commande `build` de
+# --from-source. Tout le reste — pull, up, ps, logs, exec, la banniere — reste
+# sur le compose de production seul : ce qui demarre est alors exactement le
+# fichier qui tournera sur la machine de staging, images locales comprises
+# (docker ne retelecharge pas ce qu'il a deja). Le fichier de base reste
+# PREMIER, c'est lui qui fixe le repertoire de projet.
+COMPOSE_BUILD="$COMPOSE -f infra/docker-compose.build.yml"
+
 die() { printf '\nErreur : %s\n' "$*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
 
 usage() {
-  echo "Usage : ./install.sh [--build]"
-  echo "  (sans argument)  monte la stack complete et affiche les URLs"
-  echo "  --build          construit les images sans demarrer"
+  echo "Usage : ./install.sh [--from-source]"
+  echo "  (sans argument)  tire les images publiees, monte la stack, affiche les URLs"
+  echo "  --from-source    construit les images en local au lieu de les tirer"
+  echo "                   (necessite le code source ; sert a essayer le compose"
+  echo "                    de production avant de publier)"
 }
 
-# Arguments valides en tete de script : sinon une faute de frappe (`--biuld`) se
-# paie apres plusieurs minutes de build, et demarre la stack au lieu de s'arreter.
-BUILD_ONLY=0
+# Arguments valides en tete de script : sinon une faute de frappe se paie apres
+# plusieurs minutes, et demarre la stack au lieu de s'arreter.
+FROM_SOURCE=0
 [ "$#" -le 1 ] || die "un seul argument est accepte (recu : $*)."
 case "${1:-}" in
-  '')          ;;
-  --build)     BUILD_ONLY=1 ;;
-  -h|--help)   usage; exit 0 ;;
-  *)           die "argument inconnu : $1 (attendu : --build, --help, ou aucun)." ;;
+  '')            ;;
+  --from-source) FROM_SOURCE=1 ;;
+  -h|--help)     usage; exit 0 ;;
+  *)             die "argument inconnu : $1 (attendu : --from-source, --help, ou aucun)." ;;
 esac
 
 # --------------------------------------------------------------------------
@@ -298,7 +313,8 @@ chmod 600 .env
 # --------------------------------------------------------------------------
 # Port
 # --------------------------------------------------------------------------
-# Teste AVANT le build : sinon l'echec arrive apres plusieurs minutes. Un port
+# Teste AVANT le pull : sinon l'echec arrive apres le telechargement (ou, en
+# --from-source, apres plusieurs minutes de build). Un port
 # tenu par notre propre proxy n'est pas un conflit — compose recree le
 # conteneur — sinon un second ./install.sh echouerait sur lui-meme.
 port_is_ours() {
@@ -341,18 +357,40 @@ else
 fi
 
 # --------------------------------------------------------------------------
-# Build et demarrage
+# Images et demarrage
 # --------------------------------------------------------------------------
-if [ "$BUILD_ONLY" = 1 ]; then
-  step "Construction des images"
-  $DOCKER compose $COMPOSE build
-  step "Build termine."
-  exit 0
+if [ "$FROM_SOURCE" = 1 ]; then
+  # Un checkout de production n'a ni le calque ni les sources. Sans ce controle,
+  # docker se plaindrait d'un fichier compose introuvable, ce qui ne dit pas
+  # que c'est le drapeau qui n'a pas sa place ici.
+  [ -f infra/docker-compose.build.yml ] && [ -d backend ] && [ -d frontend ] || die \
+    "--from-source demande le code source, absent de ce checkout. C'est le cas
+       sur la machine de production, qui ne recoit que infra/ et .env : lancez
+       ./install.sh sans argument, les images sont publiees."
+  step "Construction des images depuis les sources"
+  info "Elles sont taguees sous leur nom GHCR : le demarrage qui suit n'utilise"
+  info "que le compose de production, et les retrouve en local sans aller au"
+  info "registre. Comptez quelques minutes."
+  $DOCKER compose $COMPOSE_BUILD build
+else
+  # Le pull est une etape a part, et non un effet de bord de `up`, pour deux
+  # raisons : son echec doit etre explique (un `up` dirait « manifest unknown »
+  # et rien d'autre), et il doit arriver avant que quoi que ce soit demarre.
+  step "Recuperation des images"
+  info "Portail depuis ghcr.io, base et stockage depuis docker hub."
+  $DOCKER compose $COMPOSE pull || die \
+    "impossible de recuperer les images. Le message de docker ci-dessus dit
+       laquelle ; pour celles du portail (ghcr.io), les causes sont :
+         - les paquets GHCR sont restes prives — un pull anonyme repond alors
+           403, ce qui ressemble a une image inexistante ;
+         - la version demandee n'existe pas : IMAGE_TAG vaut « ${IMAGE_TAG:-le defaut ecrit dans le compose} » ;
+         - la machine ne joint pas le registre.
+       Ce script ne construit pas a la place : la machine de production n'a pas
+       le code source. Depuis un checkout complet, ./install.sh --from-source."
 fi
 
-step "Construction des images et demarrage de la stack"
-info "Le premier appel construit deux images : comptez quelques minutes."
-$DOCKER compose $COMPOSE up --build -d
+step "Demarrage de la stack"
+$DOCKER compose $COMPOSE up -d
 
 # --------------------------------------------------------------------------
 # Attente
