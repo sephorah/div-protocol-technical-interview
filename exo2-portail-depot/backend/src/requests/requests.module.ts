@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PublicLinksService } from './public-links.service';
+import { RequestLinksController } from './request-links.controller';
 import { RequestsController } from './requests.controller';
 import { RequestsService } from './requests.service';
 
@@ -10,7 +11,7 @@ import { RequestsService } from './requests.service';
 // guess -- src/seed.ts resolves it from the application context, and C1 will
 // need it to resolve a token before checking a PIN.
 @Module({
-  controllers: [RequestsController],
+  controllers: [RequestsController, RequestLinksController],
   providers: [RequestsService, PublicLinksService],
   exports: [PublicLinksService],
 })
