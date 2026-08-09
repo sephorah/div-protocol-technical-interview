@@ -7,6 +7,11 @@ export const API_PREFIX = '/api/v1'
 
 const REFRESH_PATH = '/auth/refresh'
 
+// Routes whose 401 means "wrong credentials", not "expired token". Renewing
+// after one is a wasted round trip on every failed login -- observed in the
+// browser: a refused sign-in fired /auth/login then /auth/refresh.
+const NEVER_RENEWED: readonly string[] = [REFRESH_PATH, '/auth/login']
+
 export type ApiErrorKind =
   | 'unauthorized'
   | 'notFound'
@@ -76,9 +81,8 @@ export const apiRequest = async <T>(path: string, init: RequestInit = {}): Promi
   let response = await send(path, init)
 
   // The access token lives 15 minutes. One renewal, one replay: without that
-  // bound, a refused renewal would loop. The refresh route never renews
-  // itself, for the same reason.
-  if (response.status === 401 && path !== REFRESH_PATH) {
+  // bound, a refused renewal would loop.
+  if (response.status === 401 && !NEVER_RENEWED.includes(path)) {
     const renewed = await send(REFRESH_PATH, { method: 'POST' })
     if (renewed.ok) {
       response = await send(path, init)

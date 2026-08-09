@@ -70,6 +70,18 @@ describe('apiRequest', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  // A 401 there means "wrong password", not "expired token". Renewing after
+  // one costs a wasted round trip on every failed sign-in.
+  it('never renews after a refused login', async () => {
+    const fetchMock = vi.fn<FetchMock>().mockResolvedValue(jsonResponse({}, 401))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      apiRequest('/auth/login', { method: 'POST', body: '{}' }),
+    ).rejects.toMatchObject({ kind: 'unauthorized' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('never renews on the refresh route itself', async () => {
     const fetchMock = vi.fn<FetchMock>().mockResolvedValue(jsonResponse({}, 401))
     vi.stubGlobal('fetch', fetchMock)

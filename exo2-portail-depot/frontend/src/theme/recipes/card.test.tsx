@@ -2,14 +2,26 @@ import { Card, ChakraProvider } from '@chakra-ui/react'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { system } from '../index'
+import { textStyles } from '../text-styles'
 
+type SlotStyles = Record<string, Record<string, unknown>>
+
+// What the browser actually applies: `base`, then the default variants layered
+// over it. Reading `base` alone hid a real bug -- Chakra's own `size` variant
+// sets the card title's font size, so the title rendered at 18px with 11px
+// written in `base` and every unit test green.
 const slot = (name: string): Record<string, unknown> => {
-  const base = system.getSlotRecipe('card').base as
-    | Record<string, Record<string, unknown>>
-    | undefined
-  const found = base?.[name]
-  if (found === undefined) throw new Error(`no "${name}" card slot`)
-  return found
+  const recipe = system.getSlotRecipe('card')
+  const base = recipe.base as SlotStyles | undefined
+  const groups = (recipe.variants ?? {}) as Record<string, Record<string, SlotStyles>>
+  const defaults = (recipe.defaultVariants ?? {}) as Record<string, string>
+
+  const layered = Object.entries(defaults).reduce<Record<string, unknown>>(
+    (styles, [group, value]) => ({ ...styles, ...groups[group]?.[value]?.[name] }),
+    { ...base?.[name] },
+  )
+  if (Object.keys(layered).length === 0) throw new Error(`no "${name}" card slot`)
+  return layered
 }
 
 describe('card recipe', () => {
@@ -41,9 +53,21 @@ describe('card recipe', () => {
   })
 
   it('sets the header title in small uppercase brand type', () => {
-    const title = slot('title')
-    expect(title.color).toBe('brand.fg')
-    expect(title.textTransform).toBe('uppercase')
-    expect(title.fontWeight).toBe(700)
+    expect(slot('title')).toMatchObject({ color: 'brand.fg', textStyle: 'cardTitle' })
+    expect(textStyles.cardTitle.value).toMatchObject({
+      fontSize: '11px',
+      fontWeight: '700',
+      textTransform: 'uppercase',
+    })
+  })
+
+  // The charter has one card, so naming a size must not undo it. Chakra sets
+  // textStyle lg/md/xl per size, and a textStyle beats a neighbouring
+  // fontSize -- so every size has to carry ours.
+  it.each(['sm', 'md', 'lg'])('keeps the charter title at size %s', (size) => {
+    const variants = system.getSlotRecipe('card').variants as
+      | Record<string, Record<string, SlotStyles>>
+      | undefined
+    expect(variants?.size?.[size]?.title).toMatchObject({ textStyle: 'cardTitle' })
   })
 })

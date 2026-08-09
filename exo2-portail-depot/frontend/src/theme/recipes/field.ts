@@ -34,4 +34,12 @@ export const inputRecipe = defineRecipe({
     },
     _invalid: { borderColor: 'fg.error' },
   },
+  // Same trap as the card: Chakra's `outline` variant is the default and sets
+  // a transparent background, which beats `base`. On white it looks right and
+  // would only diverge once a field sits on a tinted surface.
+  variants: {
+    variant: {
+      outline: { bg: 'bg', borderWidth: '1px', borderColor: 'border' },
+    },
+  },
 })

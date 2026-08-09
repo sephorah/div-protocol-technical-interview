@@ -36,4 +36,16 @@ describe('field recipe', () => {
     expect(focus?.borderWidth).toBeUndefined()
     expect(base?.borderRadius).toBe('l2')
   })
+
+  // Chakra's default `outline` variant sets a transparent background, and a
+  // variant beats `base`. On white it looked right; it would only diverge once
+  // a field sat on the tinted card header.
+  it('paints the input white in the variant the screens actually get', () => {
+    const recipe = system.getRecipe('input')
+    const variants = recipe.variants as
+      | Record<string, Record<string, Record<string, unknown>>>
+      | undefined
+    const defaults = (recipe.defaultVariants ?? {}) as Record<string, string>
+    expect(variants?.variant?.[defaults.variant]?.bg).toBe('bg')
+  })
 })

@@ -43,3 +43,11 @@ describe('theme tokens', () => {
     expect(system.token('fonts.heading')).toContain('Inter')
   })
 })
+
+describe('heading recipe', () => {
+  // The charter reserves 700 for headings; Chakra ships 600.
+  it('sets headings at the charter weight', () => {
+    const base = system.getRecipe('heading').base as Record<string, unknown> | undefined
+    expect(base?.fontWeight).toBe(700)
+  })
+})
