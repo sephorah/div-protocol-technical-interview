@@ -723,9 +723,13 @@ Seven things are non-obvious:
 **seconds** rather than as `"2h"`: jsonwebtoken types `expiresIn` as a template literal that a value
 read from the environment is not, and converting is better than casting the type away.
 
-`src/seed.ts` compiles to `dist/seed.js`, which `install.sh` already detects and runs. It is
-idempotent (`upsert` on the account, `findFirst` + `create` on the request) except for the public
-link, which it **revokes and re-creates in one transaction** — the PIN is hashed, so a preserved link
+`src/seed.ts` compiles to `dist/seed.js`, which `install.sh` already detects and runs. **The demo
+account is identified by the request it owns, never by its e-mail address**: keyed on the address,
+changing `SEED_LAWYER_EMAIL` would not rename the account but create a second one, leaving the first
+reachable with its old password. `DEMO_REQUEST_TITLE` is therefore the marker of the whole
+demonstration dataset, and the `upsert`-by-address branch only covers a database whose demo request
+was deleted by hand. The rest is idempotent the same way, except for the public link, which is
+**revoked and re-created in one transaction** — the PIN is hashed, so a preserved link
 could not have its PIN reprinted, and a demonstration link whose PIN nobody knows is worth nothing.
 The three `SEED_LAWYER_*` variables are deliberately **not** in `validateEnv`: the API never reads
 them, and requiring them would tie its startup to a demo fixture. They are guarded by `${VAR:?}` in

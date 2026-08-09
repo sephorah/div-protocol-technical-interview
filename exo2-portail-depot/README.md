@@ -117,7 +117,7 @@ de faire écouter le service au mauvais endroit ou de démarrer Postgres sans mo
 | `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | oui | — | utilisateur applicatif, restreint au seul bucket |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | oui | — | administration du serveur de stockage |
 | `JWT_SECRET`, `JWT_EXPIRES` | secret | —, `2h` | authentification avocat. 32 caractères minimum, unité de durée obligatoire (et non nulle) |
-| `SEED_LAWYER_EMAIL`, `SEED_LAWYER_NAME` | non | `avocat@exemple.fr`, `Maitre Dupont` | compte de démonstration. Lues **par le seed seul**, jamais par l'API |
+| `SEED_LAWYER_EMAIL`, `SEED_LAWYER_NAME` | non | `avocat@example.com`, `Maitre Dupont` | compte de démonstration. Lues **par le seed seul**, jamais par l'API. Changer l'adresse **renomme** le compte, elle n'en crée pas un second |
 | `SEED_LAWYER_PASSWORD` | oui | — | mot de passe du compte de démonstration, tiré au sort une fois par `install.sh`. Stocké en clair dans `.env` **parce qu'il doit rester relisible** : c'est ce que le seed réaffiche à chaque exécution, et un hachage ne se relit pas |
 | `DOMAIN`, `ACME_EMAIL`, `ACME_STAGING` | non | *(vides)* | HTTPS. Lues **ni** par compose **ni** par l'application : seul `install.sh` les lit, pour les passer à certbot |
 

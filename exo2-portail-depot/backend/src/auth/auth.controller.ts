@@ -24,22 +24,17 @@ import { LoginDto } from './dto/login.dto';
 import { Public } from './public.decorator';
 
 /**
- * The lawyer's session. The client side stays anonymous and never comes
- * through here -- it will unlock a deposit link with a PIN (C1).
+ * The lawyer's session. The client side stays anonymous and unlocks a deposit
+ * link with a PIN instead (C1).
  *
- * `@Res({ passthrough: true })` throughout: it gives access to the response for
- * the cookie while leaving Nest in charge of serialising the returned value.
- * Without `passthrough`, the framework steps back entirely and every handler
- * has to call res.json() itself.
+ * `@Res({ passthrough: true })` gives access to the response for the cookie
+ * while leaving Nest in charge of serialising what the handler returns.
  */
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
-  /**
-   * 200 rather than the 201 Nest gives POST by default: nothing is created at
-   * a URL here, a session is opened.
-   */
+  // 200 and not Nest's default 201: nothing is created at a URL, a session opens.
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -60,21 +55,15 @@ export class AuthController {
       buildAuthCookie(request.secure, this.auth.sessionMaxAgeMs()),
     );
 
-    // The token is NOT repeated in the body: it would land in the SPA's
-    // JavaScript, which is exactly what httpOnly exists to prevent.
+    // Never repeated in the body: it would land in the SPA's JavaScript, which
+    // is what httpOnly exists to prevent.
     return lawyer;
   }
 
   /**
-   * Public on purpose, and this is not an oversight: a lawyer whose token has
-   * expired must still be able to clear the cookie. Behind the guard, logging
-   * out of a dead session would answer 401 and leave the stale cookie in the
-   * browser.
-   *
-   * Its limit is stated in the README: erasing the cookie does not invalidate
-   * the token. A copy taken beforehand stays usable until it expires. Real
-   * revocation needs a list of revoked tokens, i.e. a round-trip to storage on
-   * every request.
+   * @Public() on purpose: a lawyer whose token has expired must still be able
+   * to clear the cookie. Erasing it does not invalidate the token -- a limit
+   * stated in the README.
    */
   @Public()
   @Post('logout')
@@ -87,11 +76,9 @@ export class AuthController {
   }
 
   /**
-   * What the SPA calls on load to know whether a session is still open -- the
-   * cookie being httpOnly, it cannot look for itself.
-   *
-   * The profile comes from the guard, which has already re-read the account:
-   * no second query here.
+   * What the SPA calls on load to know whether a session is open -- the cookie
+   * being httpOnly, it cannot look for itself. The profile comes from the
+   * guard, which already re-read the account.
    */
   @Get('me')
   me(@Req() request: AuthenticatedRequest): LawyerProfile {

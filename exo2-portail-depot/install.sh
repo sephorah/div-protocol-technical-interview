@@ -443,7 +443,7 @@ set_env_default MINIO_ROOT_PASSWORD "$(random_hex 32)"
 # changerait le mot de passe imprime a l'evaluateur d'un `./install.sh` a
 # l'autre, sans rien dire.
 set_env_default SEED_LAWYER_PASSWORD "$(random_hex 12)"
-set_env_default SEED_LAWYER_EMAIL avocat@exemple.fr
+set_env_default SEED_LAWYER_EMAIL avocat@example.com
 set_env_default SEED_LAWYER_NAME "Maitre Dupont"
 
 # chmod APRES les substitutions : set_env_value ecrit un fichier temporaire puis

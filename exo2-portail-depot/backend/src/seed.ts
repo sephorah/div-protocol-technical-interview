@@ -1,21 +1,14 @@
 /**
- * Demonstration data, executed by install.sh inside the backend container
+ * Demonstration data, run by install.sh inside the backend container
  * (`node dist/seed.js`) once every healthcheck has passed.
  *
- * Two properties are required of it, and neither is decorative:
+ * Two properties are required of it. IDEMPOTENT, because install.sh runs on
+ * every deployment. And IT PRINTS CREDENTIALS: its output is the grader's only
+ * way of knowing how to log in, and the PIN is stored hashed -- whatever is not
+ * printed here is lost.
  *
- * - IDEMPOTENT. install.sh runs on every deployment, not only the first. A
- *   second run must not create a second lawyer, a second request or a second
- *   set of expected documents.
- * - IT PRINTS CREDENTIALS. Its standard output is displayed as-is by
- *   install.sh, and it is the grader's only way of knowing how to log in. The
- *   PIN in particular is stored hashed, so it cannot be read back afterwards:
- *   whatever is not printed here is lost.
- *
- * It goes through a Nest application context rather than instantiating a
- * PrismaClient of its own: same configuration, same connection string
- * assembly, same validation at startup. A second wiring would be a second thing
- * to keep in step with the first.
+ * It goes through a Nest application context rather than its own PrismaClient,
+ * so that configuration and connection assembly stay in one place.
  */
 
 import { INestApplicationContext, Logger } from '@nestjs/common';
@@ -32,9 +25,16 @@ import { normalizeEmail } from './lawyers/lawyer.types';
 import { PrismaService } from './prisma/prisma.service';
 
 /**
- * The title identifies the demonstration request across runs -- DepositRequest
- * has no natural unique key, and adding one to the schema for the sake of the
- * seed would let a fixture dictate the data model.
+ * The title is what identifies the demonstration DATASET across runs --
+ * DepositRequest has no natural unique key, and adding one to the schema for
+ * the sake of a fixture would let the fixture dictate the data model.
+ *
+ * It also identifies the demonstration LAWYER, indirectly: the demo account is
+ * "whoever owns this request", not "whoever holds this e-mail address". That
+ * indirection is the whole point. Keyed on the address, changing
+ * SEED_LAWYER_EMAIL would not rename the account -- it would create a second
+ * one, and the first would stay reachable with its old password. The address is
+ * a value of the account, not its identity.
  */
 const DEMO_REQUEST_TITLE = 'Dossier Martin, pieces 2026';
 
@@ -48,12 +48,9 @@ const DEMO_ITEMS = [
 const DEMO_LINK_DAYS = 14;
 
 /**
- * Reads a variable that must be present AND non-empty.
- *
- * getOrThrow only rejects an absent variable: `SEED_LAWYER_PASSWORD=` in the
- * .env would return an empty string, and the demo account would be created with
- * the hash of nothing -- an account whose password is "" and which the grader
- * could never guess was broken.
+ * getOrThrow only rejects an ABSENT variable: `SEED_LAWYER_PASSWORD=` returns
+ * an empty string, and the demo account would be created with the hash of
+ * nothing.
  */
 const requireConfig = (config: ConfigService, key: string): string => {
   const value = config.getOrThrow<string>(key).trim();
@@ -72,23 +69,33 @@ const seed = async (app: INestApplicationContext): Promise<void> => {
   const name = requireConfig(config, 'SEED_LAWYER_NAME');
   const password = requireConfig(config, 'SEED_LAWYER_PASSWORD');
 
-  // The hash is recomputed on every run and written on update as well as on
-  // create: changing SEED_LAWYER_PASSWORD in .env and re-running ./install.sh
-  // is therefore how the demo password is rotated. Doing it the other way --
-  // only on create -- would leave the .env and the account silently disagreeing.
+  // Rewritten on update as well as on create, so that changing
+  // SEED_LAWYER_PASSWORD and re-running ./install.sh rotates the demo password
+  // instead of leaving .env and the account silently disagreeing.
   const passwordHash = await hashSecret(password);
-  const lawyer = await prisma.lawyer.upsert({
-    where: { email },
-    update: { name, passwordHash },
-    create: { email, name, passwordHash },
-  });
 
-  // findFirst + create rather than upsert: the request has no unique key to
-  // upsert on (see DEMO_REQUEST_TITLE).
+  // findFirst + create rather than upsert: the request has no unique key.
   const existing = await prisma.depositRequest.findFirst({
-    where: { lawyerId: lawyer.id, title: DEMO_REQUEST_TITLE },
+    where: { title: DEMO_REQUEST_TITLE },
     include: { items: true },
   });
+
+  // Already seeded: its owner IS the demo account whatever address it carries,
+  // so this branch RENAMES rather than duplicating. The address stays unique --
+  // a genuine conflict with another account fails loudly, as it should.
+  const lawyer =
+    existing === null
+      ? await prisma.lawyer.upsert({
+          // No demo request: the address is the only key left. Covers a
+          // database whose request was deleted by hand.
+          where: { email },
+          update: { name, passwordHash },
+          create: { email, name, passwordHash },
+        })
+      : await prisma.lawyer.update({
+          where: { id: existing.lawyerId },
+          data: { email, name, passwordHash },
+        });
 
   const request =
     existing ??
@@ -101,9 +108,9 @@ const seed = async (app: INestApplicationContext): Promise<void> => {
       include: { items: true },
     }));
 
-  // Repairs a request whose expected documents were partially deleted by hand,
-  // and adds any item appended to DEMO_ITEMS since the first run. Comparing by
-  // label is enough here: the labels are constants of this file.
+  // Repairs a request whose items were deleted by hand, and picks up anything
+  // appended to DEMO_ITEMS since. Comparing by label suffices: they are
+  // constants of this file.
   const knownLabels = new Set(request.items.map((item) => item.label));
   const missing = DEMO_ITEMS.filter((label) => !knownLabels.has(label));
   if (missing.length > 0) {
@@ -119,15 +126,10 @@ const seed = async (app: INestApplicationContext): Promise<void> => {
   const pinHash = await hashSecret(pin);
   const expiresAt = new Date(Date.now() + DEMO_LINK_DAYS * 24 * 60 * 60 * 1000);
 
-  // Revoking then creating, inside ONE transaction: a partial unique index
-  // enforces a single active link per request, so the two statements crossing
-  // would leave the demo request with no usable link at all.
-  //
-  // Why regenerate rather than keep the existing link: the PIN is stored
-  // hashed. A preserved link could not have its PIN reprinted, and a
-  // demonstration link whose PIN nobody knows is worth nothing. The revoked
-  // rows accumulate, and that is intended -- the link history is exactly what
-  // PublicLink exists to keep.
+  // One transaction, a partial unique index allowing a single active link per
+  // request. Regenerated rather than preserved because the PIN is hashed: a
+  // kept link could not have its PIN reprinted. Revoked rows accumulating is
+  // intended -- that history is what PublicLink exists for.
   await prisma.$transaction([
     prisma.publicLink.updateMany({
       where: { requestId: request.id, revokedAt: null },
@@ -143,12 +145,8 @@ const seed = async (app: INestApplicationContext): Promise<void> => {
     }),
   ]);
 
-  // console.log and not the Nest logger: this block is a deliverable read by a
-  // human, not a log line. The logger would prefix it with a timestamp, a
-  // process id and a context, and colour it.
-  //
-  // No accents, like install.sh: this output lands in whatever terminal the
-  // grader happens to be using.
+  // console.log and not the Nest logger: this is read by a human, not a log
+  // line. No accents, like install.sh -- it lands in an unknown terminal.
   console.log(`
   Compte avocat de demonstration
     Adresse      ${lawyer.email}
@@ -165,8 +163,7 @@ const seed = async (app: INestApplicationContext): Promise<void> => {
 };
 
 const main = async (): Promise<void> => {
-  // Only errors and warnings: everything Nest says while starting would be
-  // noise between the grader and the credentials above.
+  // Nest's startup chatter would sit between the grader and the credentials.
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn'],
   });
@@ -174,8 +171,8 @@ const main = async (): Promise<void> => {
   try {
     await seed(app);
   } finally {
-    // In a `finally`, so that a failed seed still closes its database
-    // connections instead of leaving the process hanging on an open pool.
+    // `finally`: a failed seed must still close its connections rather than
+    // hang on an open pool.
     await app.close();
   }
 };

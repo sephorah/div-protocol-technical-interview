@@ -4,38 +4,24 @@ import { PrismaService } from '../prisma/prisma.service';
 import { normalizeEmail } from './lawyer.types';
 
 /**
- * Read access to the lawyer account.
- *
- * Thin on purpose: the portal has exactly one authenticated actor and no
- * sign-up, so there is nothing else to do with it yet. It exists as a service
- * rather than as a Prisma call inside AuthService so that the normalisation of
- * the address happens in one place -- the day B2 or a future admin route looks
- * an account up, it will normalise it the same way, or the unique index will
- * quietly stop being unique in practice.
+ * Read access to the lawyer account. A service rather than a Prisma call inside
+ * AuthService so that address normalisation happens in one place: applied
+ * inconsistently, the unique index quietly stops being unique in practice.
  */
 @Injectable()
 export class LawyersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Returns the FULL row, password hash included: its caller is the
-   * authentication service, which needs the hash to verify it. Everything that
-   * answers a client goes through toProfile() instead.
-   */
+  // Returns the FULL row, hash included: its caller verifies the password.
+  // Anything answering a client goes through toProfile() instead.
   findByEmail(email: string): Promise<Lawyer | null> {
     return this.prisma.lawyer.findUnique({
       where: { email: normalizeEmail(email) },
     });
   }
 
-  /**
-   * Lookup by identifier, used by JwtAuthGuard on every authenticated request.
-   *
-   * The identifier is what the token carries, and it is the only immutable key:
-   * looking an account up by the e-mail found in a token would break the day an
-   * address changes, and would leave a stale token pointing at whoever inherits
-   * that address.
-   */
+  // What JwtAuthGuard calls. The identifier is the only immutable key: keyed on
+  // the address, a stale token would follow whoever inherits it.
   findById(id: string): Promise<Lawyer | null> {
     return this.prisma.lawyer.findUnique({ where: { id } });
   }

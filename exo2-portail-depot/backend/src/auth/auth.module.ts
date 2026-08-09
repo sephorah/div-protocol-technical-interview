@@ -11,24 +11,17 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 @Module({
   imports: [
     LawyersModule,
-    // registerAsync, because the secret comes from the configuration and
-    // ConfigService is only available through injection. The synchronous form
-    // would have to read process.env directly, bypassing the startup
-    // validation.
+    // registerAsync: the synchronous form would have to read process.env
+    // directly, bypassing the startup validation.
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         secret: config.getOrThrow<string>('JWT_SECRET'),
-        // Configured once here: every token signed by this module carries the
-        // same lifetime, and no call site can forget it.
-        //
-        // Passed in SECONDS rather than as the "2h" string: jsonwebtoken types
-        // expiresIn as a template literal it recognises, which a value read
-        // from the environment is not. Converting through the same parser the
-        // cookie uses is better than casting the type away -- the two durations
-        // then cannot diverge, and an unparseable value fails here at startup
-        // rather than producing a token with no expiry.
+        // In SECONDS: jsonwebtoken types expiresIn as a template literal, which
+        // a value read from the environment is not. Going through the parser
+        // the cookie already uses beats casting the type away -- the two
+        // durations then cannot diverge.
         signOptions: {
           expiresIn:
             durationToMilliseconds(config.getOrThrow<string>('JWT_EXPIRES')) /
@@ -40,14 +33,10 @@ import { JwtAuthGuard } from './jwt-auth.guard';
   controllers: [AuthController],
   providers: [
     AuthService,
-    // Registered from THIS module and not from AppModule, deliberately: a
-    // provider resolves its dependencies in the module that declares it, and
-    // JwtService lives here. Registered as APP_GUARD it applies to the whole
-    // application all the same.
-    //
-    // And APP_GUARD rather than app.useGlobalGuards(), which is not a matter of
-    // taste: a guard registered that way is instantiated outside the injection
-    // container and would receive neither JwtService nor Reflector.
+    // From THIS module because a provider resolves its dependencies where it is
+    // declared, and JwtService lives here; APP_GUARD still applies globally.
+    // Not app.useGlobalGuards(), which instantiates outside the injection
+    // container -- no JwtService, no Reflector.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
   exports: [AuthService],

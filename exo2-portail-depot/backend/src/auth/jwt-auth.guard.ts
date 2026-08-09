@@ -14,11 +14,9 @@ import { AuthenticatedRequest, JwtPayload } from './auth.types';
 import { IS_PUBLIC_KEY } from './public.decorator';
 
 /**
- * The portal's single authentication guard, registered globally in AuthModule.
- *
- * It reads the token from the cookie only, never from an Authorization header:
- * supporting both would mean every protection (expiry, CSRF stance, cookie
- * attributes) has to hold on two paths, for a second one nothing here uses.
+ * Registered globally in AuthModule, so every route is closed unless it carries
+ * @Public(). Reads the cookie only: an Authorization header would mean holding
+ * every protection on two paths, for a second one nothing here uses.
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -29,8 +27,8 @@ export class JwtAuthGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    // getAllAndOverride, not get: @Public() must work on a whole controller as
-    // well as on a single handler, the handler winning.
+    // getAllAndOverride so @Public() works on a controller as well as on a
+    // single handler, the handler winning.
     const isPublic = this.reflector.getAllAndOverride<boolean | undefined>(
       IS_PUBLIC_KEY,
       [context.getHandler(), context.getClass()],
@@ -47,32 +45,23 @@ export class JwtAuthGuard implements CanActivate {
 
     let payload: JwtPayload;
     try {
-      // verifyAsync checks the signature AND the expiry, and throws on either.
-      // The secret comes from the JwtModule registration, so it is configured
-      // in one place.
       payload = await this.jwt.verifyAsync<JwtPayload>(token);
     } catch {
-      // The cause is deliberately swallowed: "malformed", "expired" and "bad
-      // signature" all answer the same 401. The distinction only helps whoever
-      // is forging tokens.
+      // "malformed", "expired" and "bad signature" all answer the same 401:
+      // the distinction only helps whoever is forging tokens.
       throw new UnauthorizedException();
     }
 
-    // verifyAsync<JwtPayload> is a cast, not a validation: it proves the
-    // signature and the expiry, nothing about the shape. A token signed with
-    // our secret but carrying no `sub` would reach findUnique with an undefined
-    // identifier, which Prisma answers with an exception -- a 500 where every
-    // other rejection on this path is a 401.
+    // verifyAsync<JwtPayload> is a cast, not a validation. Without this check a
+    // token carrying no `sub` reaches Prisma with an undefined id and answers
+    // 500, where every other rejection here is a 401.
     if (typeof payload.sub !== 'string' || payload.sub.length === 0) {
       throw new UnauthorizedException();
     }
 
-    // The account is re-read on each request rather than rebuilt from the
-    // payload. It costs one indexed lookup, and it buys the only revocation
-    // this design has: a deleted account stops being able to use tokens issued
-    // before its deletion, which would otherwise stay valid for two hours. It
-    // is also what lets /auth/me answer a full profile without the name having
-    // to travel inside the token.
+    // Re-read rather than rebuilt from the payload: one indexed lookup buys the
+    // only revocation this design has, a deleted account losing its still-valid
+    // tokens.
     const lawyer = await this.lawyers.findById(payload.sub);
     if (lawyer === null) {
       throw new UnauthorizedException();
@@ -82,12 +71,8 @@ export class JwtAuthGuard implements CanActivate {
     return true;
   }
 
-  /**
-   * `req.cookies` is populated by cookie-parser (main.ts). Without that
-   * middleware the field is undefined and every authenticated request answers
-   * 401 -- hence the explicit check rather than an optional chain that would
-   * make the misconfiguration look like a missing token.
-   */
+  // `req.cookies` comes from cookie-parser (app.setup.ts); the explicit shape
+  // check keeps a missing middleware a 401 rather than a TypeError.
   private extractToken(request: Request): string | null {
     const cookies: unknown = request.cookies;
     if (typeof cookies !== 'object' || cookies === null) {

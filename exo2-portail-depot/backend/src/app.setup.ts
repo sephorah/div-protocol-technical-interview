@@ -4,18 +4,13 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 
 /**
- * Everything that turns an instantiated AppModule into the API as it actually
- * runs: prefix, cookie reading, proxy trust, input validation.
+ * Everything that turns an instantiated AppModule into the API as it runs.
  *
- * It lives outside main.ts because the e2e suites do NOT go through main.ts --
- * they build the application with Test.createTestingModule(). Written twice,
- * these four settings would drift, and the suites would then be testing an
- * application that does not exist: a missing cookie-parser alone makes every
- * authenticated route answer 401, and a missing ValidationPipe makes a
- * malformed body answer 200.
+ * Outside main.ts because the e2e suites do not go through it -- they build the
+ * application with Test.createTestingModule(). Written twice, these settings
+ * would drift and the suites would test an application that does not exist.
  *
- * Deliberately NOT included: enableShutdownHooks() and listen(), which concern
- * a process, not an application, and which the tests must not perform.
+ * Excludes enableShutdownHooks() and listen(), which concern a process.
  */
 export const configureApp = (app: NestExpressApplication): void => {
   const config = app.get(ConfigService);
@@ -25,29 +20,23 @@ export const configureApp = (app: NestExpressApplication): void => {
   // already consumed and would turn /api/v1/x into /x.
   app.setGlobalPrefix(config.getOrThrow<string>('API_PREFIX'));
 
-  // Populates request.cookies, which JwtAuthGuard reads. Without it the field
-  // is undefined and EVERY authenticated request answers 401 -- a failure that
-  // looks like a token problem and is a wiring problem.
+  // Populates request.cookies, which JwtAuthGuard reads. Without it every
+  // authenticated route answers 401 -- a wiring problem that looks like a token
+  // problem.
   app.use(cookieParser());
 
-  // Express advertises itself in X-Powered-By on every response, and nginx does
-  // not strip it. It tells a scanner which stack to look up known
-  // vulnerabilities for, and tells a legitimate client nothing at all.
+  // nginx does not strip it, and it only tells a scanner which stack to target.
   app.disable('x-powered-by');
 
-  // One hop, because nginx is the only way in. This is what makes
-  // X-Forwarded-Proto trustworthy, hence `request.secure`, hence the `Secure`
-  // attribute of the session cookie (see auth/auth-cookie.ts). Left at its
-  // default, Express ignores the header, `request.secure` is always false, and
-  // the cookie would travel without `Secure` even over HTTPS.
+  // One hop, nginx being the only way in. This is what makes X-Forwarded-Proto
+  // trustworthy, hence `request.secure`, hence the cookie's `Secure` attribute
+  // (see auth/auth-cookie.ts). Without it the cookie ships unprotected even
+  // over HTTPS.
   app.set('trust proxy', 1);
 
-  // whitelist strips any field not declared on the DTO, and
-  // forbidNonWhitelisted turns its presence into a 400 rather than a silent
-  // removal -- a body that is not the one the caller believes they sent should
-  // be said out loud. transform is what turns the plain JSON object into an
-  // instance of the DTO class, without which the class-validator decorators
-  // never run.
+  // forbidNonWhitelisted rather than whitelist alone: a body that is not the
+  // one the caller believes they sent should be said out loud, not silently
+  // trimmed. transform is what makes the class-validator decorators run at all.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
