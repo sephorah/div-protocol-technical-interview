@@ -165,7 +165,12 @@ le certificat réel. Contrôlé depuis internet, hors de la machine :
 Le dernier contrôle vaut les autres : la machine est partagée, et un seul port publié sur `0.0.0.0`
 aurait exposé la base par `/api` et la console MinIO, c'est-à-dire toutes les pièces des clients.
 
-Reste : `certbot renew --dry-run`, qui demande un accès à la machine.
+**Renouvellement** : `certbot renew --dry-run` sur la machine répond « Congratulations, all
+simulated renewals succeeded ». La commande rejoue tout le protocole contre l'endpoint de test sans
+toucher au certificat réel — c'est le seul moyen de savoir aujourd'hui que le renouvellement
+fonctionnera dans deux mois, plutôt que de le découvrir le jour où le portail cesserait de répondre.
+
+Les cinq critères d'acceptation de l'issue sont donc satisfaits.
 
 ## Sécurité
 

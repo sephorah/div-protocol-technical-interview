@@ -130,7 +130,8 @@ Serveur partagé : proxy frontal par `Host` header en HTTP et SNI passthrough en
       refusent la connexion
 - [x] Challenge HTTP-01 relayé par le proxy sur :80 — `location /.well-known/acme-challenge/`
 - [x] Essais avec l'endpoint **staging** de Let's Encrypt avant le certificat réel
-- [ ] Renouvellement automatique vérifié (dry-run)
+- [x] Renouvellement automatique vérifié (dry-run) — `certbot renew --dry-run` sur la machine :
+      « Congratulations, all simulated renewals succeeded »
 - [x] `https://sephorah-aniambossou.stage2-div.rayan-drissi.com` répond — 200 en HTTP/2, émetteur
       `O=Let's Encrypt, CN=YE2` (le vrai, pas le serveur de test), valide du 9 août au 7 novembre
       2026, accepté sans `-k` ; le HTTP répond 301 vers HTTPS et la sonde de santé reste en 403
