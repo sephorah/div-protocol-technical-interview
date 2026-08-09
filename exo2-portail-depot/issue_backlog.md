@@ -431,13 +431,18 @@ Cible explicite de l'énoncé : expiration, PIN, transitions de statut.
 - [ ] PIN : bon, mauvais, hachage, comportement après lockout
 - [ ] Transitions : `en attente` → `complète`, `en attente` → `expirée`, transitions interdites
 - [ ] Tests e2e du parcours complet (création → unlock → dépôt → dashboard)
-- [ ] **Reporté de B1** : suite d'intégration du seed (Postgres en conteneur, migrations jouées, seed
-      exécuté deux fois, comptages assertés). Son idempotence est aujourd'hui **mesurée** à la main
-      (1 avocat, 1 demande, 3 pièces, 2 liens dont 1 actif — voir `ai-plans/2026-08-09-b1-auth-jwt.md`)
-      et non rejouée à chaque commit. Ce que la suite figerait surtout : l'**index unique partiel**
-      « un seul lien actif par demande », que `CLAUDE.md` signale comme disparaissant en silence à la
-      régénération d'une migration — le seed continuerait alors de « marcher » en produisant deux
-      liens actifs
+- [x] **Harnais Postgres réel pour les suites e2e** : `test/global-setup.ts` monte un
+      `postgres:17-alpine` par testcontainers et applique les vraies migrations ; les trois suites de
+      `test/` ont perdu leur doublure de Prisma. C'est ce qui rend testables les contraintes, les
+      cascades et l'ordre des pièces
+- [x] L'**index unique partiel** « un seul lien actif par demande » est désormais couvert, dans les
+      deux sens : un second lien actif est refusé, plusieurs liens révoqués sont acceptés à côté de
+      l'actif. Vérifié en supprimant l'index de la migration et en constatant l'échec du bon test —
+      c'était le point que `CLAUDE.md` signale comme disparaissant en silence à la régénération
+- [ ] **Reporté de B1** : suite d'intégration du *seed* lui-même (exécuté deux fois, comptages
+      assertés). Le harnais existe maintenant, il ne reste qu'à écrire la suite. Son idempotence
+      reste **mesurée** à la main (1 avocat, 1 demande, 3 pièces, 2 liens dont 1 actif — voir
+      `ai-plans/2026-08-09-b1-auth-jwt.md`) et non rejouée à chaque commit
 
 Dépendances : B1–B4, C1–C3.
 
@@ -455,6 +460,10 @@ demande du Jest que sur la logique métier, donc ce P1 est le nôtre, pas le sie
 - [ ] Build et push de l'image sur tag / merge sur `main`
 
 Dépendances : D1, A6.
+
+À savoir avant d'écrire le workflow : `pnpm test:e2e` **exige désormais un démon Docker**, comme
+`pnpm test:integration`. Ce n'est pas un obstacle — les exécuteurs GitHub hébergés en embarquent un
+par défaut — mais un exécuteur auto-hébergé sans Docker ne pourrait lancer que `pnpm test`.
 
 ---
 

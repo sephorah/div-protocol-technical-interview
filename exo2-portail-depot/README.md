@@ -402,5 +402,41 @@ de validation. L'allowlist et la taille maximale (20 Mo) vivent dans la configur
 
 ---
 
-_À documenter d'ici la fin : architecture et choix justifiés, stratégie de tests, périmètre
-d'observabilité et pourquoi ces métriques, identifiants de démo._
+## Stratégie de tests
+
+Trois étages, qui ne prouvent pas la même chose. Chacun a une dépendance et un coût assumés.
+
+| Commande | Ce que ça exerce | Docker | Durée mesurée |
+|---|---|---|---|
+| `pnpm test` | Les unités seules, avec des doublures : validation de configuration, dérivation du statut, primitives de hachage, règles de rotation | non | 3,7 s — 244 tests |
+| `pnpm test:e2e` | L'API entière par HTTP, contre un **vrai PostgreSQL 17** monté par testcontainers, migrations réelles appliquées | oui | 20,3 s — 65 tests |
+| `pnpm test:integration` | `StorageService` contre un **vrai MinIO**, sous la politique d'accès restreinte de la production | oui | 4,7 s — 9 tests |
+| `pnpm test:bare-machine` | `./install.sh` sur une image `ubuntu:24.04` où rien n'est préinstallé | oui | ~2 min |
+
+**Pourquoi une vraie base pour les tests e2e.** Ils utilisaient jusqu'ici une doublure de Prisma
+écrite à la main. Elle se maintenait à chaque nouvelle route, et surtout elle ne pouvait rien
+prouver : sa fonction `$transaction` n'annulait rien, et le test du conflit 409 vérifiait qu'on
+traduisait bien une erreur simulée, pas que la contrainte qui la produit existe. Or cette
+contrainte — un index unique **partiel** qui n'autorise qu'un seul lien actif par demande — est
+écrite à la main dans la migration, parce que Prisma ne sait pas exprimer un index conditionnel :
+régénérer la migration la perd sans un mot. Deux liens actifs deviendraient alors possibles, un
+ancien PIN survivrait à la régénération censée le remplacer, et toute la suite resterait verte.
+
+Trois tests n'existent que grâce à la vraie base : l'index refusant un second lien actif, ce même
+index acceptant les liens révoqués à côté, et la suppression en cascade d'une demande. Le premier a
+été vérifié de la seule manière qui vaille — en supprimant l'index de la migration, en constatant
+que ce test précis échoue, puis en remettant le fichier.
+
+**Ce que ça coûte, dit franchement.** Docker devient nécessaire pour `pnpm test:e2e`, et la suite
+passe de 8,5 s à 20 s. L'argument qui justifiait l'ancien montage — « la CI ne pourra pas lancer
+Docker » — était faux : les exécuteurs GitHub embarquent un démon Docker.
+
+**Ce qu'aucun étage ne couvre.** Aucun test ne traverse nginx ni le frontend : le parcours réel d'un
+avocat ou d'un client à travers la pile complète reste une vérification à la main, et le restera
+jusqu'à ce qu'un test de bout en bout piloté par un navigateur existe. Le frontend n'a d'ailleurs
+aucun lanceur de tests installé.
+
+---
+
+_À documenter d'ici la fin : architecture et choix justifiés, périmètre d'observabilité et pourquoi
+ces métriques, identifiants de démo._

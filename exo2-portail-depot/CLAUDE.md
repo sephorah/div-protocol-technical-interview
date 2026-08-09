@@ -109,8 +109,8 @@ pnpm build                  # build both, backend first
 pnpm dev                    # both dev servers in parallel (API :21610, vite :5173)
 pnpm start                  # both production builds (API :21610, serve :4000)
 pnpm test                   # backend jest suite (frontend has no test runner yet)
-pnpm test:e2e               # supertest suite, doubles only — no Docker
-pnpm test:integration       # testcontainers suite — REQUIRES a Docker daemon
+pnpm test:e2e               # supertest suite against a real Postgres — REQUIRES a Docker daemon
+pnpm test:integration       # real-MinIO suite — REQUIRES a Docker daemon
 pnpm test:bare-machine      # replays the grader's first test in a container (§ install.sh)
 pnpm lint                   # lint both
 pnpm db:up                  # Postgres AND MinIO, for local dev (:21632, :21690, console :21691)
@@ -118,9 +118,19 @@ pnpm db:down                # stop them
 pnpm db:migrate             # prisma migrate dev, against the dev database
 ```
 
-**Only `test:integration` needs Docker.** `test` and `test:e2e` must stay runnable on a bare machine
-— they are what CI (D3) will run. Keep it that way: a new suite that reaches the network belongs in
-`*.int-spec.ts`, not in `*.spec.ts` or `*.e2e-spec.ts`.
+**`test:e2e` and `test:integration` both need Docker; only `pnpm test` runs on a bare machine.**
+This **reverses** the rule this file used to state. The old one kept `test:e2e` Docker-free "because
+that is what CI will run", and that reason was simply wrong — GitHub runners ship a Docker daemon,
+and D3 will use it. What the reversal really costs is speed and the local loop, not CI.
+
+What it buys is that the e2e suites stop lying: their Prisma double could not enforce a constraint,
+roll back a transaction, or apply a cascade, so a whole class of regression was invisible. See
+§ e2e against a real Postgres.
+
+The rule for a new suite is therefore no longer "anything touching the network is `*.int-spec.ts`".
+It is: a suite that drives the API over HTTP is `*.e2e-spec.ts`; one that drives a single service
+against its real dependency is `*.int-spec.ts`; one that needs no dependency at all stays a
+`*.spec.ts` next to its source.
 
 **`pnpm dev` needs `pnpm db:up` first**, which now brings up MinIO too — the API calls `HeadBucket`
 in `onModuleInit`, so it does not start without it. The API validates its database configuration at
@@ -181,7 +191,7 @@ pnpm db:migrate:deploy      # apply pending migrations (what the container entry
 pnpm db:studio              # browse the data
 pnpm lint                   # eslint --fix over src/ and test/ (flat config, eslint.config.mjs)
 pnpm test                   # jest unit tests (*.spec.ts alongside sources)
-pnpm test:e2e               # supertest e2e suite (test/, uses test/jest-e2e.json)
+pnpm test:e2e               # supertest suite, real Postgres (test/jest-e2e.json, needs Docker)
 pnpm test:integration       # real-MinIO suite (test/*.int-spec.ts, test/jest-int.json, needs Docker)
 pnpm test app.controller    # run a single test file by path pattern
 pnpm test -t "should return"  # run tests matching a name
@@ -694,7 +704,8 @@ Seven things are non-obvious:
 - **Every route is closed by default.** `JwtAuthGuard` is registered as `APP_GUARD` **from
   `AuthModule`**, and `@Public()` is the only way out. A new controller is therefore born protected;
   `/public/*` (C1, C2) will have to carry `@Public()` explicitly, and `@Public()` already sits on
-  `/auth/login`, `/auth/logout`, the health probe and the scaffold's root route. Registered from
+  `/auth/login`, `/auth/logout` and the health probe — the scaffold's root route is gone, and with
+  it the only anonymous route that served no purpose. Registered from
   `AuthModule` and not `AppModule` because a provider resolves its dependencies in the module that
   declares it, and `JwtService` lives there. `app.useGlobalGuards()` is **not** an alternative: it
   instantiates the guard outside the injection container, so it would receive neither `JwtService`
@@ -1072,15 +1083,52 @@ Four things about this setup are non-obvious and easy to break:
 `backend/pnpm-workspace.yaml` also had to allow the `prisma` and `@prisma/engines` build scripts
 (see Toolchain).
 
-The e2e suites replace **both** `PrismaService` and `StorageService` with doubles, and
-`test/setup-env.ts` sets `DATABASE_URL` and the five `STORAGE_*` — loaded via `setupFiles`, because
-`ConfigModule.forRoot()` is evaluated when `app.module.ts` is *imported*, so a `beforeAll` runs too
-late. **Any new required variable must be added there**, or every e2e suite fails at import. The
-suites therefore need no database, no MinIO and no `.env`.
+## e2e against a real Postgres
 
-That also means **they do not prove the real connections work**. For storage, `test/storage.int-spec.ts`
-does (testcontainers, real MinIO). For the database there is still no equivalent: `docker compose up`
-+ `curl /api/v1/health` is the only proof, and a real test database will be needed with D1.
+The three suites in `test/` talk to a real `postgres:17-alpine`, started once per run by
+`test/global-setup.ts` and stopped by `test/global-teardown.ts`. `StorageService` is still a double
+there — no route stores a file until C2, so a second container would only cost startup time.
+
+Five things are non-obvious:
+
+- **It is a `globalSetup`, and a `beforeAll` would fail SILENTLY.** `ConfigService.get()` reads the
+  **validated** environment before it ever looks at `process.env`, and our `validate: validateEnv`
+  *builds* `DATABASE_URL` out of the five `DB_*` at the moment `app.module.ts` is imported.
+  Assigning `process.env.DATABASE_URL` from a `beforeAll` is therefore ignored — no error, just
+  every suite talking to `127.0.0.1:5432`. The one-file `beforeAll` shape is perfectly correct in a
+  project whose `ConfigModule` has no `validate`; it is not correct here. The five `DB_*` in
+  `test/setup-env.ts` now only exist to satisfy validation, which demands them before it looks at
+  `DATABASE_URL`. **Any new required variable must still be added there**, or every suite fails at
+  import.
+- **`NODE_OPTIONS=--experimental-vm-modules` is in the `test:e2e` script and is load-bearing.**
+  Prisma 7 loads its WebAssembly query compiler through a dynamic `import()`, which Jest's CommonJS
+  VM refuses: `A dynamic import callback was invoked without --experimental-vm-modules`, raised from
+  `PrismaService.onModuleInit`. Without it not one connection opens. Node prints an
+  `ExperimentalWarning` on every run; that is the accepted cost.
+- **`maxWorkers: 1`** — the three suites share one database and `TRUNCATE ... CASCADE` between
+  tests. In parallel they would empty it under one another, and the failures would be intermittent.
+  A schema per `JEST_WORKER_ID` is the escape hatch if the duration ever becomes a problem.
+- **`resetDatabase` truncates `Lawyer` alone, with `CASCADE`.** Every other table hangs off it
+  through `onDelete: Cascade`, so listing them would be a list to keep in sync with the schema — and
+  a table added later and forgotten there would leak rows from one test into the next.
+- **`test/api-client.ts` is deliberately NOT used by `auth.e2e-spec.ts`.** It wraps `request.agent`,
+  which keeps cookies on its own, and reads `API_PREFIX` through `ConfigService.getOrThrow`. That is
+  right where cookies are plumbing; `auth.e2e-spec.ts` asserts on the cookie *attributes* and
+  replays a rotated refresh token on purpose, so an automatic jar would overwrite the cookie under
+  the test and the reuse detection would never fire.
+
+Measured on this machine: **8,5 s** with the doubles, **9,8 s** of Jest plus container startup and
+`migrate deploy` — **20,3 s** wall clock — against the real database, for 65 tests instead of 60.
+
+Three of those tests exist only because the database is real: the partial unique index refusing a
+second active link, the same index *allowing* revoked ones beside it, and `onDelete: Cascade`
+erasing items and links. The first was verified the only way that means anything — by deleting the
+`CREATE UNIQUE INDEX ... WHERE "revokedAt" IS NULL` from the initial migration, watching exactly
+that test fail, and restoring the file.
+
+`test/storage.int-spec.ts` stays a separate suite: another dependency, and it does not go through
+HTTP. **No test crosses nginx or the frontend** — that path is still `./install.sh` plus a look by
+hand.
 
 ## Toolchain
 
