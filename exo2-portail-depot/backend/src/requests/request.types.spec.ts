@@ -49,7 +49,7 @@ describe('toRequestSummary', () => {
   // behind a 200.
   it('refuses to describe a request whose links vanished', () => {
     expect(() => toRequestSummary({ ...summaryRow, links: [] }, NOW)).toThrow(
-      /lien public/i,
+      /no public link/i,
     );
   });
 

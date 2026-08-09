@@ -164,7 +164,9 @@ type DetailRow = Omit<SummaryRow, 'items'> & {
 const toLinkView = (links: LinkRow[], requestId: string): LinkView => {
   const [latest] = links;
   if (latest === undefined) {
-    throw new Error(`La demande ${requestId} n'a aucun lien public.`);
+    // In English, unlike the validation messages: Nest answers a bare
+    // "Internal server error", so the only reader of this text is the log.
+    throw new Error(`Request ${requestId} has no public link.`);
   }
   return {
     state: latest.revokedAt === null ? 'active' : 'revoked',
@@ -216,9 +218,11 @@ export const toRequestDetail = (
   items: row.items.map((item) => ({
     id: item.id,
     label: item.label,
-    received: item.file !== null,
+    received: item.file != null,
+    // `== null` and not `=== null`, like toItemView: an absent `file` would
+    // otherwise take the branch that reads originalName off undefined.
     file:
-      item.file === null
+      item.file == null
         ? null
         : {
             originalName: item.file.originalName,
