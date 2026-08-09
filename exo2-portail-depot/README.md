@@ -78,8 +78,11 @@ Trois limites, dont une lourde de conséquences :
 **La machine de production ne contient aucun code source** : seuls `infra/`, `.env` et
 `install.sh` y vivent, et le compose de production ne sait que *tirer* les images
 (`ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}`). Le déploiement se fait par
-`git sparse-checkout` — voir `infra/README.md` §&nbsp;Déploiement. Déployer une version précise, ou
-revenir en arrière, tient dans une variable : `IMAGE_TAG=0.1.0`.
+`git sparse-checkout` — voir `infra/README.md` §&nbsp;Déploiement. La version épinglée par défaut est
+**0.2.0**, la première qui porte l'authentification ; déployer une autre version, ou revenir en
+arrière, tient dans une variable : `IMAGE_TAG=sha-1a2b3c4`. Attention pour un retour à `0.1.0` : elle
+précède l'authentification, donc elle n'a ni route de connexion ni compte de démonstration, et rien
+ne le signale.
 
 ## Développement
 

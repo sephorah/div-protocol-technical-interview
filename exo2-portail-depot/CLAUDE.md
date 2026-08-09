@@ -427,7 +427,7 @@ the build layer: compose loads that name on its own.
 ## Images and registry (A6)
 
 `infra/docker-compose.yml` **pulls, it does not build**:
-`ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}:${IMAGE_TAG:-0.1.0}`. That is what makes
+`ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}:${IMAGE_TAG:-0.2.0}`. That is what makes
 `infra/` + `.env` a complete deployment unit, which is the statement's requirement — no source code
 on the staging machine. The workflow that publishes lives at
 **`.github/workflows/exo2-publish-images.yml`, at the root of the git repository
@@ -440,7 +440,9 @@ Six things are non-obvious:
   belongs to the code, not to the machine. In `.env`, `install.sh` would never rewrite it
   (`set_env_default` only fills empties), so a machine would stay pinned to a stale version with
   nothing to signal it — and it would drag in the three-file rule (`.env.example`, `install.sh`,
-  compose). Overriding still works, and that is the rollback: `IMAGE_TAG=0.1.0 … up -d`.
+  compose). Overriding still works, and that is the rollback: `IMAGE_TAG=0.1.0 … up -d` — 0.1.0
+  being the last version *before* authentication, so rolling back to it removes the login route and
+  the demo account, silently.
 - **`infra/docker-compose.build.yml` is the only place a `build:` survives**, and it must never be
   named `docker-compose.override.yml`: compose loads that name **automatically** whenever it sits in
   the project directory, so a stack everyone believes is pulled would silently build. It keeps the
