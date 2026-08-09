@@ -7,10 +7,15 @@
  * `beforeAll` happens too late, validation has already failed.
  *
  * Intended consequence: the suite depends on no .env file, and therefore runs
- * identically on a workstation, on a bare machine and in CI.
+ * identically on a workstation and in CI.
  *
- * These values open no connection: PrismaService and StorageService are
- * replaced by doubles in every suite.
+ * The DB_* five below name NO real database. global-setup.ts starts a container
+ * and exports the DATABASE_URL that actually gets used; an explicit
+ * DATABASE_URL wins over the five in validateEnv. They stay because validation
+ * demands them before it ever looks at DATABASE_URL.
+ *
+ * The STORAGE_* five do open no connection: StorageService is still replaced by
+ * a double in every suite, none of these routes storing a file yet.
  */
 process.env.PORT = '21610';
 process.env.API_PREFIX = '/api/v1';

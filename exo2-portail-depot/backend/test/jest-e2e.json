@@ -6,7 +6,11 @@
   "moduleNameMapper": {
     "^(\\.{1,2}/.*)\\.js$": "$1"
   },
+  "globalSetup": "<rootDir>/global-setup.ts",
+  "globalTeardown": "<rootDir>/global-teardown.ts",
   "setupFiles": ["<rootDir>/setup-env.ts"],
+  "maxWorkers": 1,
+  "testTimeout": 60000,
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   }
