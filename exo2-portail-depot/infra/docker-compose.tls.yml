@@ -1,0 +1,107 @@
+# Calque TLS (A7). Jamais charge sans un `-f` explicite :
+#
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.tls.yml \
+#                  --env-file .env up -d
+#
+# Le fichier de base reste PREMIER : c'est lui qui fixe le repertoire de projet,
+# donc tous les chemins relatifs d'ici sont relatifs a infra/.
+#
+# `install.sh` ajoute ce calque tout seul des que DOMAIN est renseigne dans
+# .env. C'est la l'interrupteur : sur la machine de l'evaluateur, sans nom de
+# domaine public, Let's Encrypt ne pourrait rien valider et le portail reste en
+# clair sur 127.0.0.1:21600 — exactement comme avant A7. La configuration d'une
+# machine vit dans le fichier qui decrit cette machine, pas dans un drapeau
+# qu'il faudrait se rappeler a chaque redeploiement.
+#
+# NE JAMAIS renommer ce fichier docker-compose.override.yml : compose charge ce
+# nom-la TOUT SEUL des qu'il est dans le repertoire de projet, et une pile que
+# tout le monde croit en clair se mettrait a exiger un certificat.
+#
+# Meme `name:` que le compose de base — c'est le meme projet. Un nom different
+# rendrait orphelins tous les volumes existants, donnees comprises.
+name: exo2-portail-depot
+
+services:
+  proxy:
+    ports:
+      # Les `ports` fusionnent par port publie : le 21600 du fichier de base
+      # reste, celui-ci s'ajoute. 21601 est le port ou le proxy de la machine
+      # relaie le 443 en passthrough TLS, et le bind explicite sur 127.0.0.1 est
+      # aussi indispensable ici que la : la machine est PARTAGEE.
+      - '127.0.0.1:21601:443'
+    volumes:
+      # Fusion par chemin CIBLE : cette ligne REMPLACE le montage de nginx.conf
+      # du fichier de base. Les deux confs ne sont jamais chargees ensemble.
+      - ./nginx/nginx-tls.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/portal-locations.conf:/etc/nginx/portal-locations.conf:ro
+      # Lecture seule : nginx n'a aucune raison d'ecrire dans /etc/letsencrypt,
+      # ou vit la cle privee. Seul certbot y ecrit.
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    # Rechargement periodique. certbot tourne dans un AUTRE conteneur : son
+    # `--deploy-hook` ne peut pas signaler ce nginx-ci sans le socket docker,
+    # qu'on refuse de monter (c'est un acces root deguise sur une machine
+    # partagee). Recharger toutes les 6 h coute zero et garantit qu'un
+    # certificat renouvele est servi au plus tard 6 h apres.
+    #
+    # `exec` sur le nginx final : il redevient le processus que docker signale.
+    command:
+      - /bin/sh
+      - -c
+      - 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & exec nginx -g "daemon off;"'
+    healthcheck:
+      # En HTTPS, et c'est double : la sonde du fichier de base tomberait sur le
+      # 301 vers le domaine public (que busybox wget suivrait jusqu'au reseau
+      # externe), et celle-ci prouve en plus que TLS termine bien ici.
+      # --no-check-certificate : la sonde vient de 127.0.0.1, donc le nom ne
+      # correspond jamais au certificat. Ce n'est pas la validite du certificat
+      # qu'elle teste, c'est que nginx sert.
+      test:
+        [
+          'CMD',
+          'wget',
+          '--spider',
+          '-q',
+          '--no-check-certificate',
+          'https://127.0.0.1/',
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 1s
+
+  # Renouvellement automatique. `certbot renew` est un NO-OP tant qu'il reste
+  # plus de 30 jours avant l'expiration : le lancer deux fois par jour ne
+  # consomme aucun quota et ne reecrit rien. Deux passages par jour est la
+  # cadence recommandee par Let's Encrypt, pour que le renouvellement ait
+  # plusieurs dizaines d'occasions de reussir avant l'echeance.
+  #
+  # L'emission INITIALE n'est pas ici : elle est faite par install.sh, en
+  # `run --rm`, avant que ce service ne demarre. Un certbot en boucle qui
+  # emettrait aussi ferait tourner un `certonly` en boucle tant qu'il echoue,
+  # et grillerait les quotas de production en quelques heures.
+  certbot:
+    # Tag fige, comme partout ailleurs dans ce depot : `latest` ferait changer
+    # le client ACME sans qu'une ligne du depot ait bouge.
+    image: certbot/certbot:v5.7.0
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    # `trap exit TERM` + `sleep & wait` : sans eux, le sleep n'est pas
+    # interruptible et `docker compose down` attend les 10 s du timeout a chaque
+    # arret. Meme probleme que celui regle par `init: true` ailleurs.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done'
+    restart: unless-stopped
+
+volumes:
+  # Nomme, donc un `down` sans -v conserve le certificat. Ce n'est pas un
+  # detail de confort : Let's Encrypt plafonne a 5 certificats identiques par
+  # semaine, et repartir de zero a chaque redeploiement grillerait le quota.
+  letsencrypt:
+  # Aussi declare dans le compose de base : c'est par la pile en clair que passe
+  # l'amorcage du tout premier certificat.
+  certbot_www:

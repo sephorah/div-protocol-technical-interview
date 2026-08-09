@@ -125,13 +125,30 @@ Dépendances : A5.
 Serveur partagé : proxy frontal par `Host` header en HTTP et SNI passthrough en HTTPS, services sur
 `127.0.0.1` dans la plage de ports attribuée.
 
-- [ ] Écoute sur `127.0.0.1:<port attribué>` uniquement
-- [ ] Challenge HTTP-01 relayé par le proxy sur :80
+- [x] Écoute sur `127.0.0.1:<port attribué>` uniquement — `127.0.0.1:21601:443`, bind explicite
+- [x] Challenge HTTP-01 relayé par le proxy sur :80 — `location /.well-known/acme-challenge/`
 - [ ] Essais avec l'endpoint **staging** de Let's Encrypt avant le certificat réel
 - [ ] Renouvellement automatique vérifié (dry-run)
 - [ ] `https://sephorah-aniambossou.stage2-div.rayan-drissi.com` répond
 
 Dépendances : A6.
+
+L'activation passe par **`DOMAIN` dans `.env`**, jamais par un drapeau : la configuration d'une
+machine appartient au fichier qui la décrit, et un drapeau oublié à un redéploiement ferait retomber
+le portail en clair sans rien signaler. Vide chez l'évaluateur — sans domaine public, Let's Encrypt
+n'a rien à valider — le comportement est identique à celui d'avant A7.
+
+Le calque `infra/docker-compose.tls.yml` ajoute le port, la conf TLS et un `certbot` en boucle de
+renouvellement. Trois points ne sont pas devinables : l'**amorçage** passe par la pile en clair
+(nginx refuse de démarrer si le fichier de certificat manque, donc le premier certificat ne peut
+s'obtenir qu'au travers d'elle) ; le certificat porte le nom de lignée fixe `portail` et non le
+domaine, ce qui permet à la conf nginx de ne nommer le domaine nulle part ; et le rechargement est
+**périodique** parce qu'un `--deploy-hook` ne peut pas signaler nginx depuis un autre conteneur sans
+monter le socket docker, refusé sur une machine partagée.
+
+**Découverte à porter en G1** : en passthrough SNI, `$remote_addr` est l'adresse du proxy de la
+machine, pas celle du client. Une limitation de débit par IP est donc inopérante — il faudra limiter
+par jeton de lien.
 
 ### A8. `install.sh` démarre la stack complète — P0
 

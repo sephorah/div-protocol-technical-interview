@@ -10,7 +10,10 @@ Depuis A6, `docker-compose.yml` ne construit plus rien : les images sont **publi
 | `docker-compose.yml` | la stack de production : `db`, `minio`, `minio-init`, `backend`, `frontend`, `proxy`. **Il ne construit rien**, il tire |
 | `docker-compose.build.yml` | calque qui réintroduit les `build:`, pour essayer ce compose avant de publier |
 | `docker-compose.dev.yml` | la base et le stockage seuls, pour `pnpm dev` (il n'y a pas d'image de dev) |
-| `nginx/nginx.conf` | le reverse proxy, unique point d'entrée public |
+| `docker-compose.tls.yml` | calque HTTPS : port 21601, certificat Let's Encrypt, renouvellement (A7) |
+| `nginx/nginx.conf` | le reverse proxy en clair, unique point d'entrée public |
+| `nginx/nginx-tls.conf` | sa variante TLS, montée par le calque par-dessus la précédente |
+| `nginx/portal-locations.conf` | les `location` du portail, inclus par les deux confs |
 | `minio/` | provisionnement du stockage objet : bucket, politique d'accès, utilisateur restreint |
 
 Y viendront `prometheus/` (F1) et `grafana/` (F2), au même niveau.
@@ -128,6 +131,85 @@ et le `**`.
 `find . -name '*.ts' | wc -l` doit répondre `0`. Mettre à jour, c'est `git pull` puis `./install.sh`
 — cette machine n'a ni Node ni pnpm, donc pas les scripts `pnpm stack:*`, et `install.sh` enchaîne
 de toute façon le `pull` et le `up`.
+
+## HTTPS Let's Encrypt (A7)
+
+Le proxy de la machine relaie le `:80` par le `Host` et le `:443` **en passthrough TLS** vers
+`127.0.0.1:21601` : il ne déchiffre rien, il lit le SNI et recopie les octets. Le certificat, la clé
+privée et la terminaison TLS sont donc entièrement chez nous.
+
+**L'interrupteur est `DOMAIN` dans `.env`**, pas un drapeau. Vide — poste de développement, machine
+de l'évaluateur — le portail reste en clair sur `127.0.0.1:21600` et rien de ce qui suit n'existe.
+Renseigné, `install.sh` ajoute `docker-compose.tls.yml`, obtient le certificat et publie le 21601.
+Un drapeau aurait dû être retapé à chaque redéploiement, et l'oublier une fois aurait fait retomber
+le portail en clair sans que rien ne le signale.
+
+| Fichier | Rôle |
+|---|---|
+| `nginx/portal-locations.conf` | les `location` du portail, **inclus** par les deux confs — jamais dupliqués |
+| `nginx/nginx.conf` | serveur `:80` en clair + le challenge ACME |
+| `nginx/nginx-tls.conf` | serveur `:80` (challenge + 301) et serveur `:443` ; **remplace** le précédent |
+| `docker-compose.tls.yml` | port 21601, montages TLS, boucle de rechargement nginx, service `certbot` |
+
+### La séquence, sur la machine
+
+```bash
+# 1. renseigner DOMAIN, ACME_EMAIL, et ACME_STAGING=1 pour l'essai
+./install.sh          # certificat de TEST, aucun quota entamé
+# 2. ACME_STAGING=0, puis
+./install.sh          # le certificat de test est supprimé, le vrai est émis
+```
+
+**L'essai en staging n'est pas optionnel** : la production plafonne à 5 certificats identiques par
+semaine, donc quatre erreurs de configuration grillent le domaine pour sept jours. Le certificat de
+test n'est reconnu par aucun navigateur, ce qui est exactement le point — il valide le mécanisme,
+pas la confiance.
+
+### Trois choses non devinables
+
+**L'amorçage passe par la pile en clair.** nginx **refuse de démarrer** si `ssl_certificate` désigne
+un fichier absent : impossible donc de démarrer en TLS pour obtenir le certificat qui permettrait de
+démarrer en TLS. `install.sh` monte la pile en clair, laisse certbot obtenir le certificat **au
+travers d'elle** (méthode `--webroot` : certbot dépose le jeton dans le volume `certbot_www`, c'est
+nginx, déjà en marche, qui le sert), puis redémarre avec le calque. C'est pourquoi le
+`location /.well-known/acme-challenge/` existe dans les **deux** confs — dans la conf TLS il précède
+la redirection 301, sans quoi les *renouvellements* échoueraient, Let's Encrypt sondant toujours en
+clair.
+
+**Le certificat s'appelle `portail`, pas le domaine** (`certbot --cert-name portail`). C'est ce qui
+permet à `nginx-tls.conf` de ne nommer le domaine nulle part : nginx ne lit pas l'environnement, et
+le mécanisme de templates de l'image officielle est hors-jeu ici — ses scripts
+`/docker-entrypoint.d/` ne s'exécutent que si la commande à lancer est `nginx`, or le calque la
+remplace par un `sh -c` pour la boucle de rechargement. `DOMAIN` reste donc une source de vérité
+unique, dans `.env`.
+
+**Le rechargement est périodique, pas déclenché.** `certbot` tourne dans un autre conteneur : son
+`--deploy-hook` ne peut pas signaler nginx sans le socket docker, qu'on refuse de monter — c'est un
+accès root déguisé sur une machine partagée. nginx se recharge donc toutes les 6 h, et certbot tente
+un renouvellement toutes les 12 h. `certbot renew` est un **no-op tant qu'il reste plus de 30 jours**
+avant l'échéance : aucun quota consommé, rien de réécrit.
+
+### Vérifier
+
+```bash
+D=sephorah-aniambossou.stage2-div.rayan-drissi.com
+curl -I "https://$D"                                    # 200
+curl -I "http://$D"                                     # 301 vers https
+curl -s -o /dev/null -w '%{http_code}\n' "https://$D/api/v1/health"   # 403, la sonde reste privée
+openssl s_client -connect "$D:443" -servername "$D" </dev/null 2>/dev/null | grep -E 'issuer|Verify'
+
+# le renouvellement, sans toucher au certificat réel :
+docker compose -f infra/docker-compose.yml -f infra/docker-compose.tls.yml --env-file .env \
+  run --rm --entrypoint certbot certbot renew --dry-run
+```
+
+Le `403` sur la sonde est le même test qu'en clair et pour la même raison : il prouve que c'est
+**notre** configuration qui est chargée. En HTTPS il prouve en plus que l'extraction des `location`
+n'a pas laissé la sonde en libre accès de ce côté-là.
+
+Revenir en arrière : vider `DOMAIN` dans `.env` et relancer `./install.sh`. Le certificat reste dans
+le volume (un `down` sans `-v` le préserve — c'est ce qui évite de rentamer les quotas), mais les
+navigateurs déjà venus resteront bloqués sur HTTPS pendant la durée du HSTS, 180 jours.
 
 ## Vérifier un déplacement de fichier
 

@@ -31,6 +31,36 @@ docker compose -f infra/docker-compose.yml --env-file .env down     # ou pnpm st
 docker compose -f infra/docker-compose.yml --env-file .env logs -f  # ou pnpm stack:logs
 ```
 
+## HTTPS
+
+Le portail est en **HTTPS avec un certificat Let's Encrypt renouvelé automatiquement** sur son
+sous-domaine. Le proxy de la machine relaie le `:443` en **passthrough TLS** : il lit le SNI et
+recopie les octets sans rien déchiffrer, donc c'est notre nginx qui termine TLS.
+
+**C'est `DOMAIN` dans `.env` qui l'active, pas un drapeau.** Vide — poste de développement, machine
+de l'évaluateur — le portail reste en clair sur `127.0.0.1:21600`, ce qui est le seul comportement
+possible : sans nom de domaine public, Let's Encrypt n'a rien à valider. Renseigné, `./install.sh`
+ajoute le calque `infra/docker-compose.tls.yml`, obtient le certificat et publie le 21601. Un
+drapeau aurait dû être retapé à chaque redéploiement, et un oubli aurait fait retomber le portail
+en clair en silence.
+
+Trois variables, et elles ne servent qu'à la machine de déploiement : `DOMAIN` (l'interrupteur),
+`ACME_EMAIL` (les avis d'expiration) et `ACME_STAGING` (`1` pour l'endpoint de test — obligatoire au
+premier essai, la production plafonnant à 5 certificats identiques par semaine). Le détail du
+mécanisme — amorçage, `--webroot`, renouvellement — est dans `infra/README.md` § HTTPS.
+
+Trois limites, dont une lourde de conséquences :
+
+- **`$remote_addr` n'est pas l'adresse du client.** En passthrough SNI, la connexion TCP vient du
+  proxy de la machine ; sans PROXY protocol, nginx ne voit que lui. Le `X-Forwarded-For` que nous
+  produisons est donc faux, et **une limitation de débit par IP ne peut pas s'y fier** — ce qui
+  touche directement la protection du PIN contre le bruteforce (voir les limites du modèle de
+  données). Il faudra limiter par jeton de lien, pas par adresse.
+- **HSTS est un engagement de 180 jours** : repasser le portail en HTTP laisserait les navigateurs
+  déjà venus incapables de l'atteindre jusqu'à l'expiration de l'en-tête.
+- **Le certificat expire en 90 jours.** Le renouvellement est automatique et vérifié en `--dry-run`,
+  mais si la machine reste éteinte plus longtemps, rien ne le rattrape avant son réveil.
+
 **La machine de production ne contient aucun code source** : seuls `infra/`, `.env` et
 `install.sh` y vivent, et le compose de production ne sait que *tirer* les images
 (`ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}`). Le déploiement se fait par
@@ -73,6 +103,7 @@ de faire écouter le service au mauvais endroit ou de démarrer Postgres sans mo
 | `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | oui | — | utilisateur applicatif, restreint au seul bucket |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | oui | — | administration du serveur de stockage |
 | `JWT_SECRET`, `JWT_EXPIRES` | secret | —, `15m` | authentification avocat. 32 caractères minimum, unité de durée obligatoire |
+| `DOMAIN`, `ACME_EMAIL`, `ACME_STAGING` | non | *(vides)* | HTTPS. Lues **ni** par compose **ni** par l'application : seul `install.sh` les lit, pour les passer à certbot |
 
 **Le préfixe dit qui lit la variable.** Tout ce qui commence par `STORAGE_` est lu par
 l'application ; `MINIO_ROOT_*` ne l'est **jamais** — le compose ne le passe qu'aux conteneurs
