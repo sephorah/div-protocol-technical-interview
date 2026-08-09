@@ -308,12 +308,48 @@ jeton en clair. Détail dans `ai-plans/2026-08-09-b2-creation-demande.md`.
 
 Dépendances : A2, B1.
 
-### B3. Lien public expirable protégé par PIN — P0
+### B3. Lien public expirable protégé par PIN — P0 — **fait**
 
-- [ ] URL publique `/depot/:token` construite à partir de l'origine configurée
-- [ ] Expiration effective : au-delà de `expiresAt`, l'accès est refusé
-- [ ] Le PIN est vérifiable mais jamais relisible côté avocat
-- [ ] Action « régénérer le lien » / « prolonger » (à trancher lors du design)
+- [x] URL publique `/depot/:token` construite à partir de l'origine configurée —
+      `PUBLIC_BASE_URL`, requise et validée au démarrage (origine nue, ni chemin ni paramètres),
+      jamais l'en-tête `Host` : celui-ci est fourni par l'appelant, donc un appel forgé ferait
+      renvoyer un lien vers le domaine d'un attaquant, que l'avocat collerait dans un courriel
+- [x] Expiration effective : au-delà de `expiresAt`, l'accès est refusé — `PublicLinksService.resolve`
+      applique révocation **puis** expiration. Avant B3, `expiresAt` était écrit à la création et lu
+      par personne : un lien restait utilisable indéfiniment et aucun test n'échouait
+- [x] Le PIN est vérifiable mais jamais relisible côté avocat — vrai par construction depuis B2, et
+      désormais prouvé : la réponse de création ne porte plus le jeton nu, seulement l'URL, et un
+      test échoue si un hachage apparaît dans une réponse
+- [x] Action « régénérer le lien » — **régénérer, pas prolonger**. `POST /requests/:id/link` révoque
+      l'actif et émet jeton, PIN et échéance neufs ; `DELETE /requests/:id/link` coupe sans réémettre
+
+Trois choix ne sont pas dans l'énoncé, qui encadre sa liste de routes par « à titre indicatif […] le
+découpage exact est ton choix, on regardera comment tu le justifies ».
+
+**`POST /requests/:id/link` est un ajout.** L'énoncé ne parle nulle part de régénérer ; côté tableau
+de bord il ne mentionne que « Copier le lien ». Ce qui la justifie n'est pas le client qui égare son
+PIN, c'est **l'avocat qui ne l'a jamais vu** : le PIN n'apparaît qu'une fois, dans la réponse à la
+création, et il est stocké en argon2id. Un onglet fermé, un rafraîchissement, une réponse perdue
+après l'écriture en base — et la demande existe, valide, sans que quiconque en connaisse le code.
+Sans cette route, elle meurt à la seconde où elle naît et l'avocat doit tout retaper.
+
+**Prolonger est écarté** : ça rallonge la vie d'un jeton déjà parti par courriel, hors de tout
+contrôle. **Une demande qui n'appartient pas à l'appelant répond 404, pas 403** — un 403 confirmerait
+qu'un identifiant existe chez un autre avocat, ce qui suffit à énumérer ses dossiers.
+
+Côté nginx, deux protections que le jeton-dans-le-chemin rend nécessaires. `Referrer-Policy:
+no-referrer` et `X-Robots-Tag: noindex` au niveau `server`. Et un **masquage du jeton dans le format
+de journal** : le chemin s'écrit dans `access.log`, en clair, sur une machine partagée avec d'autres
+candidats. La parade radicale — jeton après un `#`, jamais envoyé au serveur — a été écartée parce
+qu'elle imposerait `POST /public/unlock` avec le jeton dans le corps, donc une surface d'API qui
+s'écarte de la consigne.
+
+Vérifié : 246 tests unitaires, 61 e2e, lint sans avertissement ; régénération en 201 à travers nginx
+en **97 ms**, deux lignes `PublicLink` dont une seule active, `[redacted]` dans le journal du proxy,
+aucune demande de la base avec deux liens actifs. Campagne machine vierge en 2 min 23 s, assertion
+`Referrer-Policy` comprise — mais elle tire les images publiées, donc elle valide nginx et
+`install.sh`, pas le backend de B3, exercé lui par `./install.sh --from-source`. Détail dans
+`ai-plans/2026-08-09-b3-lien-public.md`.
 
 Dépendances : B2.
 
@@ -342,6 +378,14 @@ Dépendances : B1–B4, E1.
 - [ ] `POST /public/:token/unlock` : renvoie une session courte scopée à la demande
 - [ ] Token inconnu, expiré et PIN faux renvoient des réponses indistinguables (pas d'oracle)
 - [ ] Aucune donnée de la demande exposée avant déverrouillage
+- [ ] **La session client porte le `linkId`, pas seulement le `requestId`.** Contrainte posée par B3
+      et à honorer ici : sans elle, un client déjà déverrouillé garde son accès après une révocation
+      ou une régénération, et les deux actions que B3 vient de livrer ne coupent alors plus rien
+
+B3 fournit `PublicLinksService.resolve(token, now)`, qui applique déjà révocation et expiration et
+distingue `unknown` / `revoked` / `expired`. **Cette distinction ne doit pas ressortir** : elle
+existe pour les tests et pour G2, et la route publique doit écraser les trois en une réponse unique,
+sans quoi elle devient l'oracle que la deuxième case interdit.
 
 Dépendances : A2, B3.
 

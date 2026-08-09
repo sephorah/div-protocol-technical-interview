@@ -47,8 +47,10 @@ model with its crypto primitives (`src/crypto/secrets.ts`), and containerised Mi
 the production stack pulls them. **B1 is done**: lawyer authentication (`/auth/login`,
 `/auth/logout`, `/auth/me`), a JWT in an httpOnly cookie, a **global** guard, and `src/seed.ts` — the
 demonstration account `install.sh` already knew how to run. **B2 is done**: `POST /requests` creates
-a deposit request, its expected items, its public link and its 4-digit PIN. There is still no public
-URL builder or link regeneration (B3), no dashboard (B4), no upload route (C2), and no CI running
+a deposit request, its expected items, its public link and its 4-digit PIN. **B3 is done**: the
+creation response now carries the full client URL, expiry is actually applied
+(`PublicLinksService.resolve`), and the lawyer can regenerate or revoke a link. There is still no
+public route (C1), no dashboard (B4), no upload route (C2), and no CI running
 lint or tests (D3 — the only workflow so far publishes images).
 Regenerate this file (`/init`) once the business modules exist.
 
@@ -624,7 +626,10 @@ Four details that are easy to undo by accident:
 **Adding a required variable therefore means touching three files together**: `.env.example` (the
 key and its documentation), `install.sh` (a `set_env_default` if it is a secret), and
 `infra/docker-compose.yml` (the `${VAR:?}` entry). `set_env_value` exits 3 if the key is absent from
-`.env.example`, which is the guard against doing only two of the three.
+`.env.example`, which is the guard against doing only two of the three. `PUBLIC_BASE_URL` (B3) is
+the latest to go through it, and it added a fourth obligation nobody had met before: a value that
+must **change** when `DOMAIN` appears, hence a `set_env_value` after the global `chmod 600` — and
+therefore a second `chmod` (see § Public links).
 
 Measured (this machine): **2 min 11 s** cold with Docker present, **4 min 33 s** on a truly bare
 machine (Docker install included), **13 s** with images cached, **5,8 s** when the stack is already
@@ -821,6 +826,99 @@ per title, 1 to 90 days. The 90-day ceiling bounds how long a forgotten link sta
 PIN is 10 000 combinations: what protects it is C1 (indistinguishable answers) and **G1** (rate
 limiting per link token, which does not exist yet), argon2id being the only thing bounding an
 attacker's rate today.
+
+## Public links (B3)
+
+Two things share the name "link" and confusing them is the first mistake to avoid.
+**`<origin>/depot/<token>` is the CLIENT-FACING PAGE**, the address the lawyer pastes into an email.
+**`POST /requests/:id/link` is the LAWYER'S API CALL** that issues a new one. The statement's own
+surface never mentions the second — it lists its routes "à titre indicatif" and leaves the split to
+us, so the addition is ours and its justification belongs in the README.
+
+`src/requests/public-links.service.ts` holds the three operations: `resolve` (the brick C1 plugs
+into), `regenerate`, `revoke`.
+
+Nine things are non-obvious:
+
+- **`PUBLIC_BASE_URL` is required and read from configuration, never from the request.** The `Host`
+  header is supplied by the caller, so deriving the origin from it means a forged call makes the API
+  return a link to an attacker's domain — which the lawyer then mails to their client. It joins the
+  three-file rule (`.env.example`, `install.sh`, `infra/docker-compose.yml`), and `validateEnv`
+  rejects anything but a bare origin: a base carrying `/portail` shifts every client link at once.
+- **`install.sh` realigns it on `https://$DOMAIN`, and only from the default.** `set_env_default`
+  fills empties only, so a machine that switches HTTPS on *after* a first install would keep
+  composing links to 127.0.0.1 — in production, with the API answering 201 and nothing signalling
+  it. The realignment therefore re-applies **`chmod 600 .env`**: `set_env_value` moves a temp file
+  into place, which resets the mode, and the global chmod has already run by then.
+- **`IssuedLink` carries `url`, not `token`.** The raw token had no consumer of its own; the address
+  is what gets copied. One fewer place where a bearer credential travels alone. It exists in clear at
+  exactly two moments — creation and regeneration.
+- **A request owned by someone else answers 404, never 403.** A 403 confirms the id exists, which is
+  enough to enumerate another practice's caseload. `ownedRequestId` is a single `findFirst` on both
+  criteria rather than a lookup followed by a comparison, so there is no branch where the check can
+  be forgotten.
+- **`resolve` returns a discriminated union, and C1 must collapse it.** `unknown` / `revoked` /
+  `expired` exist for the tests and for G2's audit trail; served as-is by a public route they become
+  the oracle C1 is required not to be. Revocation is reported before expiry: it is a decision rather
+  than the clock running out.
+- **`isExpired` lives in `request-status.ts` and has one definition.** `deriveStatus` and `resolve`
+  both call it. Written twice, the two could drift by a millisecond — a link refused while its
+  request still reads "pending" — and each side would be right on its own, so no test would fail.
+- **The unique violation becomes a 409, and only that one.** The partial unique index
+  (`WHERE "revokedAt" IS NULL`) is what forbids two active links, so two concurrent regenerations
+  land there; the loser deserves a retryable answer. Every other database error is rethrown —
+  swallowing them all into a 409 would tell the lawyer to retry a call that can never succeed.
+- **`DELETE` is idempotent and answers 204.** A body reading "0 revoked" would invite a caller to
+  treat a double click as a failure, when the requested outcome — nobody gets in — holds either way.
+- **`src/seed.ts` delegates to `regenerate`.** It used to draw the token and PIN, hash, and run the
+  same revoke-then-create transaction by hand. Two copies of that drift, and the seed's output is
+  the first thing a grader reads.
+
+Bounds come from `dto/expires-in-days.decorator.ts`, shared by the creation and the regeneration
+DTOs. The bounds already came from one constant; the **French messages** did not, and two wordings
+for one rule is what a reader notices before a developer does.
+
+### The token in the URL, and what leaks (B3)
+
+The statement freezes `POST /public/:token/unlock`, so the token travels in the **path**. The
+alternative — the token after a `#`, which browsers never send to the server — was rejected for that
+reason alone, and it is worth recording that hashing the value in the URL is *not* an alternative:
+whatever the URL carries is by definition the credential.
+
+Two mitigations, both in nginx, both load-bearing:
+
+- **`Referrer-Policy: no-referrer` and `X-Robots-Tag: noindex, nofollow`** at `server` level in
+  `infra/nginx/portal-locations.conf`. Without the first, any third-party resource the client page
+  loads receives the current address — hence the token — in the `Referer` header; that is the
+  scenario OWASP describes for password-reset links, which have the same shape. **Trap:** an
+  `add_header` added later *inside* a `location` cancels every inherited one, with no startup error.
+- **`infra/nginx/log-redact.conf`**, mounted at `/etc/nginx/conf.d/00-log-redact.conf`. A path is
+  written to `access.log`, in clear, on a machine shared with other candidates. A `map` rewrites the
+  token segment to `[redacted]` in `/depot/…` and `/api/v1/public/…`, keeping everything else. It
+  cannot live in `portal-locations.conf`: `map` and `log_format` are only valid at `http` level, and
+  that fragment is included inside a `server` block — whereas `conf.d/*.conf` is included at `http`.
+  The `00-` prefix orders it before `default.conf`, so the format exists before its use. One file
+  for both servers, cleartext and TLS: duplicated, the redaction would end up existing in only one
+  of them and the token would reappear over HTTPS with nothing to say so. `/api/v1` is hard-coded
+  there, so it joins § Ports and API prefix.
+- **`infra/nginx/server-hardening.conf` carries the two headers AND `access_log … redacted`, and is
+  included by all THREE server blocks** — cleartext, TLS, and the TLS layer's **port-80 block**
+  (HTTPS redirect plus ACME challenge). That last one routes nothing, so it does not include
+  `portal-locations.conf`, but it *sees the token*: a client typing the address without `https://`
+  lands there and the token was logged in clear before the redirect.
+- **`access_log` must be at `server` level, and hoisting it to `http` breaks it silently.** nginx
+  **accumulates** `access_log` directives declared at the same level rather than replacing them, and
+  the stock image already declares `access_log … main;` at `http` in its own `/etc/nginx/nginx.conf`
+  — which we do not mount and cannot edit. Declared alongside it, ours produced **two** lines per
+  request, the redacted one and the clear one. At `server` level the directive overrides the
+  inherited one, which is why it is repeated per server via the fragment.
+- **The bare-machine assertion for this is NEGATIVE, and must stay so.** The failure mode is an
+  *extra* log line, not a missing one, so checking that `[redacted]` appears passes while the clear
+  token sits next to it. `scripts/test-bare-machine.sh` asserts the token appears **nowhere** in the
+  proxy's *and* the frontend's logs.
+- **`frontend/Dockerfile` passes `-L` to `serve`.** By default it logs every request URL to stdout,
+  so `docker logs frontend` held `GET /depot/<token>` in clear — the same token nginx redacts, in the
+  same place. Dropping the flag makes the whole nginx effort worthless.
 
 ## Data model (A2)
 
