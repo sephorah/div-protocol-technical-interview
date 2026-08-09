@@ -102,6 +102,104 @@ docker_usable() { $DOCKER info >/dev/null 2>&1; }
 
 compose_v2_present() { $DOCKER compose version >/dev/null 2>&1; }
 
+# Telechargement, curl ou wget selon ce que la machine a. Sortie sur stdout,
+# pour rester pipeable vers `sh` comme les deux installeurs officiels
+# l'attendent. Ecrit une fois ici plutot qu'en dur a chaque appel : sans ca,
+# ajouter le repli wget demandait de modifier chaque site d'appel, et en
+# oublier un se serait vu seulement sur une machine sans curl.
+fetch_url() {
+  if command -v curl >/dev/null; then
+    curl -fsSL "$1"
+  elif command -v wget >/dev/null; then
+    wget -qO- "$1"
+  else
+    return 1
+  fi
+}
+
+# Nom du gestionnaire de paquets de la machine, vide si aucun n'est reconnu.
+detect_package_manager() {
+  local pm
+  for pm in apt-get dnf yum apk zypper pacman; do
+    if command -v "$pm" >/dev/null; then
+      printf '%s\n' "$pm"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Installe curl. $1 est le prefixe de privilege ("" ou "sudo").
+#
+# `apt-get update` avant l'installation est OBLIGATOIRE et c'est le piege de
+# cette fonction : sur une ubuntu:24.04 nue, les listes de paquets sont vides et
+# `apt-get install -y curl` repond « Unable to locate package curl » — un
+# message qui accuse le paquet alors que c'est l'index qui manque.
+#
+# ca-certificates est demande explicitement : le premier usage de curl est un
+# https:// vers get.docker.com. Sur Debian/Ubuntu il arrive en dependance, mais
+# sur une image minimale son absence donne une erreur TLS qui n'evoque rien.
+install_curl_with() {
+  local sudo_cmd="$1" pm="$2"
+  case "$pm" in
+    apt-get) ${sudo_cmd} apt-get update -qq \
+               && ${sudo_cmd} apt-get install -y -qq curl ca-certificates ;;
+    dnf)     ${sudo_cmd} dnf install -y -q curl ca-certificates ;;
+    yum)     ${sudo_cmd} yum install -y -q curl ca-certificates ;;
+    apk)     ${sudo_cmd} apk add --no-cache curl ca-certificates ;;
+    zypper)  ${sudo_cmd} zypper --non-interactive install curl ca-certificates ;;
+    pacman)  ${sudo_cmd} pacman -Sy --noconfirm curl ca-certificates ;;
+    *)       return 1 ;;
+  esac
+}
+
+# Une marche de plus dans la cascade, et la meme philosophie qu'elle : on ne
+# meurt qu'apres avoir epuise les options.
+#
+# Le script exigeait curl et mourait sinon en demandant `apt install curl`. Or
+# ubuntu:24.04 n'a ni curl ni wget : le correcteur devait taper une commande,
+# exactement ce que le contrat de ce script exclut. Les mesures « machine
+# vierge » ne l'avaient jamais vu parce que le harnais de test installait curl
+# AVANT de lancer le script — il validait donc une machine moins vierge que
+# celle qu'il pretendait simuler.
+ensure_fetcher() {
+  # wget suffit : on n'installe pas curl par principe quand la machine a deja
+  # de quoi telecharger.
+  if command -v curl >/dev/null || command -v wget >/dev/null; then
+    return 0
+  fi
+
+  info "Ni curl ni wget sur cette machine : installation de curl."
+
+  local sudo_cmd=""
+  if [ "$(id -u)" -ne 0 ]; then
+    # `if` et non `&&` : sous set -e, un `a && b` qui renvoie 1 avorte le
+    # script au lieu de laisser le die plus bas expliquer la situation.
+    if can_sudo; then
+      sudo_cmd="sudo"
+    else
+      die "curl est requis pour installer docker, et son installation demande
+       les droits administrateur, dont ce compte ne dispose pas. Faites lancer :
+         sudo apt-get install -y curl    (Debian/Ubuntu)
+         sudo dnf install -y curl        (Fedora/RHEL)
+         sudo apk add curl               (Alpine)"
+    fi
+  fi
+
+  local pm=""
+  if pm="$(detect_package_manager)"; then
+    install_curl_with "$sudo_cmd" "$pm" || true
+  fi
+
+  command -v curl >/dev/null || die \
+    "l'installation automatique de curl a echoue${pm:+ (gestionnaire : $pm)}.
+       curl (ou wget) est indispensable pour telecharger docker. Installez-le :
+         sudo apt-get update && sudo apt-get install -y curl   (Debian/Ubuntu)
+         sudo dnf install -y curl                              (Fedora/RHEL)
+         sudo apk add curl                                     (Alpine)"
+  info "curl installe."
+}
+
 # `sudo -v` valide (et met en cache) les droits. Appele une seule fois, tot :
 # l'eventuelle invite de mot de passe arrive avant les minutes de build, pas au
 # milieu. `sudo -n` teste d'abord le cas sans mot de passe, pour ne rien
@@ -110,7 +208,10 @@ can_sudo() {
   command -v sudo >/dev/null || return 1
   sudo -n true 2>/dev/null && return 0
   [ -t 0 ] || return 1   # pas de terminal : impossible de saisir un mot de passe
-  info "Docker doit etre installe, ce qui demande les droits administrateur."
+  # Message volontairement general : cette fonction sert aussi bien a installer
+  # curl (ensure_fetcher) qu'a installer docker, et un message qui ne parle que
+  # de docker deviendrait faux dans le premier cas.
+  info "Une installation systeme est necessaire, elle demande les droits administrateur."
   sudo -v
 }
 
@@ -118,7 +219,7 @@ install_docker_privileged() {
   local sudo_cmd=""
   [ "$(id -u)" -eq 0 ] || sudo_cmd="sudo"
   info "Installation via le script officiel https://get.docker.com"
-  curl -fsSL https://get.docker.com | ${sudo_cmd} sh
+  fetch_url https://get.docker.com | ${sudo_cmd} sh
   ${sudo_cmd} systemctl enable --now docker 2>/dev/null \
     || ${sudo_cmd} service docker start 2>/dev/null \
     || true
@@ -143,7 +244,7 @@ install_docker_privileged() {
 use_sudo_docker_for_this_run() {
   DOCKER="sudo docker"
   info "Ce run utilise sudo pour parler a docker. Pour les suivants :"
-  info "  sudo usermod -aG docker $USER    (puis rouvrir la session)"
+  info "  sudo usermod -aG docker ${USER:-$(id -un)}    (puis rouvrir la session)"
 }
 
 install_docker_rootless() {
@@ -157,12 +258,12 @@ install_docker_rootless() {
   # L'installeur rootless verifie lui-meme ses prerequis (iptables, modules
   # noyau, sous-uid) et affiche les commandes manquantes. On encadre son echec
   # pour que la sortie ne se termine pas sur ses instructions sans contexte.
-  curl -fsSL https://get.docker.com/rootless | sh || die \
+  fetch_url https://get.docker.com/rootless | sh || die \
     "l'installation de Docker rootless a echoue (prerequis manquants ci-dessus).
        Ces prerequis s'installent avec les droits administrateur. Le plus simple
        est alors de faire installer docker normalement :
          curl -fsSL https://get.docker.com | sudo sh
-         sudo usermod -aG docker $USER    (puis rouvrir la session)"
+         sudo usermod -aG docker ${USER:-$(id -un)}    (puis rouvrir la session)"
   export PATH="$HOME/bin:$PATH"
   export DOCKER_HOST="unix:///run/user/$(id -u)/docker.sock"
   # setsid + nohup : le demon doit survivre a la fin de ce script et a la
@@ -189,7 +290,24 @@ elif command -v docker >/dev/null && ! docker_usable && can_sudo && sudo docker 
   # Docker est la et tourne, mais l'utilisateur n'est pas dans le groupe.
   use_sudo_docker_for_this_run
 else
-  command -v curl >/dev/null || die "curl est requis pour installer docker (apt install curl / dnf install curl)."
+  # macOS d'abord : get.docker.com n'installe qu'un demon Linux, et sur macOS
+  # c'est Docker Desktop, qui ne s'installe pas sans interaction graphique. Sans
+  # ce garde-fou la cascade part quand meme et echoue plus loin sur un message
+  # qui parle de paquets Linux — donc qui n'aide pas.
+  if [ "$(uname -s)" = Darwin ]; then
+    die "macOS detecte, et Docker n'y est pas joignable.
+       get.docker.com n'installe qu'un demon Linux. Sur macOS, Docker passe par
+       Docker Desktop :
+         1. installez-le (https://docs.docker.com/desktop/install/mac-install/)
+         2. lancez-le et attendez que son icone indique « running »
+         3. relancez ./install.sh
+       Le reste du script fonctionne sur macOS une fois Docker Desktop demarre."
+  fi
+
+  # Obtenir de quoi telecharger AVANT d'essayer de telecharger. Cette marche
+  # peut demander sudo : la mettre ici la fait passer par can_sudo, donc
+  # l'eventuelle invite de mot de passe arrive une seule fois, au debut.
+  ensure_fetcher
   if [ "$(id -u)" -eq 0 ]; then
     install_docker_privileged
   elif can_sudo; then
@@ -383,6 +501,25 @@ port_is_ours() {
     | grep -q "\"HostPort\":\"$1\""
 }
 
+# Tente une connexion TCP sur 127.0.0.1:$1, avec un garde-temps de $2 secondes.
+# Retourne 0 si quelque chose ecoute.
+#
+# `timeout` vient des coreutils GNU et N'EXISTE PAS sur macOS. Ecrit en dur, la
+# commande absente renvoyait 127, le `if` echouait, et port_state concluait
+# « port libre » — un port reellement occupe passait la verification et l'echec
+# n'arrivait qu'au `up`, sans nommer le coupable. Exactement la panne silencieuse
+# que le commentaire de port_state dit vouloir eviter.
+#
+# Sans garde-temps le risque est nul ici : sur la boucle locale, une connexion
+# aboutit ou est refusee immediatement, il n'y a personne pour laisser pendre.
+tcp_probe() {
+  if command -v timeout >/dev/null; then
+    timeout "$2" bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null
+  else
+    bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null
+  fi
+}
+
 # Retourne 0 si le port est libre, 1 s'il est pris, 2 si on n'a pas su decider.
 # La distinction compte : un `docker run` qui echoue peut l'avoir fait pour tout
 # autre chose (image inaccessible, reseau coupe), et annoncer « port occupe »
@@ -395,7 +532,7 @@ port_state() {
   # Sans `ss` : bash sait ouvrir une connexion TCP sans aucune dependance.
   # Une connexion qui aboutit prouve que quelque chose ecoute ; un echec ne
   # prouve rien de plus que « personne n'a repondu », ce qui suffit ici.
-  if timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; then
+  if tcp_probe "$1" 2; then
     return 1
   fi
   return 0
@@ -616,7 +753,7 @@ check_portal_http() {
     code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:$HTTP_PORT/" || true)"
     [ "${code:-000}" = "200" ] || die "le portail ne repond pas depuis la machine (HTTP ${code:-000} sur le port $HTTP_PORT)."
     info "Le portail repond depuis la machine (HTTP 200)."
-  elif timeout 5 bash -c "exec 3<>/dev/tcp/127.0.0.1/$HTTP_PORT" 2>/dev/null; then
+  elif tcp_probe "$HTTP_PORT" 5; then
     info "Le portail accepte les connexions sur le port $HTTP_PORT."
   else
     die "le port $HTTP_PORT n'accepte aucune connexion alors que les services sont sains."
@@ -645,7 +782,7 @@ check_portal_https() {
        Journaux du proxy :
          docker compose $COMPOSE logs proxy"
     info "HTTPS repond depuis la machine (200)."
-  elif timeout 5 bash -c "exec 3<>/dev/tcp/127.0.0.1/$HTTPS_PORT" 2>/dev/null; then
+  elif tcp_probe "$HTTPS_PORT" 5; then
     # Sans curl on ne peut pas valider la terminaison TLS, seulement l'ecoute.
     info "Le port $HTTPS_PORT accepte les connexions (curl absent : TLS non verifie)."
   else
@@ -707,6 +844,18 @@ if [ "$TLS" = 1 ]; then
 else
   URLS="   Portail   http://127.0.0.1:$HTTP_PORT
      API       http://127.0.0.1:$HTTP_PORT/api"
+  # Le port est lie a la boucle locale EXPRES (machine partagee), donc en
+  # session SSH cette adresse designe le poste de l'utilisateur et non le
+  # serveur. On ne peut pas afficher l'IP de la machine a la place : rien
+  # n'y ecoute, ce serait une URL morte. On explique, et on donne le tunnel.
+  if [ -n "${SSH_CONNECTION:-}" ]; then
+    URLS="$URLS
+
+     Session SSH detectee : ce port n'ecoute que sur la boucle locale
+     de CETTE machine. Depuis votre poste :
+       ssh -L $HTTP_PORT:127.0.0.1:$HTTP_PORT ${USER:-<utilisateur>}@<hote>
+     puis ouvrez http://127.0.0.1:$HTTP_PORT"
+  fi
   HINT="   (depuis la racine du depot ; ou pnpm stack:down / pnpm stack:logs)"
 fi
 

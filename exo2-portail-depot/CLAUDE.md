@@ -106,6 +106,7 @@ pnpm start                  # both production builds (API :21610, serve :4000)
 pnpm test                   # backend jest suite (frontend has no test runner yet)
 pnpm test:e2e               # supertest suite, doubles only — no Docker
 pnpm test:integration       # testcontainers suite — REQUIRES a Docker daemon
+pnpm test:bare-machine      # replays the grader's first test in a container (§ install.sh)
 pnpm lint                   # lint both
 pnpm db:up                  # Postgres AND MinIO, for local dev (:21632, :21690, console :21691)
 pnpm db:down                # stop them
@@ -509,6 +510,37 @@ group membership is only read at login, so `usermod -aG` cannot help the current
 Debian/Ubuntu. After install, if neither `systemctl` nor `service` exists (containers, WSL without
 systemd), the script starts `dockerd` itself.
 
+**The cascade has a step before it: `ensure_fetcher`.** The script used to *require* `curl` and die
+telling the grader to run `apt install curl`. `ubuntu:24.04` ships neither `curl` nor `wget`, so on
+the exact machine the acceptance criterion describes, the one-click asked for a manual command.
+Three recorded bare-machine campaigns (A8, A5, A6) missed it **because the test harness installed
+curl before running the script** — it was validating a machine less bare than the one it claimed to
+simulate. `ensure_fetcher` now accepts `wget` if present, else installs curl through whichever of
+`apt-get`/`dnf`/`yum`/`apk`/`zypper`/`pacman` exists, and only then gives up. `fetch_url` is the
+single download helper both installers go through. **`apt-get update` before `apt-get install` is
+load-bearing**: on a bare Ubuntu the package lists are empty and `install -y curl` answers `Unable to
+locate package curl`, blaming the package when the index is what is missing.
+
+**macOS is guarded, not supported blindly.** `get.docker.com` only installs a Linux daemon, so a
+`uname -s` of `Darwin` with Docker unreachable now dies naming Docker Desktop instead of failing
+later on a message about Linux packages. With Docker Desktop already running the rest of the script
+works — no GNU-only option sits on the nominal path.
+
+**`timeout` is optional, via `tcp_probe`.** It comes from GNU coreutils and does **not** exist on
+macOS. Hard-coded, the missing command returned 127, the `if` failed, and `port_state` declared an
+occupied port *free* — the failure then surfaced at `up` without naming the culprit. Reproduced on
+the old code, fixed on the new.
+
+**Alpine is deliberately not covered**, and the technique is recorded here so the decision stays
+reviewable rather than becoming a hole: the shebang is `bash`, absent from Alpine, so nothing runs at
+all. Covering it means `#!/bin/sh` plus a dozen POSIX lines that obtain bash and `exec bash "$0"
+"$@"` — after which everything else is unchanged, `/dev/tcp` included (verified: it is the only
+bash-only construct in the script). It is cheap; it is skipped because it protects nothing. Alpine is
+a container base image, and Ubuntu/Debian, Fedora/RHEL and macOS all ship bash.
+
+**`$USER` is never used bare.** Under `set -u` an unset `USER` turned three help messages into
+`USER: unbound variable`, including the final banner — i.e. after a *successful* deployment.
+
 **Every compose call goes through `$DOCKER compose $COMPOSE`**, where
 `COMPOSE="-f infra/docker-compose.yml --env-file .env"` — one variable, seven call sites (`ps`,
 `pull`, `up`, `logs`, `exec`, and the two inside `port_is_ours`/`health_of`). `COMPOSE_BUILD` adds
@@ -536,6 +568,25 @@ Four details that are easy to undo by accident:
   this, a `.env` predating A3 made `docker compose up` fail on `${STORAGE_ACCESS_KEY:?}` — the script
   stopped honouring "exit 0 means the portal answers". Note `set_env_default` uses `if`, not `&&`:
   `a && b` returns 1 when the key is already filled, which `set -e` would read as a script failure.
+  **Secrets are generated exactly once, at the first run** — verified by three consecutive
+  `./install.sh` producing the same `DB_PASSWORD`. Do not make them rotate per run: Postgres reads
+  `POSTGRES_PASSWORD` only when *initialising* an empty volume, so a regenerating installer would
+  break its own stack on the second run of every machine. Rotation is a separate operation
+  (`ALTER USER` + restart), not a side effect of installing.
+- **`.env.example` carries the non-secret values; `install.sh` generates the secrets.** `DB_USER` and
+  `DB_NAME` are constants (`portail`, `portail_depot`) and now live in `.env.example` with their
+  value: left empty, a hand-made `cp .env.example .env` for `pnpm db:up` failed on
+  `${DB_USER:?definir DB_USER dans .env}`, on a value nobody can guess. The two `set_env_default`
+  calls stay anyway — `append_missing_keys` skips any key already present *even when empty*, so they
+  are what repairs a `.env` generated before the change. `MINIO_ROOT_USER` stays generated: it is
+  half of a storage-admin credential, not the name of a thing.
+- **A `.env` password and an existing Postgres volume can diverge**, and it looks like a project bug:
+  the backend restart-loops on `P1000`, the script waits out its 300 s and prints raw logs. It cannot
+  happen on a fresh machine (`.env` and the volume are born together), only on a dev machine whose
+  `.env` was regenerated while the volumes survived. The fix is `down -v`, documented in
+  `.env.example`. Beware when diagnosing: the postgres image trusts `127.0.0.1` inside its own
+  container, so `psql -h 127.0.0.1` accepts **any** password and appears to exonerate the config —
+  test from another container on the network instead.
 - **The final banner must stay in raw docker commands.** It prints
   `docker compose -f infra/docker-compose.yml --env-file .env down`, not `pnpm stack:down`: the
   script no longer installs Node or pnpm, so the banner cannot tell the grader to run a pnpm script
@@ -571,17 +622,33 @@ cached. `--from-source` still builds and takes 13,2 s on warm layers — it is t
 check, not the one-click. Publishing itself takes **1 min 56 s** in CI, off the grader's critical
 path entirely.
 
-The bare-machine path can only be exercised in a container, so it is the most likely to rot. Run it
-against `git archive HEAD`, not the working tree: a file left out of `git add` shows up there and is
-invisible otherwise.
+The bare-machine path can only be exercised in a container, so it is the most likely to rot. It is
+now **one command** — the recipe used to live here as `bash -c '...'`, elided, and was re-derived
+from scratch every time:
 
 ```bash
-docker run --rm --privileged -v /var/lib/docker -v "$PWD:/src:ro" ubuntu:24.04 bash -c '...'
+./scripts/test-bare-machine.sh              # ubuntu:24.04, root tier
+./scripts/test-bare-machine.sh debian:12    # any other base image
+pnpm test:bare-machine                      # the same
 ```
 
-The `-v /var/lib/docker` is required — without it the nested daemon runs overlayfs on overlayfs and
-every build dies with `mount source: "overlay" ... invalid argument`, which looks exactly like a
-project bug and is not one.
+It asserts exit 0, `/` → 200, `/api/v1/health` → **403**, `.env` at **600**, and prints the duration.
+Measured with `ensure_fetcher` in place: **1 min 52 s and 2 min 28 s** on two runs (was 2 min 02 s
+before — the gap between runs is network variance, the delta against A6 is
+`apt-get install curl`, which the script now does instead of refusing to continue). Three things in
+it are load-bearing:
+
+- **It runs against `git archive HEAD`, not the working tree**: a file left out of `git add` shows up
+  there and is invisible otherwise.
+- **`-v /var/lib/docker` is required** — without it the nested daemon runs overlayfs on overlayfs and
+  every build dies with `mount source: "overlay" ... invalid argument`, which looks exactly like a
+  project bug and is not one.
+- **It installs nothing in the container.** No `apt-get install curl`, nothing. That is precisely the
+  blind spot that let three campaigns of bare-machine measurements pass over an `install.sh` which
+  died on a bare Ubuntu. Adding a package here reintroduces it.
+
+Its scope is the **root** tier of the docker cascade (`id -u` = 0 in the container). The *sudo* and
+*rootless* tiers, and macOS, are still manual.
 
 ## Data model (A2)
 

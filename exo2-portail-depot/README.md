@@ -8,14 +8,28 @@ Sous-domaine : https://sephorah-aniambossou.stage2-div.rayan-drissi.com
 ./install.sh
 ```
 
-C'est tout. Le script installe Docker s'il manque, génère la configuration et ses secrets, **tire
-les images publiées**, monte la stack, applique les migrations, et n'affiche les URLs qu'une fois
-que le portail répond. Il n'y a rien à faire ensuite, et rien à lire ici pour y arriver.
+C'est tout. Le script installe ce qui manque — jusqu'à `curl` et Docker eux-mêmes — génère la
+configuration et ses secrets, **tire les images publiées**, monte la stack, applique les migrations,
+et n'affiche les URLs qu'une fois que le portail répond. Il n'y a rien à faire ensuite, et rien à
+lire ici pour y arriver.
 
 Le portail est alors sur **http://127.0.0.1:21600**.
 
-Comptez **~2 min sur une machine vierge**, installation de Docker comprise, **~35 s** si Docker est
-déjà là, et une quinzaine de secondes ensuite.
+Comptez **~2 min sur une machine vierge** (1 min 52 s et 2 min 28 s mesurées sur deux passages),
+installation de Docker comprise, **~35 s** si Docker est déjà là, et une quinzaine de secondes
+ensuite. Ce parcours est rejouable en une commande :
+`pnpm test:bare-machine` le refait dans un conteneur `ubuntu:24.04` où rien n'est préinstallé, et
+vérifie que le portail répond vraiment à la fin.
+
+Les secrets sont générés **une seule fois**, au premier lancement : relancer `./install.sh` ne les
+régénère pas, sans quoi le script casserait sa propre base de données au second passage.
+
+**Systèmes.** Linux avec bash — Debian/Ubuntu, Fedora/RHEL et les autres ; les paquets manquants
+sont installés via `apt-get`, `dnf`, `yum`, `apk`, `zypper` ou `pacman` selon la machine. Sur
+**macOS**, le script fonctionne une fois Docker Desktop lancé, et le dit clairement s'il ne l'est
+pas : `get.docker.com` n'installe qu'un démon Linux, et Docker Desktop demande une installation
+graphique qu'aucun script ne peut faire à votre place. Une machine **sans bash** (Alpine nu) n'est
+pas couverte — voir les limitations.
 
 Rien n'est compilé sur place : les images sont construites par le CI et publiées sur
 [GHCR](https://github.com/sephorah?tab=packages). `./install.sh --from-source` construit en local à
@@ -181,6 +195,18 @@ de validation. L'allowlist et la taille maximale (20 Mo) vivent dans la configur
   périodique des orphelins en cas d'échec partiel.
 - **Pas de chiffrement au repos**, ni de la base ni des objets.
 - **Pas de politique de rétention** : les liens expirés restent en base indéfiniment.
+- **`install.sh` ne démarre pas sur une machine sans bash** (Alpine nu, par exemple). Son shebang est
+  `bash`, donc l'échec arrive avant sa première ligne, hors de portée de sa propre gestion d'erreur.
+  Le correctif tient en une douzaine de lignes — shebang `#!/bin/sh`, préambule POSIX qui obtient
+  bash puis `exec bash "$0" "$@"`, après quoi tout le reste est inchangé, `/dev/tcp` compris. Il
+  n'est pas fait parce qu'aucune machine visée n'est concernée : Alpine est une image de base pour
+  conteneurs, et Ubuntu/Debian, Fedora/RHEL et macOS livrent tous bash.
+- **Le palier root de la cascade Docker est le seul testé automatiquement**
+  (`pnpm test:bare-machine`). Les paliers *sudo* et *rootless*, et macOS, restent vérifiés à la main.
+- **Un `.env` et un volume Postgres peuvent diverger** sur une machine de développement dont le
+  `.env` a été régénéré alors que les volumes survivaient : Postgres ne lit son mot de passe qu'à la
+  création du volume. Le backend boucle alors sur `P1000` et le remède est `down -v`. Le cas ne peut
+  pas se produire sur une machine neuve, où les deux naissent ensemble.
 
 ---
 
