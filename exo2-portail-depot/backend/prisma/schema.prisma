@@ -159,7 +159,15 @@ model PublicLink {
 model RequestedItem {
   id String @id @default(uuid())
 
-  label     String
+  label String
+  /// Display order, as the lawyer typed it. NOT derivable from createdAt: the
+  /// items of one request are inserted in the same nested write, so they share
+  /// a timestamp to the millisecond and Postgres is then free to return them in
+  /// any order -- the client's checklist would reshuffle between two page loads.
+  ///
+  /// The default only exists to migrate the rows written before this column;
+  /// every write site sets it explicitly, and every read orders by it.
+  position  Int      @default(0)
   createdAt DateTime @default(now())
 
   requestId String

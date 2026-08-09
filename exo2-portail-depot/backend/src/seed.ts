@@ -103,7 +103,9 @@ const seed = async (app: INestApplicationContext): Promise<void> => {
       data: {
         title: DEMO_REQUEST_TITLE,
         lawyerId: lawyer.id,
-        items: { create: DEMO_ITEMS.map((label) => ({ label })) },
+        items: {
+          create: DEMO_ITEMS.map((label, position) => ({ label, position })),
+        },
       },
       include: { items: true },
     }));
@@ -115,9 +117,29 @@ const seed = async (app: INestApplicationContext): Promise<void> => {
   const missing = DEMO_ITEMS.filter((label) => !knownLabels.has(label));
   if (missing.length > 0) {
     await prisma.requestedItem.createMany({
-      data: missing.map((label) => ({ label, requestId: request.id })),
+      // The position comes from DEMO_ITEMS, not from the loop index: a repaired
+      // item must land back where it was, not at the end of the list.
+      data: missing.map((label) => ({
+        label,
+        requestId: request.id,
+        position: DEMO_ITEMS.indexOf(label),
+      })),
     });
   }
+
+  // Items written BEFORE the position column existed all carry its default, 0,
+  // so their order would stay arbitrary forever -- the migration cannot guess
+  // an order the schema never recorded. Realigning them is the seed's job, it
+  // being the only thing that knows what the demonstration order should be.
+  // The `not` filter makes this a no-op on the rows just created above.
+  await Promise.all(
+    DEMO_ITEMS.map((label, position) =>
+      prisma.requestedItem.updateMany({
+        where: { requestId: request.id, label, position: { not: position } },
+        data: { position },
+      }),
+    ),
+  );
 
   const token = generatePublicToken();
   const pin = generatePin();
