@@ -1,6 +1,7 @@
 import { createSystem, defaultConfig, defineConfig } from '@chakra-ui/react'
 import { buttonRecipe } from './recipes/button'
 import { cardRecipe } from './recipes/card'
+import { fieldRecipe, inputRecipe } from './recipes/field'
 import { semanticTokens } from './semantic-tokens'
 import { tokens } from './tokens'
 
@@ -19,8 +20,8 @@ const config = defineConfig({
   theme: {
     tokens,
     semanticTokens,
-    recipes: { button: buttonRecipe },
-    slotRecipes: { card: cardRecipe },
+    recipes: { button: buttonRecipe, input: inputRecipe },
+    slotRecipes: { card: cardRecipe, field: fieldRecipe },
   },
 })
 
