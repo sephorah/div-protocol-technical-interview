@@ -157,15 +157,37 @@ par jeton de lien.
 
 ### A8. `install.sh` démarre la stack complète — P0
 
-Le script existe (nvm + Node 22 + corepack + build + start) mais ne connaît ni docker ni la stack
-complète.
+Le script pilote désormais la pile docker de bout en bout : installation de Docker si absent,
+génération du `.env`, `pull` des images publiées, attente de chaque healthcheck, affichage des URLs.
+Le bootstrap Node/nvm/corepack a été **retiré** — la compilation se fait dans les images, donc
+installer Node ferait attendre l'évaluateur pour rien.
 
-- [ ] Un seul appel monte API + front + DB + MinIO + monitoring
-- [ ] Seed exécuté (compte avocat démo + une demande)
-- [ ] Affiche les URLs fonctionnelles en fin d'exécution
-- [ ] Aucune intervention manuelle requise sur machine vierge
+- [ ] Un seul appel monte API + front + DB + MinIO + monitoring — les quatre premiers sont montés et
+      attendus (`SERVICES="db minio backend frontend proxy"`, plus `certbot` quand `DOMAIN` est
+      rempli) ; **le monitoring reste à ajouter à cette liste et à la boucle d'attente quand F1/F2
+      livreront Prometheus et Grafana**
+- [ ] Seed exécuté (compte avocat démo + une demande) — le **branchement** est fait : le script teste
+      `dist/seed.js` dans le conteneur `backend` et l'exécute s'il existe, après les healthchecks.
+      Le seed lui-même ne peut pas précéder B1 (il faut le modèle d'authentification pour hacher un
+      mot de passe de démonstration), **son écriture est donc portée en B1**
+- [x] Affiche les URLs fonctionnelles en fin d'exécution — portail et API, en clair
+      (`http://127.0.0.1:21600`) ou en HTTPS sur le domaine public selon que `DOMAIN` est rempli,
+      avec les commandes d'arrêt et de journaux en docker brut
+- [x] Aucune intervention manuelle requise sur machine vierge — mesuré **2 min 02 s** dans un
+      conteneur `ubuntu:24.04` nu, installation de Docker comprise, à partir de `git archive HEAD` ;
+      **14,8 s** avec les images en cache
 
 Dépendances : A1, A3, D1, F2.
+
+Deux critères restent donc ouverts, pour des raisons différentes. Le seed n'est bloqué que par son
+contenu : le hook s'activera tout seul le jour où l'image contient `dist/seed.js`, sans retoucher
+`install.sh`. Le monitoring, lui, demandera un vrai changement ici — les services de F1/F2 devront
+entrer dans `SERVICES`, sans quoi le script rendrait la main avant que Grafana réponde, ce qui
+briserait son contrat (« sortie 0 veut dire que le portail répond »).
+
+Le contrat justement : le script ne mentionne **rien** qu'il ne sache livrer. Pas de ligne « seed à
+venir », pas de TODO, pas d'instruction — d'où le test silencieux sur `dist/seed.js` plutôt qu'un
+message expliquant qu'il n'y a pas encore de compte de démonstration.
 
 ---
 
@@ -179,6 +201,9 @@ JWT ou session. Le client, lui, reste strictement anonyme.
 - [ ] Garde d'authentification sur toutes les routes `/requests*`
 - [ ] Les routes `/public/*` restent accessibles sans jeton
 - [ ] Expiration du jeton et comportement de refresh documentés
+- [ ] **Reporté de A8** : `dist/seed.js` crée le compte avocat de démonstration et une demande, de
+      façon idempotente (une réexécution ne duplique rien) ; `./install.sh` le détecte et l'exécute
+      déjà, et sa sortie standard s'affiche telle quelle : c'est au seed d'imprimer les identifiants
 
 Dépendances : A1, A2.
 
