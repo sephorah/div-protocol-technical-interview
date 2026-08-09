@@ -13,28 +13,24 @@ import { StorageService } from './../src/storage/storage.service';
  * optimistic 200, nor a 500 that would conflate the probe with an application
  * failure.
  *
- * What they do NOT prove: that connecting to a real Postgres or a real MinIO
- * works. Both services are replaced by doubles. The real chain is verified by
- * storage.int-spec.ts (testcontainers) and by `docker compose up` +
- * `curl /api/v1/health` (see ai-plans); a dedicated test database will come with
- * D1, once business queries exist.
+ * The healthy case is no longer simulated: the database really answers, so a
+ * probe that stopped querying it could not stay green by mocking. The failure
+ * case still needs staging, and it is staged with a spy on the real client
+ * rather than a double of the whole service -- see the comment on it.
+ *
+ * Storage remains a double: MinIO is exercised by storage.int-spec.ts, and a
+ * second container here would only add startup time.
  */
 describe('HealthController (e2e)', () => {
   let app: INestApplication<App>;
+  let prisma: PrismaService;
   let healthPath: string;
-  const queryRaw = jest.fn();
   const ping = jest.fn();
 
   const createApp = async (): Promise<void> => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
-      .overrideProvider(PrismaService)
-      .useValue({
-        $queryRaw: queryRaw,
-        $connect: jest.fn(),
-        $disconnect: jest.fn(),
-      })
       .overrideProvider(StorageService)
       .useValue({
         ping,
@@ -60,10 +56,21 @@ describe('HealthController (e2e)', () => {
     healthPath = `${apiPrefix}/health`;
 
     await app.init();
+    prisma = app.get(PrismaService);
+  };
+
+  /**
+   * Makes the database look down for one test.
+   *
+   * A spy on the real client, not a double of PrismaService: stopping the
+   * container would be the faithful version, but the database is shared by
+   * every suite of this run and the next test would find nothing to talk to.
+   */
+  const breakDatabase = (message: string): void => {
+    jest.spyOn(prisma, '$queryRaw').mockRejectedValue(new Error(message));
   };
 
   beforeEach(async () => {
-    queryRaw.mockReset();
     ping.mockReset();
     // Default: storage is up, so that each test only sets the failure it is
     // about.
@@ -72,27 +79,27 @@ describe('HealthController (e2e)', () => {
   });
 
   afterEach(async () => {
+    jest.restoreAllMocks();
     await app.close();
   });
 
   it('answers 200 when the database and the storage both answer', async () => {
-    queryRaw.mockResolvedValue([{ '?column?': 1 }]);
+    // The probe must actually query both, not merely observe that the providers
+    // exist: the Prisma connection is lazy and so is the S3 client. The spy
+    // calls through, so the query really reaches Postgres.
+    const queryRaw = jest.spyOn(prisma, '$queryRaw');
 
     await request(app.getHttpServer())
       .get(healthPath)
       .expect(200)
       .expect({ status: 'ok', db: 'up', storage: 'up' });
 
-    // The probe must actually query both, not merely observe that the providers
-    // exist: the Prisma connection is lazy and so is the S3 client.
     expect(queryRaw).toHaveBeenCalledTimes(1);
     expect(ping).toHaveBeenCalledTimes(1);
   });
 
   it('answers 503 { db: down } when the database is unreachable', async () => {
-    queryRaw.mockRejectedValue(
-      new Error('connect ECONNREFUSED 127.0.0.1:5432'),
-    );
+    breakDatabase('connect ECONNREFUSED 127.0.0.1:5432');
 
     await request(app.getHttpServer()).get(healthPath).expect(503).expect({
       status: 'error',
@@ -104,7 +111,6 @@ describe('HealthController (e2e)', () => {
   it('answers 503 { storage: down } when the object storage is unreachable', async () => {
     // A backend that cannot store anything is not healthy: every deposit would
     // fail. This is also the signal F2 alerts on ("MinIO unreachable").
-    queryRaw.mockResolvedValue([{ '?column?': 1 }]);
     ping.mockResolvedValue(false);
 
     await request(app.getHttpServer()).get(healthPath).expect(503).expect({
@@ -117,7 +123,7 @@ describe('HealthController (e2e)', () => {
   it('reports both failures at once', async () => {
     // Reporting only the first one would send whoever reads the probe after one
     // of the two problems.
-    queryRaw.mockRejectedValue(new Error('down'));
+    breakDatabase('down');
     ping.mockResolvedValue(false);
 
     await request(app.getHttpServer()).get(healthPath).expect(503).expect({
@@ -132,16 +138,14 @@ describe('HealthController (e2e)', () => {
     // denies /api/v1/health and the docker healthcheck queries that same
     // address. Were the prefix to stop applying, the probe would become public
     // again without any other test noticing.
-    queryRaw.mockResolvedValue([{ '?column?': 1 }]);
-
     await request(app.getHttpServer()).get('/health').expect(404);
   });
 
   it('does not leak connection details in the error response', async () => {
     // A Postgres driver message contains the host, the port, the database and
     // sometimes the user. It belongs in the logs, not in the HTTP response.
-    queryRaw.mockRejectedValue(
-      new Error('password authentication failed for user "portail" at db:5432'),
+    breakDatabase(
+      'password authentication failed for user "portail" at db:5432',
     );
 
     const response = await request(app.getHttpServer())
