@@ -62,7 +62,10 @@ describe('AuthService', () => {
       revokeFamilyOf,
       purgeExpired,
     ].forEach((m) => m.mockReset());
-    issue.mockResolvedValue('a-refresh-token');
+    issue.mockResolvedValue({
+      token: 'a-refresh-token',
+      expiresAt: new Date('2026-08-16T00:00:00Z'),
+    });
     purgeExpired.mockResolvedValue(undefined);
     signAsync.mockResolvedValue('signed.jwt.token');
 
@@ -165,6 +168,9 @@ describe('AuthService', () => {
     await expect(service.openSession(profile)).resolves.toEqual({
       accessToken: 'signed.jwt.token',
       refreshToken: 'a-refresh-token',
+      // Carried out so the cookie can be given what REMAINS of the session
+      // rather than a fresh seven days at every rotation.
+      refreshExpiresAt: new Date('2026-08-16T00:00:00Z'),
     });
     expect(purgeExpired).toHaveBeenCalledWith('lawyer-1');
   });

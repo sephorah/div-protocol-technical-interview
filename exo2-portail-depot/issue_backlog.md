@@ -209,8 +209,9 @@ strictement anonyme.
       (`APP_GUARD`), donc `/requests*` naîtra protégé sans qu'on ait à y penser
 - [x] Les routes `/public/*` restent accessibles sans jeton — par le décorateur `@Public()`, qui
       porte aujourd'hui sur le login, le logout et la sonde de santé
-- [x] Expiration du jeton et comportement de refresh documentés — 2 h, **aucun refresh**, avec la
-      raison au README ; le cookie porte le même `Max-Age`, calculé par le même analyseur
+- [x] Expiration du jeton et comportement de refresh documentés — **accès 15 min + jeton de
+      rafraîchissement révocable** (voir B1c), les deux cookies portant un `Max-Age` calculé par le
+      même analyseur que le jeton qu'ils transportent
 - [x] **Reporté de A8** : `dist/seed.js` crée le compte avocat de démonstration et une demande, de
       façon idempotente. Mesuré sur deux `./install.sh` consécutifs : 1 avocat, 1 demande, 3 pièces
       attendues, 2 liens dont **1 seul actif** — la régénération révoque le précédent, comme
@@ -229,6 +230,52 @@ portent la même adresse, donc une limite par IP verrouillerait l'avocat au lieu
 l'attaquant. Reportée en G1, par jeton de lien.
 
 Dépendances : A1, A2.
+
+### B1c. Jeton de rafraîchissement révocable — P0 — **fait**
+
+B1 laissait un défaut central : **on ne pouvait pas couper un accès**. `POST /auth/logout` effaçait un
+cookie sans rien invalider, et le seul levier restant était la suppression du compte. Sur un portail
+qui donne accès aux pièces des clients d'un avocat, c'était le vrai problème — pas la durée du jeton.
+
+- [x] Jeton d'accès ramené à **15 min**, jeton de rafraîchissement opaque de 256 bits stocké
+      **haché** (SHA-256), donc révocable par construction
+- [x] **Rotation à chaque usage** et **détection de réutilisation** : présenter un jeton déjà consommé
+      signifie qu'une copie circule, et coupe toute la chaîne issue de cette connexion
+- [x] **Deux échéances** : plafond de 7 jours figé à la connexion (recopié à la rotation) et
+      inactivité de 3 jours (recalculée). La première atteinte gagne
+- [x] La **déconnexion révoque côté serveur** : un cookie copié auparavant cesse de fonctionner
+- [x] Vérifié contre les conteneurs : rejeu d'un cookie volé → 401, **et la session légitime aussi**
+      (0 jeton actif sur 2 dans la famille) ; déconnexion → le cookie copié répond 401
+
+Deux points ne sont pas devinables. Les lignes tournées sont **conservées** : leur présence est ce qui
+rend une réutilisation reconnaissable, les supprimer ferait ressembler un jeton volé à un jeton
+inconnu. Et une **tolérance de 30 secondes** évite que deux onglets se rafraîchissant en même temps ne
+déclenchent une fausse détection — sans elle, l'usage normal de l'application déconnecterait l'avocat.
+
+Référence : RFC 9700 (BCP 240) § 4.14.2. Elle impose la rotation ou la liaison cryptographique au
+client ; couper toute la famille plutôt que le seul jeton actif est notre décision, et elle ne fixe
+aucune durée.
+
+Dépendances : B1.
+
+### B1b. Gestion des sessions par l'avocat — P2
+
+Le modèle de B1c le permet déjà — une famille de jetons par connexion — donc c'est une lecture et une
+écriture, sans migration de données. Différé parce que c'est du confort : le mécanisme de sécurité,
+lui, est livré.
+
+- [ ] `GET /auth/sessions` : une entrée par session ouverte, celle en cours marquée
+- [ ] `POST /auth/sessions/revoke-others` : ferme toutes les autres, renvoie combien. La session qui
+      appelle survit, sinon l'avocat se verrouille dehors en essayant de se protéger
+- [ ] Deux colonnes descriptives sur `RefreshToken` (`userAgent`, `ipAddress`) : sans elles, la liste
+      n'affiche que des identifiants et l'avocat ne reconnaît pas ses appareils. Ce sont des **données
+      personnelles** — rétention à documenter (elles disparaissent avec la session, donc 7 jours au
+      plus), et l'adresse IP est peu fiable derrière le passthrough TLS, comme en G1
+- [ ] Le jeton présenté doit appartenir à l'avocat qui appelle : sans ce contrôle, n'importe quelle
+      session valide pourrait fermer celles d'un autre
+- [ ] Écran correspondant côté avocat (dépend de B5)
+
+Dépendances : B1c.
 
 ### B2. Création d'une demande de dépôt — P0
 

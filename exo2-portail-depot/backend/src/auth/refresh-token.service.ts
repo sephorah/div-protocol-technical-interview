@@ -9,8 +9,14 @@ import { PrismaService } from '../prisma/prisma.service';
 export type RefreshRejection = 'unknown' | 'expired' | 'reused' | 'raced';
 
 export type RefreshOutcome =
-  | { status: 'rotated'; token: string; lawyerId: string }
+  | { status: 'rotated'; token: string; lawyerId: string; expiresAt: Date }
   | { status: 'rejected'; reason: RefreshRejection };
+
+/** A token and the session end it belongs to, so the cookie can outlive neither. */
+export interface IssuedToken {
+  token: string;
+  expiresAt: Date;
+}
 
 /**
  * A token rotated less than this long ago is a race between two tabs, not an
@@ -21,12 +27,15 @@ export type RefreshOutcome =
 const RACE_WINDOW_MS = 30_000;
 
 /**
- * Rotation of refresh tokens, per RFC 9700 § 4.14.2.
- *
- * A *family* is the chain issued by one login. Rotation replaces a link and
- * keeps the old row: its presence is the only thing that makes a reuse
- * recognisable -- deleted, a stolen token would look like an unknown one.
+ * What `append` needs, so that it works both on the client and inside a
+ * transaction -- the transactional client is a PrismaService minus the methods
+ * that manage transactions, which no structural type here can express.
  */
+type RefreshTokenWriter = {
+  refreshToken: { create: PrismaService['refreshToken']['create'] };
+};
+
+/** Rotation of refresh tokens, per RFC 9700 § 4.14.2. A *family* is the chain issued by one login. */
 @Injectable()
 export class RefreshTokenService {
   constructor(
@@ -35,12 +44,12 @@ export class RefreshTokenService {
   ) {}
 
   /** Opens a chain: a new family, both deadlines dated from now. */
-  issue(lawyerId: string): Promise<string> {
-    return this.append(
-      lawyerId,
-      randomUUID(),
-      this.deadline('SESSION_EXPIRES'),
-    );
+  async issue(lawyerId: string): Promise<IssuedToken> {
+    const expiresAt = this.deadline('SESSION_EXPIRES');
+    return {
+      token: await this.append(lawyerId, randomUUID(), expiresAt),
+      expiresAt,
+    };
   }
 
   /**
@@ -80,20 +89,43 @@ export class RefreshTokenService {
       return { status: 'rejected', reason: 'expired' };
     }
 
-    const claimed = await this.prisma.refreshToken.updateMany({
-      where: { tokenHash, revokedAt: null },
-      data: { revokedAt: new Date() },
+    // Claim and successor in ONE transaction. Separately, a failed INSERT would
+    // leave the presented token revoked with no replacement: the client holds a
+    // dead cookie, and replaying it 30 s later reads as a reuse and kills a
+    // family nobody attacked. A single database hiccup would end a seven-day
+    // session.
+    //
+    // Under READ COMMITTED this makes the pair all-or-nothing; it does not fully
+    // close the millisecond in which a concurrent revokeFamily could slip
+    // between the two. Closing that would need SERIALIZABLE or a row lock on the
+    // family, for a window an attacker cannot aim at.
+    const successor = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.refreshToken.updateMany({
+        where: { tokenHash, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      if (claimed.count === 0) {
+        return null;
+      }
+
+      return this.append(
+        stored.lawyerId,
+        stored.familyId,
+        stored.expiresAt,
+        tx,
+      );
     });
-    if (claimed.count === 0) {
+
+    if (successor === null) {
       return { status: 'rejected', reason: 'raced' };
     }
 
-    const successor = await this.append(
-      stored.lawyerId,
-      stored.familyId,
-      stored.expiresAt,
-    );
-    return { status: 'rotated', token: successor, lawyerId: stored.lawyerId };
+    return {
+      status: 'rotated',
+      token: successor,
+      lawyerId: stored.lawyerId,
+      expiresAt: stored.expiresAt,
+    };
   }
 
   /** Logout. An unknown token is a no-op: there is nothing to say about it. */
@@ -110,16 +142,16 @@ export class RefreshTokenService {
    * Rows survive rotation -- that is what makes a reuse recognisable -- so a
    * chain leaves one behind per renewal. Cleared at login, where the cost is
    * paid once per session rather than by a scheduled job nobody runs.
+   *
+   * On the CEILING only, deliberately, never on idleExpiresAt: a rotated row
+   * keeps the idle deadline it was given, so on a chain renewed for a week the
+   * older links would be deleted while the session is still live -- and
+   * replaying one of them would read as 'unknown' instead of 'reused', with no
+   * revocation. Detection would silently cover only the last three days.
    */
   async purgeExpired(lawyerId: string): Promise<void> {
-    const now = new Date();
     await this.prisma.refreshToken.deleteMany({
-      where: {
-        lawyerId,
-        // Either deadline being past makes the row useless. Keeping only the
-        // ceiling would leave dormant chains around for up to seven days.
-        OR: [{ expiresAt: { lt: now } }, { idleExpiresAt: { lt: now } }],
-      },
+      where: { lawyerId, expiresAt: { lt: new Date() } },
     });
   }
 
@@ -139,9 +171,10 @@ export class RefreshTokenService {
     lawyerId: string,
     familyId: string,
     expiresAt: Date,
+    client: RefreshTokenWriter = this.prisma,
   ): Promise<string> {
     const token = generatePublicToken();
-    await this.prisma.refreshToken.create({
+    await client.refreshToken.create({
       data: {
         tokenHash: hashPublicToken(token),
         familyId,

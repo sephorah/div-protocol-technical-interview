@@ -20,7 +20,12 @@ describe('RefreshTokenService', () => {
 
   const prisma = {
     refreshToken: { findUnique, create, updateMany, deleteMany },
-  } as unknown as PrismaService;
+    // The interactive form: hand the same client back, so the tests exercise
+    // the real sequence rather than a transaction-shaped stub.
+    $transaction: (fn: (tx: PrismaService) => Promise<unknown>) => fn(prisma),
+  } as unknown as PrismaService & {
+    $transaction: (fn: (tx: PrismaService) => Promise<unknown>) => unknown;
+  };
 
   const storedToken = (overrides: Record<string, unknown> = {}) => ({
     id: 'token-1',
@@ -51,7 +56,7 @@ describe('RefreshTokenService', () => {
   });
 
   it('stores only the hash of the token it hands out', async () => {
-    const token = await service.issue('lawyer-1');
+    const { token } = await service.issue('lawyer-1');
 
     expect(token).toHaveLength(43); // 32 bytes in base64url
     expect(createdData().tokenHash).toBe(hashPublicToken(token));
@@ -87,6 +92,7 @@ describe('RefreshTokenService', () => {
       status: 'rotated',
       token: expect.any(String) as string,
       lawyerId: 'lawyer-1',
+      expiresAt: expect.any(Date) as Date,
     });
     // Claimed by an atomic compare-and-set, never by a read-then-write.
     expect(updateMany).toHaveBeenCalledWith({
@@ -217,13 +223,20 @@ describe('RefreshTokenService', () => {
     expect(updateMany).not.toHaveBeenCalled();
   });
 
-  it('purges rows past either deadline', async () => {
+  /**
+   * On the ceiling only. Purging on idleExpiresAt too would delete the older
+   * links of a live chain -- replaying one would then read as 'unknown' rather
+   * than 'reused', and no revocation would fire.
+   */
+  it('purges on the ceiling only, never on the idle deadline', async () => {
     await service.purgeExpired('lawyer-1');
 
     const [{ where }] = deleteMany.mock.calls[0] as [
-      { where: { lawyerId: string; OR: Record<string, unknown>[] } },
+      { where: Record<string, unknown> },
     ];
     expect(where.lawyerId).toBe('lawyer-1');
-    expect(where.OR).toHaveLength(2);
+    expect(where.expiresAt).toEqual({ lt: expect.any(Date) as Date });
+    expect(where).not.toHaveProperty('OR');
+    expect(where).not.toHaveProperty('idleExpiresAt');
   });
 });

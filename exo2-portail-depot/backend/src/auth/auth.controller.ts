@@ -96,9 +96,14 @@ export class AuthController {
 
     const outcome = await this.auth.renewSession(presented);
     if (outcome.status === 'rejected') {
-      // The session is over: leaving a dead cookie in place would make the SPA
-      // keep retrying a renewal that can no longer succeed.
-      this.clearSessionCookies(request, response);
+      // 'raced' is NOT the end of the session: another tab has just rotated,
+      // and the browser holds a cookie that still works. Clearing it here would
+      // log the lawyer out for having two tabs open -- the very failure the
+      // race window exists to prevent. Every other reason is terminal, and
+      // leaving a dead cookie would make the SPA retry forever.
+      if (outcome.reason !== 'raced') {
+        this.clearSessionCookies(request, response);
+      }
       throw new UnauthorizedException();
     }
 
@@ -145,12 +150,15 @@ export class AuthController {
       tokens.accessToken,
       buildAuthCookie(request.secure, this.auth.accessMaxAgeMs()),
     );
+    // What REMAINS of the session, not the configured duration: reset to seven
+    // days on every rotation, the cookie would outlive the session and the
+    // browser would keep sending a value the server refuses.
     response.cookie(
       REFRESH_COOKIE_NAME,
       tokens.refreshToken,
       buildRefreshCookie(
         request.secure,
-        this.auth.sessionMaxAgeMs(),
+        tokens.refreshExpiresAt.getTime() - Date.now(),
         this.refreshPath,
       ),
     );

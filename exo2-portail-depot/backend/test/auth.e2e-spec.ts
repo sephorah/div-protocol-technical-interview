@@ -91,6 +91,13 @@ describe('Auth (e2e)', () => {
       where: { tokenHash?: string; familyId?: string; revokedAt?: null };
       data: { revokedAt: Date };
     }) => {
+      // Without a discriminator the loop below would match every row, so a
+      // call meant for one family would revoke every session in the store --
+      // and the test would still pass. Fail loudly instead.
+      if (where.tokenHash === undefined && where.familyId === undefined) {
+        throw new Error('updateMany without tokenHash or familyId');
+      }
+
       let count = 0;
       for (const row of stored.values()) {
         const matches =
@@ -100,6 +107,20 @@ describe('Auth (e2e)', () => {
           (where.revokedAt !== null || row.revokedAt === null);
         if (matches) {
           row.revokedAt = data.revokedAt;
+          count += 1;
+        }
+      }
+      return Promise.resolve({ count });
+    },
+  );
+
+  /** Deletes the rows whose ceiling has passed, like the real purge. */
+  const refreshDeleteMany = jest.fn(
+    ({ where }: { where: { expiresAt: { lt: Date } } }) => {
+      let count = 0;
+      for (const [hash, row] of stored) {
+        if ((row.expiresAt as Date).getTime() < where.expiresAt.lt.getTime()) {
+          stored.delete(hash);
           count += 1;
         }
       }
@@ -145,27 +166,39 @@ describe('Auth (e2e)', () => {
   });
 
   beforeEach(async () => {
-    findUnique.mockClear();
+    [
+      findUnique,
+      refreshFindUnique,
+      refreshCreate,
+      refreshUpdateMany,
+      refreshDeleteMany,
+    ].forEach((m) => m.mockClear());
     stored = new Map();
     // Real timers by default; the deadline tests move the clock themselves.
     jest.useFakeTimers({ advanceTimers: true, doNotFake: ['nextTick'] });
+
+    const prismaDouble: Record<string, unknown> = {
+      lawyer: { findUnique },
+      refreshToken: {
+        findUnique: refreshFindUnique,
+        create: refreshCreate,
+        updateMany: refreshUpdateMany,
+        deleteMany: refreshDeleteMany,
+      },
+      $queryRaw: jest.fn(),
+      $connect: jest.fn(),
+      $disconnect: jest.fn(),
+    };
+    // Interactive form, handing the same client back: the rotation then runs
+    // its real sequence instead of a transaction-shaped stub.
+    prismaDouble.$transaction = (fn: (tx: unknown) => Promise<unknown>) =>
+      fn(prismaDouble);
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(PrismaService)
-      .useValue({
-        lawyer: { findUnique },
-        refreshToken: {
-          findUnique: refreshFindUnique,
-          create: refreshCreate,
-          updateMany: refreshUpdateMany,
-          deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
-        },
-        $queryRaw: jest.fn(),
-        $connect: jest.fn(),
-        $disconnect: jest.fn(),
-      })
+      .useValue(prismaDouble)
       .overrideProvider(StorageService)
       .useValue({
         ping: jest.fn().mockResolvedValue(true),
@@ -409,6 +442,18 @@ describe('Auth (e2e)', () => {
       await request(app.getHttpServer()).post(refreshPath).expect(401);
     });
 
+    // An empty value is what a half-cleared cookie leaves behind. It must be a
+    // 401 like any other, never a lookup on the hash of an empty string.
+    it.each(['', 'pas-un-jeton'])(
+      'answers 401 on a malformed refresh cookie (%p)',
+      async (value) => {
+        await request(app.getHttpServer())
+          .post(refreshPath)
+          .set('Cookie', `${REFRESH_COOKIE_NAME}=${value}`)
+          .expect(401);
+      },
+    );
+
     /**
      * The scenario the whole feature exists for: a cookie was copied, both the
      * thief and the lawyer use it, and whoever comes second is detected.
@@ -434,6 +479,51 @@ describe('Auth (e2e)', () => {
         .post(refreshPath)
         .set('Cookie', second)
         .expect(401);
+    });
+
+    /**
+     * Two tabs refreshing at once. The refusal must NOT clear the cookies: the
+     * browser shares them across tabs, so the one the other tab just obtained
+     * is still valid and the retry succeeds. Clearing here would log the lawyer
+     * out for having two tabs open -- what the race window exists to prevent.
+     */
+    it('refuses a concurrent replay without clearing the cookies', async () => {
+      const first = refreshCookie(await login().expect(200)) as string;
+      const second = refreshCookie(
+        await request(app.getHttpServer())
+          .post(refreshPath)
+          .set('Cookie', first)
+          .expect(200),
+      ) as string;
+
+      const raced = await request(app.getHttpServer())
+        .post(refreshPath)
+        .set('Cookie', first)
+        .expect(401);
+
+      expect(refreshCookie(raced)).toBeNull();
+      expect(sessionCookie(raced)).toBeNull();
+
+      // And the session is untouched: the cookie the other tab holds still works.
+      await request(app.getHttpServer())
+        .post(refreshPath)
+        .set('Cookie', second)
+        .expect(200);
+    });
+
+    // A terminal refusal, by contrast, must clear both: otherwise the SPA keeps
+    // retrying a renewal that can never succeed.
+    it('clears both cookies when the session is really over', async () => {
+      const cookie = refreshCookie(await login().expect(200)) as string;
+
+      jest.setSystemTime(new Date(Date.now() + 8 * 24 * 60 * 60 * 1000));
+      const refused = await request(app.getHttpServer())
+        .post(refreshPath)
+        .set('Cookie', cookie)
+        .expect(401);
+
+      expect(refreshCookie(refused)).toContain('Expires=Thu, 01 Jan 1970');
+      expect(sessionCookie(refused)).toContain('Expires=Thu, 01 Jan 1970');
     });
 
     it('refuses to renew past the 7-day ceiling', async () => {

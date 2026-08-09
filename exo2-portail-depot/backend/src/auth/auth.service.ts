@@ -19,15 +19,17 @@ export const INVALID_CREDENTIALS = 'Identifiants invalides';
 export interface SessionTokens {
   accessToken: string;
   refreshToken: string;
+  /**
+   * When the session itself ends. The refresh cookie's Max-Age derives from
+   * what REMAINS of it, not from the configured duration: reset to seven days
+   * on every rotation, the cookie would outlive the session it belongs to and
+   * the browser would keep sending a value the server refuses.
+   */
+  refreshExpiresAt: Date;
 }
 
 export type RenewOutcome =
-  | {
-      status: 'renewed';
-      profile: LawyerProfile;
-      accessToken: string;
-      refreshToken: string;
-    }
+  | ({ status: 'renewed'; profile: LawyerProfile } & SessionTokens)
   | { status: 'rejected'; reason: RefreshRejection };
 
 @Injectable()
@@ -86,9 +88,11 @@ export class AuthService implements OnModuleInit {
     // table from growing one row per rotation forever.
     await this.refreshTokens.purgeExpired(lawyer.id);
 
+    const issued = await this.refreshTokens.issue(lawyer.id);
     return {
       accessToken: await this.issueToken(lawyer),
-      refreshToken: await this.refreshTokens.issue(lawyer.id),
+      refreshToken: issued.token,
+      refreshExpiresAt: issued.expiresAt,
     };
   }
 
@@ -113,6 +117,7 @@ export class AuthService implements OnModuleInit {
       profile,
       accessToken: await this.issueToken(profile),
       refreshToken: outcome.token,
+      refreshExpiresAt: outcome.expiresAt,
     };
   }
 
