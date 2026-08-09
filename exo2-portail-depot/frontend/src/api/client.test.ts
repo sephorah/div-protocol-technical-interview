@@ -110,6 +110,22 @@ describe('apiRequest', () => {
     await expect(apiRequest('/auth/me')).rejects.toMatchObject({ kind: 'server' })
   })
 
+  // When the prefix drifts, nginx stops routing /api/ and the SPA's index.html
+  // comes back with 200 text/html. Read as an empty answer, that would make the
+  // session context announce an authenticated lawyer with no profile.
+  it('refuses a 200 that is not JSON instead of reading it as an empty answer', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<FetchMock>().mockResolvedValue(
+        new Response('<!doctype html><title>Portail</title>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+      ),
+    )
+    await expect(apiRequest('/auth/me')).rejects.toMatchObject({ kind: 'notFound' })
+  })
+
   // /auth/logout answers 204. Calling .json() on an empty body throws, and the
   // caller would read a successful logout as a failure.
   it('resolves on an empty 204 body', async () => {

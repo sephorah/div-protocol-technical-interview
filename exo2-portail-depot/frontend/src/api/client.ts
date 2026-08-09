@@ -68,12 +68,18 @@ const send = async (path: string, init: RequestInit): Promise<Response> => {
   }
 }
 
-// 204 and any non-JSON answer resolve to undefined: calling .json() on an
-// empty body throws, and a successful logout would read as a failure.
+// 204 resolves to undefined: calling .json() on an empty body throws, and a
+// successful logout would read as a failure.
+//
+// A 200 that is NOT JSON is an error, not an empty answer. When the prefix
+// drifts, nginx stops routing /api/ and the SPA's own index.html comes back
+// with 200 text/html; returning undefined there would make SessionProvider
+// announce an authenticated lawyer with no profile behind them.
 const parse = async <T>(response: Response): Promise<T> => {
   if (response.status === 204) return undefined as T
-  const contentType = response.headers.get('content-type') ?? ''
-  if (!contentType.includes('json')) return undefined as T
+  if (!(response.headers.get('content-type') ?? '').includes('json')) {
+    throw new ApiError('notFound', messageForKind('notFound'))
+  }
   return (await response.json()) as T
 }
 

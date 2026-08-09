@@ -472,9 +472,9 @@ Trois étages, qui ne prouvent pas la même chose. Chacun a une dépendance et u
 
 | Commande | Ce que ça exerce | Docker | Durée mesurée |
 |---|---|---|---|
-| `pnpm test` | Les deux suites unitaires, backend puis frontend | non | ~9 s — 300 tests |
-| `pnpm -C backend test` | Les unités du backend, avec des doublures : validation de configuration, dérivation du statut, primitives de hachage, règles de rotation | non | 3,7 s — 244 tests |
-| `pnpm -C frontend test` | Le thème (les valeurs de la charte verrouillées), le client d'API, le contexte de session, l'écran de connexion — jsdom, Vitest | non | 5,0 s — 56 tests |
+| `pnpm test` | Les deux suites unitaires, backend puis frontend | non | ~9 s — 314 tests |
+| `pnpm -C backend test` | Les unités du backend, avec des doublures : validation de configuration, dérivation du statut, primitives de hachage, règles de rotation | non | 3,8 s — 257 tests |
+| `pnpm -C frontend test` | Le thème (les valeurs de la charte verrouillées), le client d'API, le contexte de session, l'écran de connexion — jsdom, Vitest | non | 4,8 s — 57 tests |
 | `pnpm test:e2e` | L'API entière par HTTP, contre un **vrai PostgreSQL 17** monté par testcontainers, migrations réelles appliquées | oui | 20,3 s — 65 tests |
 | `pnpm test:integration` | `StorageService` contre un **vrai MinIO**, sous la politique d'accès restreinte de la production | oui | 4,7 s — 9 tests |
 | `pnpm test:bare-machine` | `./install.sh` sur une image `ubuntu:24.04` où rien n'est préinstallé | oui | ~2 min |
