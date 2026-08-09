@@ -29,6 +29,10 @@ cd "$(dirname "$0")"
 
 HTTP_PORT=21600           # port attribue, cible du proxy de la machine
 HTTPS_PORT=21601          # idem, cible du passthrough TLS (A7, si DOMAIN)
+# Origine par defaut des liens client. Nommee ici parce que deux endroits la
+# comparent : le set_env_default qui la pose, et la branche TLS qui ne la
+# remplace QUE si elle est encore celle-ci.
+DEFAULT_PUBLIC_BASE_URL="http://127.0.0.1:$HTTP_PORT"
 HEALTH_TIMEOUT=300        # secondes d'attente maximale des healthchecks
 # minio-init en est deliberement ABSENT : la boucle d'attente plus bas n'accepte
 # que healthy|running, or ce conteneur provisionne puis sort en 0. L'y ajouter
@@ -418,6 +422,7 @@ fi
 # partiel comme sur un .env neuf.
 set_env_default DB_USER portail
 set_env_default DB_NAME portail_depot
+set_env_default PUBLIC_BASE_URL "$DEFAULT_PUBLIC_BASE_URL"
 set_env_default DB_PASSWORD "$(random_hex 32)"
 set_env_default JWT_SECRET "$(random_hex 32)"
 # Deux paires distinctes, et c'est tout l'objet du decoupage : MINIO_ROOT_*
@@ -476,6 +481,21 @@ if [ -n "$DOMAIN" ]; then
        Let's Encrypt exige une adresse, et c'est le seul canal qui previendra
        si le renouvellement automatique cesse de fonctionner."
   step "HTTPS active pour $DOMAIN"
+  # set_env_default ne remplit que le vide. Sans ce qui suit, une machine qui
+  # active DOMAIN APRES une premiere installation garderait l'origine locale et
+  # composerait des liens vers 127.0.0.1 — en production, sans aucun signal :
+  # l'API repond 201, et c'est le client qui decouvre que le lien ne mene nulle
+  # part. On ne remplace QUE la valeur par defaut ; une origine saisie a la main
+  # (reverse proxy, nom interne) n'est jamais ecrasee.
+  if [ "$(env_get PUBLIC_BASE_URL)" = "$DEFAULT_PUBLIC_BASE_URL" ]; then
+    set_env_value PUBLIC_BASE_URL "https://$DOMAIN"
+    # set_env_value passe par un fichier temporaire qu'il deplace, ce qui remet
+    # les droits au umask. Le chmod global est plus haut, donc DEJA passe : sans
+    # cette ligne, activer HTTPS laisserait .env — mot de passe de la base et
+    # secret JWT compris — lisible par tous sur une machine partagee.
+    chmod 600 .env
+    info "PUBLIC_BASE_URL aligne sur https://$DOMAIN"
+  fi
   if [ "$ACME_STAGING" = 1 ]; then
     info "Endpoint de TEST (ACME_STAGING=1) : le certificat obtenu ne sera"
     info "reconnu par aucun navigateur. C'est le brouillon — la production"

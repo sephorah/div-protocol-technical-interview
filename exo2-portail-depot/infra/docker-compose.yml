@@ -138,6 +138,12 @@ services:
       # est isole et aucun port n'est publie, donc 0.0.0.0 n'expose rien — mais
       # c'est necessaire pour que nginx joigne le service par le reseau interne.
       BIND_ADDRESS: 0.0.0.0
+      # Origine a partir de laquelle l'API compose le lien client
+      # (<origine>/depot/<jeton>). Elle vient de .env telle quelle, et NON d'un
+      # en-tete de la requete : l'en-tete Host est fourni par le client, donc un
+      # appel forge ferait renvoyer un lien vers le domaine d'un attaquant — que
+      # l'avocat collerait ensuite dans un courriel a son client.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?definir PUBLIC_BASE_URL dans .env}
       # Seuls l'hote et le port different entre la machine et le conteneur :
       # .env vise 127.0.0.1:21632 pour `pnpm dev`, ici c'est le nom du service
       # sur le reseau interne. Le reste (utilisateur, mot de passe, base) vient

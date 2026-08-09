@@ -26,6 +26,8 @@ const REQUIRED_DB_KEYS = [
 
 const EXPECTED_URL = 'expected: postgresql://user:password@host:port/database';
 
+const EXPECTED_ORIGIN = 'expected: https://portail.example.com';
+
 /**
  * PORT, API_PREFIX and BIND_ADDRESS are required and deliberately have NO
  * default value in the code.
@@ -298,6 +300,53 @@ const inspectStorage = (
   };
 };
 
+/**
+ * Checks the public origin the client links are built from.
+ *
+ * Required and without a fallback, for the same reason as BIND_ADDRESS: a
+ * silent default would have the lawyer send their clients links pointing at
+ * 127.0.0.1. The API would answer 201, the link would simply be unreachable
+ * from anywhere but the server itself, and nothing would report it.
+ */
+const inspectPublic = (
+  raw: Record<string, unknown>,
+  issues: string[],
+): { PUBLIC_BASE_URL: string } => {
+  const value = readString(raw, 'PUBLIC_BASE_URL');
+  if (value.length === 0) {
+    issues.push('Public variables missing or empty: PUBLIC_BASE_URL.');
+    return { PUBLIC_BASE_URL: value };
+  }
+
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(value);
+  } catch {
+    parsed = null;
+  }
+
+  if (parsed === null) {
+    issues.push(`PUBLIC_BASE_URL is not a parseable URL (${EXPECTED_ORIGIN}).`);
+    return { PUBLIC_BASE_URL: value };
+  }
+  if (!HTTP_PROTOCOLS.has(parsed.protocol)) {
+    issues.push(
+      `PUBLIC_BASE_URL does not use the HTTP protocol (${EXPECTED_ORIGIN}).`,
+    );
+  }
+  // An origin, not a location inside the site: the deposit path is appended to
+  // it, so anything here shifts every client link at once.
+  if (parsed.pathname !== '/' || parsed.search !== '' || parsed.hash !== '') {
+    issues.push(
+      'PUBLIC_BASE_URL must be a bare origin, without path, query string or ' +
+        `fragment (${EXPECTED_ORIGIN}).`,
+    );
+  }
+
+  // `origin` IS the normalisation: no trailing slash, default port dropped.
+  return { PUBLIC_BASE_URL: parsed.origin };
+};
+
 export const validateEnv = (
   raw: Record<string, unknown>,
 ): Record<string, unknown> => {
@@ -305,6 +354,7 @@ export const validateEnv = (
   const app = inspectApp(raw, issues);
   const auth = inspectAuth(raw, issues);
   const storage = inspectStorage(raw, issues);
+  const publicSurface = inspectPublic(raw, issues);
 
   // An explicitly supplied DATABASE_URL wins: that is what makes it possible to
   // target a managed or CI database without rewriting five variables.
@@ -318,7 +368,14 @@ export const validateEnv = (
     if (issues.length > 0) {
       throw new Error(formatError(issues));
     }
-    return { ...raw, ...app, ...auth, ...storage, DATABASE_URL: explicitUrl };
+    return {
+      ...raw,
+      ...app,
+      ...auth,
+      ...storage,
+      ...publicSurface,
+      DATABASE_URL: explicitUrl,
+    };
   }
 
   const missing = REQUIRED_DB_KEYS.filter(
@@ -356,6 +413,7 @@ export const validateEnv = (
     ...app,
     ...auth,
     ...storage,
+    ...publicSurface,
     DATABASE_URL: buildDatabaseUrl(env),
   };
 };

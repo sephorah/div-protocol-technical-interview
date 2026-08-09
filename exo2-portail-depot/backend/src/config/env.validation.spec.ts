@@ -24,7 +24,9 @@ describe('validateEnv', () => {
     SESSION_IDLE_EXPIRES: '3d',
   };
 
-  const app = { ...appOnly, ...auth, ...storage };
+  const publicSurface = { PUBLIC_BASE_URL: 'https://portail.example.com' };
+
+  const app = { ...appOnly, ...auth, ...storage, ...publicSurface };
 
   const db = {
     ...app,
@@ -329,6 +331,47 @@ describe('validateEnv', () => {
           DATABASE_URL: 'postgresql://user:pwd@elsewhere:5432/managed',
         }),
       ).toMatchObject(auth);
+    });
+  });
+
+  describe('PUBLIC_BASE_URL', () => {
+    it('rejects a configuration without it', () => {
+      expect(() => validateEnv({ ...db, PUBLIC_BASE_URL: '' })).toThrow(
+        /PUBLIC_BASE_URL/,
+      );
+    });
+
+    it('rejects a URL that is not HTTP', () => {
+      expect(() =>
+        validateEnv({ ...db, PUBLIC_BASE_URL: 'ftp://portail.example.com' }),
+      ).toThrow(/PUBLIC_BASE_URL/);
+    });
+
+    it('rejects an origin carrying a path', () => {
+      // A base ending in /portail would produce https://host/portail/depot/<t>,
+      // which the SPA does not serve -- and the lawyer would only find out from
+      // a client's 404.
+      expect(() =>
+        validateEnv({ ...db, PUBLIC_BASE_URL: 'https://example.com/portail' }),
+      ).toThrow(/PUBLIC_BASE_URL/);
+    });
+
+    it('strips the trailing slash', () => {
+      expect(
+        validateEnv({ ...db, PUBLIC_BASE_URL: 'https://example.com/' }),
+      ).toMatchObject({ PUBLIC_BASE_URL: 'https://example.com' });
+    });
+
+    it('survives an explicitly supplied DATABASE_URL', () => {
+      // Same trap as the storage and auth blocks: that path returns early, and
+      // forgetting to merge this key into it would strip the setting whenever a
+      // managed database is targeted.
+      expect(
+        validateEnv({
+          ...db,
+          DATABASE_URL: 'postgresql://u:p@managed:5432/portail',
+        }),
+      ).toMatchObject({ PUBLIC_BASE_URL: 'https://portail.example.com' });
     });
   });
 
