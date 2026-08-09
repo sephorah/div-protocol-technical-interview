@@ -49,9 +49,11 @@ the production stack pulls them. **B1 is done**: lawyer authentication (`/auth/l
 demonstration account `install.sh` already knew how to run. **B2 is done**: `POST /requests` creates
 a deposit request, its expected items, its public link and its 4-digit PIN. **B3 is done**: the
 creation response now carries the full client URL, expiry is actually applied
-(`PublicLinksService.resolve`), and the lawyer can regenerate or revoke a link. There is still no
-public route (C1), no dashboard (B4), no upload route (C2), and no CI running
-lint or tests (D3 — the only workflow so far publishes images).
+(`PublicLinksService.resolve`), and the lawyer can regenerate or revoke a link. **B4 is done**:
+`GET /requests` (paginated, derived status) and `GET /requests/:id` (the pieces, received or not) —
+minus the download of a deposited file, which became issue **B4b** and waits for C2. There is still
+no public route (C1), no upload route (C2), no lawyer screens (B5), and no CI running lint or tests
+(D3 — the only workflow so far publishes images).
 Regenerate this file (`/init`) once the business modules exist.
 
 **pnpm is the package manager** in both apps (`pnpm-lock.yaml` is the source of truth) — do not run
@@ -932,6 +934,49 @@ Two mitigations, both in nginx, both load-bearing:
 - **`frontend/Dockerfile` passes `-L` to `serve`.** By default it logs every request URL to stdout,
   so `docker logs frontend` held `GET /depot/<token>` in clear — the same token nginx redacts, in the
   same place. Dropping the flag makes the whole nginx effort worthless.
+
+## Dashboard (B4)
+
+`GET /requests` (paginated) and `GET /requests/:id` (one request with its pieces), both served by
+`RequestsService.list` / `findOne`. Read-only: **no migration, and `request-status.ts` was not
+touched** — `deriveStatus` from B2 fits as it is.
+
+Seven things are non-obvious:
+
+- **The status keeps the statement's three values; `link.state` is a SEPARATE field.** B3 revokes by
+  dating `revokedAt`, so the row and its `expiresAt` survive. The status is therefore derived from
+  the **last link issued, revoked or not**, and `link.state` says `active` / `revoked` beside it. The
+  two are independent — a request can be **complete AND cut off** — and one field would lose
+  whichever fact it did not carry. A fourth status value was rejected for that reason.
+- **`link` is NOT nullable, and an empty link list throws.** A request always has at least one link:
+  creation writes both in one transaction, revocation deletes nothing, regeneration revokes then
+  inserts. A `LinkView | null` would make every caller handle a corruption *and* hide it behind a
+  normal-looking 200. The thrown message is in **English**, unlike the validation ones: Nest answers
+  a bare "Internal server error", so its only reader is the log.
+- **The pieces are SELECTED, not counted.** Prisma's `_count` expresses one filter per relation, and
+  this needs two (expected, and received). B2 bounds a request to 20 pieces, so a full page reads
+  400 tiny rows at worst — cheaper than the second round trip a separate count would cost.
+- **The page and its total share ONE `$transaction`.** Read apart, a creation landing between them
+  makes `total` describe a table the page did not come from, and the dashboard says "3 sur 47" over
+  46 rows.
+- **`LAST_LINK` orders on `revokedAt` with nulls first, not on `createdAt`.** Postgres dates `now()`
+  from the *transaction*, and regeneration revokes and inserts inside one, so the two rows can share
+  a timestamp to the millisecond and `createdAt` cannot break the tie. It is written with
+  `satisfies`, not `as const`: the latter makes `orderBy` a readonly tuple, which Prisma's mutable
+  array parameter rejects, while dropping both widens `'desc'` to `string`, which it also rejects.
+- **The defaults of `ListRequestsDto` come from the property initializers, not from `@Transform`.**
+  class-transformer skips a transform entirely for a key the query does not carry, so an absent
+  `page` stays `undefined` and fails `@IsInt`. The transform only covers `?page=` (empty string,
+  which `Number()` reads as 0). `MAX_PAGE_SIZE` is 100 and is a code constant, not an environment
+  variable: it protects the API, it does not depend on the deployment.
+- **`forbidNonWhitelisted` applies to the query string**, so `?status=expired` is a 400. That is
+  deliberate — a filter nobody implemented must fail loudly rather than be silently ignored. There
+  is **no status filter**: the status is derived, so filtering it in SQL would be a second definition
+  of the rule, free to drift from the first with no test able to see it.
+
+`received` still means "a file hangs off the piece", as in B2. `UploadedFile.status` can be `failed`
+(the column C4 needs), and counting a rejected file as received will be wrong — left open for C2
+rather than decided here, because nothing can write `failed` yet.
 
 ## Data model (A2)
 
