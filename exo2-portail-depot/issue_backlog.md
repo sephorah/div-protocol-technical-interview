@@ -412,7 +412,9 @@ insérées à la main.
 
 ### B5. Écrans avocat (Chakra UI v3, charte DIV) — P0
 
-- [ ] Login, liste des demandes, création de demande, détail
+- [ ] Liste des demandes, création de demande, détail — **le login est livré par E1**
+- [ ] **Reveal au scroll** (opacity + translation), reporté depuis E1 : la liste est le premier
+      écran qui défile
 - [ ] Remise du lien + PIN à la création, avec copie en un clic
 - [ ] **Échapper `originalName` à l'affichage** — point ouvert laissé par B4. Le nom de fichier est
       fourni par le client et restitué tel quel par `GET /requests/:id`. Il n'est jamais utilisé
@@ -554,15 +556,28 @@ Dépendances : aucune.
 
 Le rendu Chakra v3 est obligatoire (P0) ; le respect fin de la charte est en différenciation (P1).
 
-- [ ] Couleurs : primary `#5100FF`, secondary `#916ED8`, fond accent `#F7F6FF`, accent doux
+- [x] Couleurs : primary `#5100FF`, secondary `#916ED8`, fond accent `#F7F6FF`, accent doux
       `#DBCDFF`, success `#12AC64` sur `#D9FFED`, danger `#FF4C4C` sur `#FFD0D0`
-- [ ] Inter 400 / 600 ; radius 4 / 8 / 12 / 999
-- [ ] **Bouton primaire signature** : fond primary, texte blanc, 600, padding 24×14, radius full ;
+- [x] Inter 400 / 600 ; radius 4 / 8 / 12 / 999
+- [x] **Bouton primaire signature** : fond primary, texte blanc, 600, padding 24×14, radius full ;
       au hover, **inversion** — fond `#F7F6FF`, texte primary, contour inset 1px
-- [ ] Cartes sans ombre, bordure 1px `#E9E9E9`
-- [ ] Reveal au scroll (opacity + translation)
-- [ ] **Light only** : pas de mode sombre (`color-mode.tsx` à neutraliser en conséquence)
-- [ ] Ton formel, froid, technique ; phrases courtes ; aucune illustration émotionnelle
+- [x] Cartes sans ombre, bordure 1px `#E9E9E9`
+- [ ] Reveal au scroll (opacity + translation) — **déplacé en B5**. L'écran de connexion tient dans
+      une hauteur de fenêtre : il n'y a rien à révéler au défilement, donc rien à vérifier. La
+      première page qui défile est la liste des demandes
+- [x] **Light only** : pas de mode sombre — `color-mode.tsx` et `next-themes` **supprimés**, pas
+      neutralisés : garder le mécanisme pour n'en interdire que la moitié laissait un bouton
+      lune/soleil que personne n'a le droit d'utiliser
+- [x] Ton formel, froid, technique ; phrases courtes ; aucune illustration émotionnelle
+
+Livré en plus, parce qu'un thème ne se valide pas sur des carrés de couleur : **l'écran de
+connexion**, branché sur la vraie API (`/login`, redirection vers `/dashboard`, garde de route). Il
+exerce primary, danger, l'arrondi et le survol inversé sur un parcours réel.
+
+Trois pièges relevés au navigateur, qu'aucun test unitaire ne voyait — ils valent pour B5 et C3 :
+les variantes livrées avec Chakra l'emportent sur le `base` d'une recette (titre de carte à 18 px
+contre 11 px écrits) ; un `textStyle` l'emporte sur un `fontSize` voisin ; `Stack` étire ses
+enfants, donc un bouton y perd son gabarit.
 
 ### E2. Densité UI constante mobile / desktop — P2 (l'énoncé la cite parmi les critères de design)
 
