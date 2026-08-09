@@ -35,6 +35,13 @@ Une **version** particulière se demande par `IMAGE_TAG`, dont le défaut est é
 IMAGE_TAG=sha-1a2b3c4 docker compose -f infra/docker-compose.yml --env-file .env up -d
 ```
 
+**Avant un redéploiement sur une machine qui tourne déjà**, vérifier `JWT_EXPIRES` dans son `.env` :
+`install.sh` n'écrase **jamais** une valeur déjà choisie, donc une machine antérieure à la version
+0.2.0 garde `JWT_EXPIRES=2h` alors que le code attend `15m`. Rien ne le signale — la pile démarre, se
+connecte, et le jeton d'accès vaut simplement huit fois plus longtemps que prévu. Les variables
+`SESSION_EXPIRES` et `SESSION_IDLE_EXPIRES`, elles, sont ajoutées automatiquement puisqu'elles sont
+absentes du fichier.
+
 Les deux pièges tiennent au fait que les fichiers compose ne sont pas à la racine. Aucun des deux
 n'est devinable, et le second est silencieux.
 
@@ -85,7 +92,7 @@ secondes, et un 403 ressemble en tout point à une image inexistante :
 
 ```bash
 docker logout ghcr.io
-docker pull ghcr.io/sephorah/exo2-portail-depot-backend:0.1.0   # doit réussir
+docker pull ghcr.io/sephorah/exo2-portail-depot-backend:0.2.0   # doit réussir
 ```
 
 Si ça échoue : Packages → le paquet → Package settings → Danger Zone → Change visibility → Public,
