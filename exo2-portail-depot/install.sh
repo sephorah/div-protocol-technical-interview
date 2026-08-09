@@ -32,6 +32,13 @@ HTTPS_PORT=21601          # idem, cible du passthrough TLS (A7, si DOMAIN)
 # Origine par defaut des liens client. Nommee ici parce que deux endroits la
 # comparent : le set_env_default qui la pose, et la branche TLS qui ne la
 # remplace QUE si elle est encore celle-ci.
+#
+# Elle doit rester identique CARACTERE POUR CARACTERE a la valeur de
+# PUBLIC_BASE_URL dans .env.example : si les deux divergent, la comparaison de
+# la branche TLS ne matche plus jamais, le realignement cesse silencieusement
+# de se produire, et une machine en production compose des liens vers
+# 127.0.0.1 pendant que l'API repond 201. Le test ci-dessous echoue plutot que
+# de laisser passer.
 DEFAULT_PUBLIC_BASE_URL="http://127.0.0.1:$HTTP_PORT"
 HEALTH_TIMEOUT=300        # secondes d'attente maximale des healthchecks
 # minio-init en est deliberement ABSENT : la boucle d'attente plus bas n'accepte
@@ -422,6 +429,13 @@ fi
 # partiel comme sur un .env neuf.
 set_env_default DB_USER portail
 set_env_default DB_NAME portail_depot
+# La garde annoncee plus haut : elle transforme une divergence silencieuse en
+# arret immediat, sur la seule machine ou elle peut encore etre corrigee.
+example_origin="$(grep -E '^PUBLIC_BASE_URL=' .env.example | head -n 1 | cut -d= -f2- | tr -d '\r')"
+[ "$example_origin" = "$DEFAULT_PUBLIC_BASE_URL" ] || die \
+  "PUBLIC_BASE_URL diverge entre .env.example ($example_origin) et install.sh ($DEFAULT_PUBLIC_BASE_URL).
+       Les deux doivent etre identiques, sinon l'alignement automatique sur
+       https://\$DOMAIN cesse de se declencher sans rien signaler."
 set_env_default PUBLIC_BASE_URL "$DEFAULT_PUBLIC_BASE_URL"
 set_env_default DB_PASSWORD "$(random_hex 32)"
 set_env_default JWT_SECRET "$(random_hex 32)"

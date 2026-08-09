@@ -261,6 +261,10 @@ services:
       # Le calque TLS n'a rien a ajouter : compose fusionne les `volumes` par
       # chemin CIBLE, ce montage lui parvient donc tel quel.
       - ./nginx/log-redact.conf:/etc/nginx/conf.d/00-log-redact.conf:ro
+      # Hors de conf.d/ comme portal-locations.conf : ce sont des directives de
+      # niveau `server`. Inclus par les TROIS blocs server, y compris celui du
+      # port 80 du calque TLS qui ne route rien mais voit passer le jeton.
+      - ./nginx/server-hardening.conf:/etc/nginx/server-hardening.conf:ro
       # Racine du challenge ACME. Presente meme sans TLS : c'est par cette pile
       # en clair que passe l'AMORCAGE du certificat (nginx ne demarre pas si le
       # fichier de certificat manque, cf. nginx.conf). Vide, le `location`

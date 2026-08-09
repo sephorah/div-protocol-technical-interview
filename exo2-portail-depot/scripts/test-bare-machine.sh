@@ -128,6 +128,26 @@ else
   fail=1
 fi
 
+# Le masquage du jeton dans les journaux, et l assertion est NEGATIVE a dessein.
+# Son mode d echec est une ligne EN TROP, pas une ligne manquante : nginx cumule
+# les access_log d un meme niveau, et l image en declare deja un. Verifier la
+# presence de [redacted] passait au vert alors que la ligne en clair etait
+# ecrite juste a cote. Le conteneur frontend est teste aussi : serve journalise
+# l URL de chaque requete, et ses logs atterrissent au meme endroit.
+T=JETON-DE-TEST-MASQUAGE-4242
+curl -s -o /dev/null --max-time 10 "http://127.0.0.1:@@PORT@@/depot/$T" || true
+sleep 1
+logs=$(docker compose -f infra/docker-compose.yml --env-file .env logs --since 60s proxy frontend 2>/dev/null || true)
+if printf %s "$logs" | grep -q "$T"; then
+  echo "  [KO] masquage du jeton    -> le jeton apparait EN CLAIR dans les journaux"
+  fail=1
+elif printf %s "$logs" | grep -q "/depot/\[redacted\]"; then
+  echo "  [OK] masquage du jeton    -> [redacted], aucune trace en clair"
+else
+  echo "  [KO] masquage du jeton    -> ni jeton ni [redacted] : la requete n a pas ete journalisee ?"
+  fail=1
+fi
+
 perms=$(stat -c %a .env)
 if [ "$perms" = 600 ]; then echo "  [OK] .env                 -> 600"
 else echo "  [KO] .env                 -> $perms (attendu 600)"; fail=1; fi

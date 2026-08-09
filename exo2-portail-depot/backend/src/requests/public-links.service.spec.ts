@@ -52,6 +52,23 @@ describe('PublicLinksService.resolve', () => {
     });
   });
 
+  it('hands back only what a caller needs, tokenHash excluded', async () => {
+    // pinHash is here because verifying the PIN is exactly what C1 does with
+    // it. tokenHash is not, and neither is anything else the table may gain:
+    // an exhaustive key list is what stops a future column from reaching an
+    // anonymous response.
+    findUnique.mockResolvedValue(row);
+    const result = await service.resolve(TOKEN, NOW);
+
+    expect(result.outcome).toBe('ok');
+    if (result.outcome !== 'ok') return;
+    expect(Object.keys(result.link).sort()).toEqual([
+      'expiresAt',
+      'id',
+      'pinHash',
+    ]);
+  });
+
   it('reports an unknown token', async () => {
     findUnique.mockResolvedValue(null);
     await expect(service.resolve(TOKEN, NOW)).resolves.toEqual({

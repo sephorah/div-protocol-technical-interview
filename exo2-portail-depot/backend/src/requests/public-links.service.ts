@@ -37,8 +37,19 @@ const isUniqueViolation = (error: unknown): boolean =>
  *
  * It must therefore never be serialised as-is by a public route.
  */
+/**
+ * What a caller gets of the link itself.
+ *
+ * Narrowed rather than the whole row, and that is the compiler doing the work a
+ * comment cannot: handed a full PublicLink, C1 could serialise `pinHash` into a
+ * response to an anonymous client -- the material for an offline attack on a
+ * 4-digit PIN. `pinHash` is here because verifying the PIN is exactly what C1
+ * does with it; `tokenHash` is not, nobody needs it back.
+ */
+export type ResolvedLink = Pick<PublicLink, 'id' | 'pinHash' | 'expiresAt'>;
+
 export type LinkResolution =
-  | { outcome: 'ok'; link: PublicLink; request: DepositRequest }
+  | { outcome: 'ok'; link: ResolvedLink; request: DepositRequest }
   | { outcome: 'unknown' }
   | { outcome: 'revoked' }
   | { outcome: 'expired' };
@@ -62,7 +73,16 @@ export class PublicLinksService {
     // covers: one indexed read, and the clear token never reaches a query.
     const link = await this.prisma.publicLink.findUnique({
       where: { tokenHash: hashPublicToken(token) },
-      include: { request: true },
+      // Explicit, so the columns a caller can reach are decided here and not by
+      // whatever the table happens to hold. revokedAt is read below but does
+      // not leave: it becomes the `outcome`.
+      select: {
+        id: true,
+        pinHash: true,
+        expiresAt: true,
+        revokedAt: true,
+        request: true,
+      },
     });
 
     if (link === null) {
@@ -77,7 +97,15 @@ export class PublicLinksService {
       return { outcome: 'expired' };
     }
 
-    return { outcome: 'ok', link, request: link.request };
+    // Field by field, not a spread: a spread would also carry revokedAt, and
+    // TypeScript does not flag surplus properties coming from a variable. The
+    // same reasoning as toCreatedRequest -- it is the compiler, not the
+    // author's vigilance, that keeps a column out of a caller's reach.
+    return {
+      outcome: 'ok',
+      link: { id: link.id, pinHash: link.pinHash, expiresAt: link.expiresAt },
+      request: link.request,
+    };
   }
 
   /**
