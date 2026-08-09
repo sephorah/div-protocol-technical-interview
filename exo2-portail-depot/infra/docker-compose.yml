@@ -138,6 +138,12 @@ services:
       # est isole et aucun port n'est publie, donc 0.0.0.0 n'expose rien — mais
       # c'est necessaire pour que nginx joigne le service par le reseau interne.
       BIND_ADDRESS: 0.0.0.0
+      # Origine a partir de laquelle l'API compose le lien client
+      # (<origine>/depot/<jeton>). Elle vient de .env telle quelle, et NON d'un
+      # en-tete de la requete : l'en-tete Host est fourni par le client, donc un
+      # appel forge ferait renvoyer un lien vers le domaine d'un attaquant — que
+      # l'avocat collerait ensuite dans un courriel a son client.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?definir PUBLIC_BASE_URL dans .env}
       # Seuls l'hote et le port different entre la machine et le conteneur :
       # .env vise 127.0.0.1:21632 pour `pnpm dev`, ici c'est le nom du service
       # sur le reseau interne. Le reste (utilisateur, mot de passe, base) vient
@@ -249,6 +255,16 @@ services:
       # conf.d/*.conf au niveau `http`, ou un `location` nu est une erreur de
       # syntaxe. Ce fragment est inclus DANS le bloc server.
       - ./nginx/portal-locations.conf:/etc/nginx/portal-locations.conf:ro
+      # DANS conf.d/, a l'inverse : `map` et `log_format` ne sont valides qu'au
+      # niveau `http`, ou ce repertoire est justement inclus. Le prefixe 00-
+      # garantit le chargement avant default.conf, donc avant l'usage du format.
+      # Le calque TLS n'a rien a ajouter : compose fusionne les `volumes` par
+      # chemin CIBLE, ce montage lui parvient donc tel quel.
+      - ./nginx/log-redact.conf:/etc/nginx/conf.d/00-log-redact.conf:ro
+      # Hors de conf.d/ comme portal-locations.conf : ce sont des directives de
+      # niveau `server`. Inclus par les TROIS blocs server, y compris celui du
+      # port 80 du calque TLS qui ne route rien mais voit passer le jeton.
+      - ./nginx/server-hardening.conf:/etc/nginx/server-hardening.conf:ro
       # Racine du challenge ACME. Presente meme sans TLS : c'est par cette pile
       # en clair que passe l'AMORCAGE du certificat (nginx ne demarre pas si le
       # fichier de certificat manque, cf. nginx.conf). Vide, le `location`

@@ -1,4 +1,4 @@
-import { deriveStatus, RequestStatus } from './request-status';
+import { deriveStatus, isExpired, RequestStatus } from './request-status';
 
 /**
  * What this suite protects: the two rules the exercise statement names --
@@ -8,6 +8,19 @@ import { deriveStatus, RequestStatus } from './request-status';
 const EXPIRY = new Date('2026-08-23T12:00:00.000Z');
 const before = new Date(EXPIRY.getTime() - 1);
 const after = new Date(EXPIRY.getTime() + 1);
+
+describe('isExpired', () => {
+  // Asserted on its own, and not only through deriveStatus: resolving a public
+  // link now depends on the same rule, and a boundary shifted by one
+  // millisecond would refuse a link the dashboard still shows as pending.
+  it('is false at the exact expiry instant', () => {
+    expect(isExpired(EXPIRY, new Date(EXPIRY))).toBe(false);
+  });
+
+  it('is true one millisecond later', () => {
+    expect(isExpired(EXPIRY, after)).toBe(true);
+  });
+});
 
 describe('deriveStatus', () => {
   it('is still pending one millisecond before the deadline', () => {

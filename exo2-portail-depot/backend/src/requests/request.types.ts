@@ -15,13 +15,18 @@ export interface RequestedItemView {
 /**
  * The link, IN CLEAR.
  *
- * This shape exists at exactly one moment -- the response to the creation --
- * because the database only ever holds an argon2id of the PIN and a SHA-256 of
- * the token. Whatever the lawyer does not copy here is lost, and a lost PIN is
- * repaired by REGENERATING the link (B3), never by displaying it again.
+ * This shape exists at exactly two moments -- the creation response and the
+ * regeneration response -- because the database only ever holds an argon2id of
+ * the PIN and a SHA-256 of the token. Whatever the lawyer does not copy here is
+ * lost, and a PIN nobody knows any more is repaired by REGENERATING the link,
+ * never by displaying it again.
+ *
+ * `url` and not `token`: the raw token has no consumer of its own, and the
+ * address is what gets copied into an email. One fewer place where a bearer
+ * credential travels on its own.
  */
 export interface IssuedLink {
-  token: string;
+  url: string;
   pin: string;
   expiresAt: Date;
 }

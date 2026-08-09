@@ -19,4 +19,12 @@ USER node
 EXPOSE 3000
 # .bin/serve est un wrapper shell, mais il fait `exec node` : le shell est
 # remplace, il ne reste qu'un seul processus. `-s` assure le fallback SPA.
-ENTRYPOINT ["node_modules/.bin/serve", "-s", "dist", "-l", "3000"]
+#
+# `-L` (--no-request-logging) n'est PAS cosmetique : par defaut serve ecrit
+# l'URL de chaque requete sur sa sortie standard, donc `docker logs frontend`
+# contenait `GET /depot/<jeton>` en clair — le jeton meme que nginx masque dans
+# son propre journal, sur une machine PARTAGEE avec d'autres candidats. Sans ce
+# drapeau, le masquage cote proxy ne protege rien : les deux flux atterrissent
+# au meme endroit. Mesure avant correctif :
+#   frontend-1 |  HTTP  ... GET /depot/JETON-NEGATIF-4242
+ENTRYPOINT ["node_modules/.bin/serve", "-s", "dist", "-l", "3000", "-L"]

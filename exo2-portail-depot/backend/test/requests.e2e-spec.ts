@@ -71,6 +71,19 @@ describe('Requests (e2e)', () => {
     }),
   );
 
+  // The ownership check of the link routes: only request-1, and only for the
+  // lawyer holding the session.
+  const requestFindFirst = jest.fn(
+    ({ where }: { where: { id: string; lawyerId: string } }) =>
+      Promise.resolve(
+        where.id === 'request-1' && where.lawyerId === lawyer.id
+          ? { id: 'request-1' }
+          : null,
+      ),
+  );
+  const publicLinkUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
+  const publicLinkCreate = jest.fn().mockResolvedValue({ id: 'link-2' });
+
   const sessionCookie = async (): Promise<string> => {
     const response = await request(app.getHttpServer())
       .post(loginPath)
@@ -95,10 +108,20 @@ describe('Requests (e2e)', () => {
   beforeEach(async () => {
     lawyerFindUnique.mockClear();
     requestCreate.mockClear();
+    requestFindFirst.mockClear();
+    publicLinkUpdateMany.mockClear();
+    publicLinkCreate.mockClear();
 
     const prismaDouble: Record<string, unknown> = {
       lawyer: { findUnique: lawyerFindUnique },
-      depositRequest: { create: requestCreate },
+      depositRequest: {
+        create: requestCreate,
+        findFirst: requestFindFirst,
+      },
+      publicLink: {
+        updateMany: publicLinkUpdateMany,
+        create: publicLinkCreate,
+      },
       refreshToken: {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({}),
@@ -152,7 +175,7 @@ describe('Requests (e2e)', () => {
     expect(requestCreate).not.toHaveBeenCalled();
   });
 
-  it('answers 201 with the request, its pieces, the token and the PIN', async () => {
+  it('answers 201 with the request, its pieces, the deposit URL and the PIN', async () => {
     const cookie = await sessionCookie();
 
     const response = await request(app.getHttpServer())
@@ -172,10 +195,18 @@ describe('Requests (e2e)', () => {
     });
     // supertest types the body as `any`; naming the shape is what the blocking
     // lint requires, and it documents what the SPA can rely on.
-    const { link } = response.body as { link: { pin: string; token: string } };
+    const { link } = response.body as {
+      link: Record<string, unknown> & { pin: string; url: string };
+    };
     expect(link.pin).toMatch(/^\d{4}$/);
-    // 32 bytes in base64url, so 43 characters and a URL-safe alphabet.
-    expect(link.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    // The origin comes from PUBLIC_BASE_URL (test/setup-env.ts), followed by
+    // 32 bytes in base64url -- 43 characters over a URL-safe alphabet.
+    expect(link.url).toMatch(
+      /^https:\/\/portail\.example\.test\/depot\/[A-Za-z0-9_-]{43}$/,
+    );
+    // The bare token no longer travels: it exists only inside the URL. A field
+    // reappearing here would be one more place for a bearer credential to leak.
+    expect(link).not.toHaveProperty('token');
   });
 
   // The whole point of hashing: a response leaking a hash would hand an
@@ -244,5 +275,118 @@ describe('Requests (e2e)', () => {
       .expect(400);
 
     expect(requestCreate).not.toHaveBeenCalled();
+  });
+  /**
+   * What these cases prove: the link routes are closed by the SAME global
+   * guard, that a request belonging to someone else is indistinguishable from
+   * one that does not exist, and that revoking twice is not an error.
+   */
+  describe('POST /requests/:id/link', () => {
+    const linkPath = (): string => `${requestsPath}/request-1/link`;
+
+    it('refuses an anonymous caller with 401', async () => {
+      await request(app.getHttpServer())
+        .post(linkPath())
+        .send({ expiresInDays: 14 })
+        .expect(401);
+
+      expect(publicLinkCreate).not.toHaveBeenCalled();
+    });
+
+    it("answers 404 on another lawyer's request", async () => {
+      await request(app.getHttpServer())
+        .post(`${requestsPath}/request-elsewhere/link`)
+        .set('Cookie', await sessionCookie())
+        .send({ expiresInDays: 14 })
+        .expect(404);
+
+      expect(publicLinkCreate).not.toHaveBeenCalled();
+    });
+
+    it('issues a new URL and a new PIN, revoking the previous link', async () => {
+      const response = await request(app.getHttpServer())
+        .post(linkPath())
+        .set('Cookie', await sessionCookie())
+        .send({ expiresInDays: 14 })
+        .expect(201);
+
+      const body = response.body as { url: string; pin: string };
+      expect(body.url).toMatch(
+        /^https:\/\/portail\.example\.test\/depot\/[A-Za-z0-9_-]{43}$/,
+      );
+      expect(body.pin).toMatch(/^\d{4}$/);
+      expect(publicLinkUpdateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { requestId: 'request-1', revokedAt: null },
+        }),
+      );
+    });
+
+    it('never puts a hash in the response', async () => {
+      const response = await request(app.getHttpServer())
+        .post(linkPath())
+        .set('Cookie', await sessionCookie())
+        .send({ expiresInDays: 14 })
+        .expect(201);
+
+      const body = JSON.stringify(response.body);
+      expect(body).not.toContain('Hash');
+      expect(body).not.toContain('$argon2');
+    });
+
+    it.each([
+      ['a validity of zero days', { expiresInDays: 0 }],
+      ['a validity of ninety-one days', { expiresInDays: 91 }],
+      ['a missing validity', {}],
+      ['a body naming the owner', { expiresInDays: 14, lawyerId: 'lawyer-2' }],
+    ])('answers 400 on %s', async (_label, body) => {
+      const response = await request(app.getHttpServer())
+        .post(linkPath())
+        .set('Cookie', await sessionCookie())
+        .send(body)
+        .expect(400);
+
+      // French messages, like the creation route: the library's English
+      // defaults would surface here as soon as a decorator loses its message.
+      expect(JSON.stringify(response.body)).not.toMatch(/must be/);
+      expect(publicLinkCreate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('DELETE /requests/:id/link', () => {
+    const linkPath = (): string => `${requestsPath}/request-1/link`;
+
+    it('refuses an anonymous caller with 401', async () => {
+      await request(app.getHttpServer()).delete(linkPath()).expect(401);
+
+      expect(publicLinkUpdateMany).not.toHaveBeenCalled();
+    });
+
+    it("answers 404 on another lawyer's request", async () => {
+      await request(app.getHttpServer())
+        .delete(`${requestsPath}/request-elsewhere/link`)
+        .set('Cookie', await sessionCookie())
+        .expect(404);
+
+      expect(publicLinkUpdateMany).not.toHaveBeenCalled();
+    });
+
+    it('answers 204 with no body, twice in a row', async () => {
+      const cookie = await sessionCookie();
+
+      const first = await request(app.getHttpServer())
+        .delete(linkPath())
+        .set('Cookie', cookie)
+        .expect(204);
+      expect(first.body).toEqual({});
+
+      // Idempotent: the second call has nothing left to revoke and must still
+      // succeed, or a double click reads as an error.
+      publicLinkUpdateMany.mockResolvedValueOnce({ count: 0 });
+      await request(app.getHttpServer())
+        .delete(linkPath())
+        .set('Cookie', cookie)
+        .expect(204);
+    });
   });
 });

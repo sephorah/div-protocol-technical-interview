@@ -221,6 +221,59 @@ de passe, plus le lien de dépôt et son PIN. Le mot de passe est tiré au sort 
 installation (24 caractères hexadécimaux, ~96 bits) et conservé dans `.env` ; le rejouer ne duplique
 rien.
 
+## Le lien de dépôt
+
+Deux objets portent le mot « lien », et les confondre est la première erreur à éviter.
+
+**`https://…/depot/<jeton>` est l'adresse de la page client** : ce que l'avocat colle dans un
+courriel. Elle est composée à partir de `PUBLIC_BASE_URL`, une variable de configuration — **jamais à
+partir de l'en-tête `Host` de la requête**. Cet en-tête est fourni par l'appelant : un appel forgé
+ferait renvoyer par l'API un lien pointant vers le domaine d'un attaquant, que l'avocat transmettrait
+lui-même à son client.
+
+**`POST /requests/:id/link` est l'appel de l'avocat** pour en obtenir un nouveau. Cette route n'est
+pas dans l'énoncé, qui encadre sa liste par « à titre indicatif […] le découpage exact est ton choix,
+on regardera comment tu le justifies ». Voici la justification.
+
+Le PIN n'est affiché **qu'une seule fois**, dans la réponse à la création, et il est stocké en
+argon2id : le serveur lui-même ne peut pas le relire. Le cas qui impose cette route n'est pas le
+client qui égare son code, c'est **l'avocat qui ne l'a jamais vu** — un onglet fermé, un
+rafraîchissement, une réponse perdue après l'écriture en base. La demande existe alors, valide, et
+personne au monde n'en connaît le PIN. Sans régénération, elle meurt à la seconde où elle naît, et
+l'avocat doit retaper intitulé et liste des pièces dans une nouvelle demande, en laissant
+l'ancienne « en attente » pour toujours.
+
+Régénérer révoque l'actif et émet jeton, PIN et échéance neufs. `DELETE /requests/:id/link` coupe
+sans réémettre, et répond 204 même s'il n'y avait rien à couper — le résultat demandé, personne
+n'entre, est atteint dans les deux cas.
+
+**Prolonger un lien n'est pas offert.** Ce serait rallonger la vie d'un jeton déjà parti par
+courriel, hors de tout contrôle. La pratique établie sur les liens de partage est de réémettre avec
+une fenêtre neuve, et de garder la révocation comme mécanisme distinct de l'expiration.
+
+**Une demande qui n'appartient pas à l'appelant répond 404, pas 403.** Un 403 confirmerait qu'un
+identifiant existe chez un autre avocat, ce qui suffit à énumérer ses dossiers.
+
+### Le jeton voyage dans l'URL, et ce que ça coûte
+
+L'énoncé fige `POST /public/:token/unlock` : le jeton est dans le **chemin**. C'est un laissez-passer
+— qui le lit entre dans le dossier — et un chemin fuit par deux voies.
+
+La parade radicale aurait été de le placer **après un `#`**, partie de l'URL que le navigateur
+n'envoie jamais au serveur. Elle est écartée : elle imposerait `POST /public/unlock` avec le jeton
+dans le corps, donc une surface d'API qui s'écarte de la consigne. (Hacher le jeton dans l'URL ne
+serait pas une alternative : ce que l'URL porte *est* le laissez-passer, quel que soit son encodage.)
+
+Deux mesures compensent, toutes deux dans nginx :
+
+- **`Referrer-Policy: no-referrer`.** Dès qu'une page charge une ressource d'un autre domaine, le
+  navigateur transmet à ce domaine l'adresse de la page courante — donc le jeton. C'est le scénario
+  que l'OWASP décrit pour les liens de réinitialisation de mot de passe, de même forme. S'y ajoute
+  `X-Robots-Tag: noindex, nofollow` : le portail est privé de bout en bout.
+- **Le jeton est masqué dans le format de journal.** Un chemin s'écrit dans `access.log`, en clair,
+  sur une machine partagée avec d'autres candidats. Le journal montre `/depot/[redacted]` et garde
+  tout le reste — code, durée, adresse.
+
 ## Modèle de données
 
 Cinq entités. `Lawyer` est le seul acteur authentifié : le client n'a ni compte ni ligne en base,
@@ -272,6 +325,17 @@ de validation. L'allowlist et la taille maximale (20 Mo) vivent dans la configur
 
 - **Pas de journal d'audit** (`AccessLog`) : classé en bonus dans l'énoncé. `PublicLink` en prépare
   le rattachement.
+- **Le PIN à 4 chiffres n'est protégé par aucune limitation de débit.** 10 000 combinaisons, et seul
+  le coût d'argon2id (~67 ms mesurés) borne un attaquant. C'est **G1**, par jeton de lien, et B3 ne
+  le règle pas — le dire vaut mieux que le laisser croire réglé. Quatre chiffres viennent de
+  l'énoncé ; l'expiration du lien borne la fenêtre d'attaque, elle ne la ferme pas.
+- **Le jeton survit hors de nos journaux.** Le masquage dans `access.log` ne couvre que notre disque :
+  l'adresse reste dans l'historique du navigateur du client, dans le courriel qui la transporte et
+  dans toute passerelle antispam qui l'aura ouvert. C'est la conséquence assumée d'un jeton dans le
+  chemin, forme que l'énoncé impose.
+- **Révoquer ou régénérer ne ferme pas une session client déjà ouverte**, tant que C1 n'existe pas.
+  La contrainte est posée dans le backlog : la session client devra porter le `linkId` et non le seul
+  `requestId`, sans quoi un client déjà déverrouillé conserverait son accès.
 - **Aucune limitation de débit sur `/auth/login`**, et c'est un choix, pas un oubli. Sur le port 443
   la machine relaie le HTTPS en *passthrough* : elle recopie des octets chiffrés sans lire de requête
   HTTP, donc elle ne peut renseigner aucun en-tête d'adresse d'origine. Notre nginx voit la même

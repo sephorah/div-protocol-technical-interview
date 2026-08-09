@@ -25,6 +25,9 @@ process.env.STORAGE_REGION = 'us-east-1';
 process.env.STORAGE_BUCKET = 'portail-depot-test';
 process.env.STORAGE_ACCESS_KEY = 'test';
 process.env.STORAGE_SECRET_KEY = 'test';
+// The origin client links are built from. A .test domain (RFC 2606) rather than
+// a plausible one: nothing here should ever be mistaken for a real deployment.
+process.env.PUBLIC_BASE_URL = 'https://portail.example.test';
 // 32 characters minimum, enforced by validateEnv.
 process.env.JWT_SECRET = 'test-jwt-secret-for-the-e2e-suites';
 // The production values, so that the cookie lifetimes asserted by

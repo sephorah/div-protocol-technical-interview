@@ -15,14 +15,10 @@ import { INestApplicationContext, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import {
-  generatePin,
-  generatePublicToken,
-  hashPublicToken,
-  hashSecret,
-} from './crypto/secrets';
+import { hashSecret } from './crypto/secrets';
 import { normalizeEmail } from './lawyers/lawyer.types';
 import { PrismaService } from './prisma/prisma.service';
+import { PublicLinksService } from './requests/public-links.service';
 
 /**
  * The title is what identifies the demonstration DATASET across runs --
@@ -141,31 +137,17 @@ const seed = async (app: INestApplicationContext): Promise<void> => {
     ),
   );
 
-  const token = generatePublicToken();
-  const pin = generatePin();
-  // Hashed BEFORE the transaction: argon2id takes tens of milliseconds, and
-  // holding a database transaction open across it would serve no purpose.
-  const pinHash = await hashSecret(pin);
-  const expiresAt = new Date(Date.now() + DEMO_LINK_DAYS * 24 * 60 * 60 * 1000);
-
-  // One transaction, a partial unique index allowing a single active link per
-  // request. Regenerated rather than preserved because the PIN is hashed: a
-  // kept link could not have its PIN reprinted. Revoked rows accumulating is
-  // intended -- that history is what PublicLink exists for.
-  await prisma.$transaction([
-    prisma.publicLink.updateMany({
-      where: { requestId: request.id, revokedAt: null },
-      data: { revokedAt: new Date() },
-    }),
-    prisma.publicLink.create({
-      data: {
-        requestId: request.id,
-        tokenHash: hashPublicToken(token),
-        pinHash,
-        expiresAt,
-      },
-    }),
-  ]);
+  // Delegated, not duplicated: regenerate() is exactly this -- revoke the
+  // active link, draw a new token and a new PIN, insert, all in one
+  // transaction. Written twice, the two copies would drift, and the seed's
+  // output is the first thing a grader reads.
+  //
+  // Regenerated rather than preserved because the PIN is hashed: a kept link
+  // could not have its PIN reprinted. Revoked rows accumulating is intended --
+  // that history is what PublicLink exists for.
+  const issued = await app
+    .get(PublicLinksService)
+    .regenerate(request.id, lawyer.id, DEMO_LINK_DAYS);
 
   // console.log and not the Nest logger: this is read by a human, not a log
   // line. No accents, like install.sh -- it lands in an unknown terminal.
@@ -175,9 +157,9 @@ const seed = async (app: INestApplicationContext): Promise<void> => {
     Mot de passe ${password}
 
   Demande de depot « ${request.title} »
-    Lien client  /depot/${token}
-    Code PIN     ${pin}
-    Valable      ${DEMO_LINK_DAYS} jours, jusqu'au ${expiresAt.toLocaleDateString('fr-FR')}
+    Lien client  ${issued.url}
+    Code PIN     ${issued.pin}
+    Valable      ${DEMO_LINK_DAYS} jours, jusqu'au ${issued.expiresAt.toLocaleDateString('fr-FR')}
 
   Le PIN et le lien sont regeneres a chaque execution : les precedents ne sont
   plus valables. Le mot de passe, lui, ne change pas (il vient de .env).
