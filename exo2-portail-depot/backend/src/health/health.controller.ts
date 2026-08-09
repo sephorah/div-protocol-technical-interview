@@ -4,6 +4,7 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { Public } from '../auth/public.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 
@@ -32,6 +33,13 @@ export interface HealthReport {
  * be worse than no probe at all -- this is what the docker `healthcheck`
  * consumes, and later the Grafana alerts (F2).
  */
+// @Public() on the whole controller: the probe's callers hold no session and
+// never will -- the backend's own docker healthcheck, and Prometheus later
+// (F1). Behind the global guard it would answer 401, docker would declare the
+// container unhealthy, and it would restart in a loop. What keeps the probe
+// from being public on the INTERNET is a different mechanism entirely: the
+// `deny all` rule in infra/nginx/portal-locations.conf.
+@Public()
 @Controller('health')
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);

@@ -44,9 +44,11 @@ Vite + React 19 (default `react-ts` template). Issues **A1, A2 and A3 are done**
 Prisma 7, migrations applied at container start, a `GET /api/v1/health` probe, the full domain
 model with its crypto primitives (`src/crypto/secrets.ts`), and containerised MinIO behind an S3
 `StorageService`. **A6 is done too**: the images are built and published to GHCR by a workflow, and
-the production stack pulls them. There is still **no business module and no controller** beyond
-health — no auth (B1), no request creation (B2), no upload route (C2), and no CI running lint or
-tests (D3 — the only workflow so far publishes images).
+the production stack pulls them. **B1 is done**: lawyer authentication (`/auth/login`,
+`/auth/logout`, `/auth/me`), a JWT in an httpOnly cookie, a **global** guard, and `src/seed.ts` — the
+demonstration account `install.sh` already knew how to run. There is still no request creation (B2),
+no upload route (C2), and no CI running lint or tests (D3 — the only workflow so far publishes
+images).
 Regenerate this file (`/init`) once the business modules exist.
 
 **pnpm is the package manager** in both apps (`pnpm-lock.yaml` is the source of truth) — do not run
@@ -670,6 +672,68 @@ it are load-bearing:
 
 Its scope is the **root** tier of the docker cascade (`id -u` = 0 in the container). The *sudo* and
 *rootless* tiers are still manual. macOS is not covered at all.
+
+## Authentication (B1)
+
+`@nestjs/jwt` alone — **no Passport**: its `PassportStrategy` types are weak enough to trip
+`no-unsafe-call`, which the blocking lint refuses, and its reason to exist (Google, SAML, LDAP) does
+not apply to a portal with one account.
+
+Seven things are non-obvious:
+
+- **Every route is closed by default.** `JwtAuthGuard` is registered as `APP_GUARD` **from
+  `AuthModule`**, and `@Public()` is the only way out. A new controller is therefore born protected;
+  `/public/*` (C1, C2) will have to carry `@Public()` explicitly, and `@Public()` already sits on
+  `/auth/login`, `/auth/logout`, the health probe and the scaffold's root route. Registered from
+  `AuthModule` and not `AppModule` because a provider resolves its dependencies in the module that
+  declares it, and `JwtService` lives there. `app.useGlobalGuards()` is **not** an alternative: it
+  instantiates the guard outside the injection container, so it would receive neither `JwtService`
+  nor `Reflector`.
+- **The health probe being `@Public()` is load-bearing.** Behind the guard it answers 401, docker
+  declares the container unhealthy, and `backend` restarts in a loop with nothing in the logs
+  mentioning authentication. What keeps the probe off the internet is a different mechanism: the
+  `deny all` rule in `infra/nginx/portal-locations.conf`.
+- **The cookie's `Secure` flag is decided per request**, from `X-Forwarded-Proto` via `req.secure`,
+  never from `NODE_ENV`. The images carry `NODE_ENV=production`, but the grader's portal answers in
+  cleartext on `127.0.0.1:21600`: a `Secure` cookie there is set and never sent back, so login fails
+  silently, in production, for them only. That is what `app.set('trust proxy', 1)` in
+  `app.setup.ts` is for — without it Express ignores the header and the cookie ships without
+  `Secure` even over HTTPS.
+- **`configureApp()` (`src/app.setup.ts`) is called by `main.ts` AND by the e2e suite.** The suites
+  build the application with `Test.createTestingModule`, which does not go through `main.ts`.
+  Duplicated, the four settings drift and the suite ends up testing an application that does not
+  exist — a missing cookie-parser alone makes every authenticated route 401, a missing
+  `ValidationPipe` makes a malformed body 200.
+- **The payload carries `sub` and nothing else**, and the guard re-reads the account on every
+  request. It costs one indexed lookup and buys the only revocation this design has: a deleted
+  account stops being able to use tokens issued before its deletion. `verifyAsync<JwtPayload>` is a
+  cast, not a validation, hence the explicit check on `sub` — without it a token with no subject
+  reaches Prisma with `id: undefined` and answers 500 where every other rejection is a 401.
+- **An unknown e-mail must cost the same as a wrong password.** `AuthService` verifies against a
+  decoy argon2id hash computed once in `onModuleInit`. An early `if (lawyer === null) throw` looks
+  like a simplification and reinstates the account enumerator; a unit test compares the two paths.
+- **There is deliberately no rate limiting on `/auth/login`.** Behind the machine's SNI passthrough
+  every request carries the same address, so a per-IP limit is a global one — an attacker would
+  consume the quota and lock the lawyer out. G1 will limit per link token. What bounds the cost
+  instead is `@MaxLength` on the DTO: argon2id's cost grows with its input, and the route is
+  anonymous.
+
+`JWT_EXPIRES` is **2h** with no refresh token, and the cookie's `Max-Age` comes from the same
+`durationToMilliseconds` parser, so the two cannot diverge. The value is passed to `JwtModule` in
+**seconds** rather than as `"2h"`: jsonwebtoken types `expiresIn` as a template literal that a value
+read from the environment is not, and converting is better than casting the type away.
+
+`src/seed.ts` compiles to `dist/seed.js`, which `install.sh` already detects and runs. **The demo
+account is identified by the request it owns, never by its e-mail address**: keyed on the address,
+changing `SEED_LAWYER_EMAIL` would not rename the account but create a second one, leaving the first
+reachable with its old password. `DEMO_REQUEST_TITLE` is therefore the marker of the whole
+demonstration dataset, and the `upsert`-by-address branch only covers a database whose demo request
+was deleted by hand. The rest is idempotent the same way, except for the public link, which is
+**revoked and re-created in one transaction** — the PIN is hashed, so a preserved link
+could not have its PIN reprinted, and a demonstration link whose PIN nobody knows is worth nothing.
+The three `SEED_LAWYER_*` variables are deliberately **not** in `validateEnv`: the API never reads
+them, and requiring them would tie its startup to a demo fixture. They are guarded by `${VAR:?}` in
+compose and by an explicit non-empty check in the seed — `getOrThrow` accepts an empty string.
 
 ## Data model (A2)
 

@@ -3,8 +3,10 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
+import { LawyersModule } from './lawyers/lawyers.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { StorageModule } from './storage/storage.module';
 
@@ -30,6 +32,11 @@ import { StorageModule } from './storage/storage.module';
     PrismaModule,
     StorageModule,
     HealthModule,
+    LawyersModule,
+    // Carries the global authentication guard (APP_GUARD): importing it makes
+    // EVERY route of the application protected by default, @Public() being the
+    // only way out. A new controller is therefore born closed.
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

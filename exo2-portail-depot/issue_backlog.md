@@ -166,10 +166,10 @@ installer Node ferait attendre l'évaluateur pour rien.
       attendus (`SERVICES="db minio backend frontend proxy"`, plus `certbot` quand `DOMAIN` est
       rempli) ; **le monitoring reste à ajouter à cette liste et à la boucle d'attente quand F1/F2
       livreront Prometheus et Grafana**
-- [ ] Seed exécuté (compte avocat démo + une demande) — le **branchement** est fait : le script teste
-      `dist/seed.js` dans le conteneur `backend` et l'exécute s'il existe, après les healthchecks.
-      Le seed lui-même ne peut pas précéder B1 (il faut le modèle d'authentification pour hacher un
-      mot de passe de démonstration), **son écriture est donc portée en B1**
+- [x] Seed exécuté (compte avocat démo + une demande) — **fait en B1**. Le branchement n'a pas bougé :
+      le script teste `dist/seed.js` dans le conteneur `backend` et l'exécute après les healthchecks,
+      en affichant sa sortie telle quelle. Le seed imprime l'adresse, le mot de passe, le lien de
+      dépôt et le PIN
 - [x] Affiche les URLs fonctionnelles en fin d'exécution — portail et API, en clair
       (`http://127.0.0.1:21600`) ou en HTTPS sur le domaine public selon que `DOMAIN` est rempli,
       avec les commandes d'arrêt et de journaux en docker brut
@@ -183,11 +183,11 @@ installer Node ferait attendre l'évaluateur pour rien.
 
 Dépendances : A1, A3, D1, F2.
 
-Deux critères restent donc ouverts, pour des raisons différentes. Le seed n'est bloqué que par son
-contenu : le hook s'activera tout seul le jour où l'image contient `dist/seed.js`, sans retoucher
-`install.sh`. Le monitoring, lui, demandera un vrai changement ici — les services de F1/F2 devront
+Un seul critère reste ouvert, et il demandera un vrai changement ici : les services de F1/F2 devront
 entrer dans `SERVICES`, sans quoi le script rendrait la main avant que Grafana réponde, ce qui
-briserait son contrat (« sortie 0 veut dire que le portail répond »).
+briserait son contrat (« sortie 0 veut dire que le portail répond »). Le seed, lui, s'est activé tout
+seul quand `dist/seed.js` est apparu dans l'image, sans une ligne de `install.sh` à retoucher —
+c'était l'objet du branchement.
 
 Le contrat justement : le script ne mentionne **rien** qu'il ne sache livrer. Pas de ligne « seed à
 venir », pas de TODO, pas d'instruction — d'où le test silencieux sur `dist/seed.js` plutôt qu'un
@@ -197,17 +197,36 @@ message expliquant qu'il n'y a pas encore de compte de démonstration.
 
 ## Épique B — Côté avocat (authentifié)
 
-### B1. Authentification avocat — P0
+### B1. Authentification avocat — P0 — **fait**
 
-JWT ou session. Le client, lui, reste strictement anonyme.
+JWT en **cookie httpOnly `SameSite=Strict`**, `@nestjs/jwt` sans Passport. Le client, lui, reste
+strictement anonyme.
 
-- [ ] `POST /auth/login`, mots de passe hachés
-- [ ] Garde d'authentification sur toutes les routes `/requests*`
-- [ ] Les routes `/public/*` restent accessibles sans jeton
-- [ ] Expiration du jeton et comportement de refresh documentés
-- [ ] **Reporté de A8** : `dist/seed.js` crée le compte avocat de démonstration et une demande, de
-      façon idempotente (une réexécution ne duplique rien) ; `./install.sh` le détecte et l'exécute
-      déjà, et sa sortie standard s'affiche telle quelle : c'est au seed d'imprimer les identifiants
+- [x] `POST /auth/login`, mots de passe hachés — argon2id via `src/crypto/secrets.ts`, le même
+      primitif que le PIN. Plus `POST /auth/logout` et `GET /auth/me`, dont le SPA a besoin pour
+      rétablir sa session au rechargement
+- [x] Garde d'authentification sur toutes les routes `/requests*` — **le garde est global**
+      (`APP_GUARD`), donc `/requests*` naîtra protégé sans qu'on ait à y penser
+- [x] Les routes `/public/*` restent accessibles sans jeton — par le décorateur `@Public()`, qui
+      porte aujourd'hui sur le login, le logout et la sonde de santé
+- [x] Expiration du jeton et comportement de refresh documentés — 2 h, **aucun refresh**, avec la
+      raison au README ; le cookie porte le même `Max-Age`, calculé par le même analyseur
+- [x] **Reporté de A8** : `dist/seed.js` crée le compte avocat de démonstration et une demande, de
+      façon idempotente. Mesuré sur deux `./install.sh` consécutifs : 1 avocat, 1 demande, 3 pièces
+      attendues, 2 liens dont **1 seul actif** — la régénération révoque le précédent, comme
+      l'impose l'index unique partiel
+
+Trois points ne sont pas devinables. **`Secure` est décidé requête par requête**, d'après
+`X-Forwarded-Proto` : figé à vrai, il casserait la connexion sur le `http://127.0.0.1:21600` de
+l'évaluateur, dont les images portent pourtant `NODE_ENV=production`. **Le jeton ne transporte que
+`sub`** et le garde relit le compte à chaque requête : c'est la seule révocation du dispositif, un
+compte supprimé cessant aussitôt d'être utilisable. Et **un e-mail inconnu coûte le même temps qu'un
+mot de passe faux**, la vérification tournant contre un hachage factice — sans quoi l'écart (1 ms
+contre 67) ferait du login un annuaire des comptes.
+
+**Aucune limitation de débit**, délibérément : derrière le passthrough TLS toutes les requêtes
+portent la même adresse, donc une limite par IP verrouillerait l'avocat au lieu de gêner
+l'attaquant. Reportée en G1, par jeton de lien.
 
 Dépendances : A1, A2.
 
@@ -299,6 +318,13 @@ Cible explicite de l'énoncé : expiration, PIN, transitions de statut.
 - [ ] PIN : bon, mauvais, hachage, comportement après lockout
 - [ ] Transitions : `en attente` → `complète`, `en attente` → `expirée`, transitions interdites
 - [ ] Tests e2e du parcours complet (création → unlock → dépôt → dashboard)
+- [ ] **Reporté de B1** : suite d'intégration du seed (Postgres en conteneur, migrations jouées, seed
+      exécuté deux fois, comptages assertés). Son idempotence est aujourd'hui **mesurée** à la main
+      (1 avocat, 1 demande, 3 pièces, 2 liens dont 1 actif — voir `ai-plans/2026-08-09-b1-auth-jwt.md`)
+      et non rejouée à chaque commit. Ce que la suite figerait surtout : l'**index unique partiel**
+      « un seul lien actif par demande », que `CLAUDE.md` signale comme disparaissant en silence à la
+      régénération d'une migration — le seed continuerait alors de « marcher » en produisant deux
+      liens actifs
 
 Dépendances : B1–B4, C1–C3.
 

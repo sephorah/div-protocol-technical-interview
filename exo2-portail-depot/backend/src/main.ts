@@ -1,15 +1,18 @@
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { configureApp } from './app.setup';
 
 const bootstrap = async (): Promise<void> => {
-  const app = await NestFactory.create(AppModule);
+  // Typed as NestExpressApplication because configureApp calls `app.set`: the
+  // generic INestApplication does not expose the underlying engine's settings.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const config = app.get(ConfigService);
 
-  // Every route lives under API_PREFIX (/api/v1). Careful: nginx must then NOT
-  // strip the prefix -- a `proxy_pass` with a trailing slash replaces the part
-  // already consumed and would turn /api/v1/x into /x.
-  app.setGlobalPrefix(config.getOrThrow<string>('API_PREFIX'));
+  // Prefix, cookie reading, proxy trust and input validation. Shared with the
+  // e2e suites, which do not go through this file -- see app.setup.ts.
+  configureApp(app);
 
   // Without this hook, Nest NEVER calls onModuleDestroy on SIGTERM: Prisma's
   // $disconnect() does not run and the connections stay open on the Postgres
