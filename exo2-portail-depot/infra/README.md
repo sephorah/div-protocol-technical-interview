@@ -92,7 +92,7 @@ secondes, et un 403 ressemble en tout point à une image inexistante :
 
 ```bash
 docker logout ghcr.io
-docker pull ghcr.io/sephorah/exo2-portail-depot-backend:0.2.0   # doit réussir
+docker pull ghcr.io/sephorah/exo2-portail-depot-backend:0.3.0   # doit réussir
 ```
 
 Si ça échoue : Packages → le paquet → Package settings → Danger Zone → Change visibility → Public,

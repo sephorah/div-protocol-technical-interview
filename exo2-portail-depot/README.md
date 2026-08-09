@@ -79,10 +79,12 @@ Trois limites, dont une lourde de conséquences :
 `install.sh` y vivent, et le compose de production ne sait que *tirer* les images
 (`ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}`). Le déploiement se fait par
 `git sparse-checkout` — voir `infra/README.md` §&nbsp;Déploiement. La version épinglée par défaut est
-**0.2.0**, la première qui porte l'authentification ; déployer une autre version, ou revenir en
-arrière, tient dans une variable : `IMAGE_TAG=sha-1a2b3c4`. Attention pour un retour à `0.1.0` : elle
-précède l'authentification, donc elle n'a ni route de connexion ni compte de démonstration, et rien
-ne le signale.
+**0.3.0**, la première où le lien de dépôt est réellement utilisable ; déployer une autre version, ou
+revenir en arrière, tient dans une variable : `IMAGE_TAG=sha-1a2b3c4`. Deux retours en arrière sont
+piégeux et rien ne les signale au démarrage : `0.2.0` n'a ni URL client complète, ni expiration
+appliquée, ni régénération de lien, et elle écrit le jeton de dépôt **en clair** dans les journaux ;
+`0.1.0`, plus loin encore, précède l'authentification, donc n'a ni route de connexion ni compte de
+démonstration.
 
 ## Développement
 

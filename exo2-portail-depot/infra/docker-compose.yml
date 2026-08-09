@@ -127,8 +127,12 @@ services:
     # code, pas a la machine. Dans .env, install.sh ne la reecrirait jamais
     # (set_env_default ne remplit que le vide) et une machine resterait epinglee
     # a une version perimee sans que rien ne le signale. La surcharger reste
-    # possible, et c'est le rollback : IMAGE_TAG=0.1.0 docker compose ... up -d (la version d avant l authentification)
-    image: ghcr.io/sephorah/exo2-portail-depot-backend:${IMAGE_TAG:-0.2.0}
+    # possible, et c'est le rollback : IMAGE_TAG=0.2.0 docker compose ... up -d
+    # — mais lire ce que l'on perd avant de le faire. 0.2.0 n'a ni URL client
+    # complete, ni expiration appliquee, ni regeneration de lien, et elle ecrit
+    # le jeton de depot EN CLAIR dans les journaux du proxy et du frontend.
+    # 0.1.0, plus loin encore, est la derniere version sans authentification.
+    image: ghcr.io/sephorah/exo2-portail-depot-backend:${IMAGE_TAG:-0.3.0}
     init: true
     environment:
       NODE_ENV: production
@@ -217,7 +221,7 @@ services:
     # Meme tag que le backend, et c'est voulu : les deux images sont publiees
     # par le meme run, depuis le meme commit. Un tag par image permettrait de
     # deployer un front et une API issus de commits differents.
-    image: ghcr.io/sephorah/exo2-portail-depot-frontend:${IMAGE_TAG:-0.2.0}
+    image: ghcr.io/sephorah/exo2-portail-depot-frontend:${IMAGE_TAG:-0.3.0}
     init: true
     healthcheck:
       # Meme technique que le backend : l'image n'a ni curl ni wget, node 22
