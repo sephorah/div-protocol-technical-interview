@@ -14,6 +14,7 @@
  */
 
 import { buildDatabaseUrl, DatabaseEnv } from './database-url';
+import { durationToMilliseconds } from './duration';
 
 const REQUIRED_DB_KEYS = [
   'DB_HOST',
@@ -44,7 +45,12 @@ const REQUIRED_STORAGE_KEYS = [
   'STORAGE_SECRET_KEY',
 ] as const;
 
-const REQUIRED_AUTH_KEYS = ['JWT_SECRET', 'JWT_EXPIRES'] as const;
+const REQUIRED_AUTH_KEYS = [
+  'JWT_SECRET',
+  'JWT_EXPIRES',
+  'SESSION_EXPIRES',
+  'SESSION_IDLE_EXPIRES',
+] as const;
 
 // Brute-forcing this secret is an offline attack -- one captured token is
 // enough, the API is never called -- so no rate limiting protects it.
@@ -196,7 +202,41 @@ const inspectAuth = (
     );
   }
 
-  return { JWT_SECRET: secret, JWT_EXPIRES: expires };
+  const session = readString(raw, 'SESSION_EXPIRES');
+  if (!missing.includes('SESSION_EXPIRES') && !DURATION_PATTERN.test(session)) {
+    issues.push(
+      'SESSION_EXPIRES is not a duration with its unit (expected: 60s, 15m, 2h, 7d).',
+    );
+  }
+
+  const idle = readString(raw, 'SESSION_IDLE_EXPIRES');
+  if (
+    !missing.includes('SESSION_IDLE_EXPIRES') &&
+    !DURATION_PATTERN.test(idle)
+  ) {
+    issues.push(
+      'SESSION_IDLE_EXPIRES is not a duration with its unit (expected: 60s, 15m, 2h, 7d).',
+    );
+  }
+
+  // An idle deadline beyond the ceiling can never be reached: the protection
+  // would be off while the variable looks configured.
+  if (
+    DURATION_PATTERN.test(session) &&
+    DURATION_PATTERN.test(idle) &&
+    durationToMilliseconds(idle) >= durationToMilliseconds(session)
+  ) {
+    issues.push(
+      'SESSION_IDLE_EXPIRES must be shorter than SESSION_EXPIRES, otherwise it never applies.',
+    );
+  }
+
+  return {
+    JWT_SECRET: secret,
+    JWT_EXPIRES: expires,
+    SESSION_EXPIRES: session,
+    SESSION_IDLE_EXPIRES: idle,
+  };
 };
 
 /**

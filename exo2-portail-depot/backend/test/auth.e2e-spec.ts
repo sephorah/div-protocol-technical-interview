@@ -16,7 +16,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
-import { AUTH_COOKIE_NAME } from './../src/auth/auth-cookie';
+import {
+  AUTH_COOKIE_NAME,
+  REFRESH_COOKIE_NAME,
+} from './../src/auth/auth-cookie';
 import { INVALID_CREDENTIALS } from './../src/auth/auth.service';
 import { hashSecret } from './../src/crypto/secrets';
 import { PrismaService } from './../src/prisma/prisma.service';
@@ -29,6 +32,7 @@ describe('Auth (e2e)', () => {
   let jwt: JwtService;
   let loginPath: string;
   let logoutPath: string;
+  let refreshPath: string;
   let mePath: string;
   let healthPath: string;
 
@@ -56,21 +60,99 @@ describe('Auth (e2e)', () => {
   );
 
   /**
-   * Reads the value of Set-Cookie for the session cookie, or null.
+   * An in-memory stand-in for the RefreshToken table, so that the suite drives
+   * the REAL rotation logic rather than a stub of it: a double returning fixed
+   * values would let a broken reuse detection pass.
+   */
+  let stored: Map<string, Record<string, unknown>>;
+
+  const refreshFindUnique = jest.fn(
+    ({ where }: { where: { tokenHash: string } }) =>
+      Promise.resolve(stored.get(where.tokenHash) ?? null),
+  );
+
+  const refreshCreate = jest.fn(
+    ({ data }: { data: Record<string, unknown> }) => {
+      stored.set(data.tokenHash as string, {
+        id: `t${stored.size}`,
+        revokedAt: null,
+        createdAt: new Date(),
+        ...data,
+      });
+      return Promise.resolve({});
+    },
+  );
+
+  const refreshUpdateMany = jest.fn(
+    ({
+      where,
+      data,
+    }: {
+      where: { tokenHash?: string; familyId?: string; revokedAt?: null };
+      data: { revokedAt: Date };
+    }) => {
+      // Without a discriminator the loop below would match every row, so a
+      // call meant for one family would revoke every session in the store --
+      // and the test would still pass. Fail loudly instead.
+      if (where.tokenHash === undefined && where.familyId === undefined) {
+        throw new Error('updateMany without tokenHash or familyId');
+      }
+
+      let count = 0;
+      for (const row of stored.values()) {
+        const matches =
+          (where.tokenHash === undefined ||
+            row.tokenHash === where.tokenHash) &&
+          (where.familyId === undefined || row.familyId === where.familyId) &&
+          (where.revokedAt !== null || row.revokedAt === null);
+        if (matches) {
+          row.revokedAt = data.revokedAt;
+          count += 1;
+        }
+      }
+      return Promise.resolve({ count });
+    },
+  );
+
+  /** Deletes the rows whose ceiling has passed, like the real purge. */
+  const refreshDeleteMany = jest.fn(
+    ({ where }: { where: { expiresAt: { lt: Date } } }) => {
+      let count = 0;
+      for (const [hash, row] of stored) {
+        if ((row.expiresAt as Date).getTime() < where.expiresAt.lt.getTime()) {
+          stored.delete(hash);
+          count += 1;
+        }
+      }
+      return Promise.resolve({ count });
+    },
+  );
+
+  /**
+   * Reads the value of a Set-Cookie header by name, or null.
    *
    * `response.headers` is typed loosely by supertest, hence the explicit
    * narrowing: node returns a string when a single header was sent and an array
    * when several were, and both shapes occur here.
    */
-  const sessionCookie = (response: request.Response): string | null => {
+  const namedCookie = (
+    response: request.Response,
+    name: string,
+  ): string | null => {
     const raw: unknown = response.headers['set-cookie'];
     const cookies: string[] = Array.isArray(raw)
       ? (raw as string[])
       : typeof raw === 'string'
         ? [raw]
         : [];
-    return cookies.find((c) => c.startsWith(`${AUTH_COOKIE_NAME}=`)) ?? null;
+    return cookies.find((c) => c.startsWith(`${name}=`)) ?? null;
   };
+
+  const sessionCookie = (response: request.Response): string | null =>
+    namedCookie(response, AUTH_COOKIE_NAME);
+
+  const refreshCookie = (response: request.Response): string | null =>
+    namedCookie(response, REFRESH_COOKIE_NAME);
 
   const login = (): request.Test =>
     request(app.getHttpServer())
@@ -84,18 +166,39 @@ describe('Auth (e2e)', () => {
   });
 
   beforeEach(async () => {
-    findUnique.mockClear();
+    [
+      findUnique,
+      refreshFindUnique,
+      refreshCreate,
+      refreshUpdateMany,
+      refreshDeleteMany,
+    ].forEach((m) => m.mockClear());
+    stored = new Map();
+    // Real timers by default; the deadline tests move the clock themselves.
+    jest.useFakeTimers({ advanceTimers: true, doNotFake: ['nextTick'] });
+
+    const prismaDouble: Record<string, unknown> = {
+      lawyer: { findUnique },
+      refreshToken: {
+        findUnique: refreshFindUnique,
+        create: refreshCreate,
+        updateMany: refreshUpdateMany,
+        deleteMany: refreshDeleteMany,
+      },
+      $queryRaw: jest.fn(),
+      $connect: jest.fn(),
+      $disconnect: jest.fn(),
+    };
+    // Interactive form, handing the same client back: the rotation then runs
+    // its real sequence instead of a transaction-shaped stub.
+    prismaDouble.$transaction = (fn: (tx: unknown) => Promise<unknown>) =>
+      fn(prismaDouble);
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(PrismaService)
-      .useValue({
-        lawyer: { findUnique },
-        $queryRaw: jest.fn(),
-        $connect: jest.fn(),
-        $disconnect: jest.fn(),
-      })
+      .useValue(prismaDouble)
       .overrideProvider(StorageService)
       .useValue({
         ping: jest.fn().mockResolvedValue(true),
@@ -115,11 +218,13 @@ describe('Auth (e2e)', () => {
     const prefix = app.get(ConfigService).getOrThrow<string>('API_PREFIX');
     loginPath = `${prefix}/auth/login`;
     logoutPath = `${prefix}/auth/logout`;
+    refreshPath = `${prefix}/auth/refresh`;
     mePath = `${prefix}/auth/me`;
     healthPath = `${prefix}/health`;
   });
 
   afterEach(async () => {
+    jest.useRealTimers();
     await app.close();
   });
 
@@ -138,8 +243,8 @@ describe('Auth (e2e)', () => {
       expect(cookie).toContain('HttpOnly');
       expect(cookie).toContain('SameSite=Strict');
       expect(cookie).toContain('Path=/');
-      // 2h, from JWT_EXPIRES: the cookie dies with the token it carries.
-      expect(cookie).toContain('Max-Age=7200');
+      // 15 min, from JWT_EXPIRES: the cookie dies with the token it carries.
+      expect(cookie).toContain('Max-Age=900');
     });
 
     // The whole point of the httpOnly cookie: if the token were also in the
@@ -304,6 +409,178 @@ describe('Auth (e2e)', () => {
     it('works without a session', async () => {
       await request(app.getHttpServer()).post(logoutPath).expect(204);
     });
+  });
+
+  describe('POST /auth/refresh', () => {
+    it('sets both cookies at login, the refresh one scoped to /auth', async () => {
+      const response = await login().expect(200);
+
+      expect(sessionCookie(response)).toContain('Max-Age=900'); // 15 min
+      expect(refreshCookie(response)).toContain('Path=/api/v1/auth');
+      expect(refreshCookie(response)).toContain('Max-Age=604800'); // 7 jours
+      expect(refreshCookie(response)).toContain('HttpOnly');
+    });
+
+    it('answers a new pair and rotates the refresh token', async () => {
+      const first = refreshCookie(await login().expect(200)) as string;
+
+      const renewed = await request(app.getHttpServer())
+        .post(refreshPath)
+        .set('Cookie', first)
+        .expect(200);
+
+      expect(refreshCookie(renewed)).not.toBe(first);
+      expect(sessionCookie(renewed)).not.toBeNull();
+      expect(renewed.body).toEqual({
+        id: 'lawyer-1',
+        name: 'Maitre Dupont',
+        email: 'avocat@exemple.fr',
+      });
+    });
+
+    it('answers 401 with no refresh cookie', async () => {
+      await request(app.getHttpServer()).post(refreshPath).expect(401);
+    });
+
+    // An empty value is what a half-cleared cookie leaves behind. It must be a
+    // 401 like any other, never a lookup on the hash of an empty string.
+    it.each(['', 'pas-un-jeton'])(
+      'answers 401 on a malformed refresh cookie (%p)',
+      async (value) => {
+        await request(app.getHttpServer())
+          .post(refreshPath)
+          .set('Cookie', `${REFRESH_COOKIE_NAME}=${value}`)
+          .expect(401);
+      },
+    );
+
+    /**
+     * The scenario the whole feature exists for: a cookie was copied, both the
+     * thief and the lawyer use it, and whoever comes second is detected.
+     */
+    it('kills the session when a rotated token is presented again', async () => {
+      const first = refreshCookie(await login().expect(200)) as string;
+      const second = refreshCookie(
+        await request(app.getHttpServer())
+          .post(refreshPath)
+          .set('Cookie', first)
+          .expect(200),
+      ) as string;
+
+      // Beyond the race window, replaying the first token is an attack.
+      jest.setSystemTime(new Date(Date.now() + 60_000));
+      await request(app.getHttpServer())
+        .post(refreshPath)
+        .set('Cookie', first)
+        .expect(401);
+
+      // And the successor, which the attacker may hold too, is dead with it.
+      await request(app.getHttpServer())
+        .post(refreshPath)
+        .set('Cookie', second)
+        .expect(401);
+    });
+
+    /**
+     * Two tabs refreshing at once. The refusal must NOT clear the cookies: the
+     * browser shares them across tabs, so the one the other tab just obtained
+     * is still valid and the retry succeeds. Clearing here would log the lawyer
+     * out for having two tabs open -- what the race window exists to prevent.
+     */
+    it('refuses a concurrent replay without clearing the cookies', async () => {
+      const first = refreshCookie(await login().expect(200)) as string;
+      const second = refreshCookie(
+        await request(app.getHttpServer())
+          .post(refreshPath)
+          .set('Cookie', first)
+          .expect(200),
+      ) as string;
+
+      const raced = await request(app.getHttpServer())
+        .post(refreshPath)
+        .set('Cookie', first)
+        .expect(401);
+
+      expect(refreshCookie(raced)).toBeNull();
+      expect(sessionCookie(raced)).toBeNull();
+
+      // And the session is untouched: the cookie the other tab holds still works.
+      await request(app.getHttpServer())
+        .post(refreshPath)
+        .set('Cookie', second)
+        .expect(200);
+    });
+
+    // A terminal refusal, by contrast, must clear both: otherwise the SPA keeps
+    // retrying a renewal that can never succeed.
+    it('clears both cookies when the session is really over', async () => {
+      const cookie = refreshCookie(await login().expect(200)) as string;
+
+      jest.setSystemTime(new Date(Date.now() + 8 * 24 * 60 * 60 * 1000));
+      const refused = await request(app.getHttpServer())
+        .post(refreshPath)
+        .set('Cookie', cookie)
+        .expect(401);
+
+      expect(refreshCookie(refused)).toContain('Expires=Thu, 01 Jan 1970');
+      expect(sessionCookie(refused)).toContain('Expires=Thu, 01 Jan 1970');
+    });
+
+    it('refuses to renew past the 7-day ceiling', async () => {
+      const cookie = refreshCookie(await login().expect(200)) as string;
+
+      jest.setSystemTime(new Date(Date.now() + 8 * 24 * 60 * 60 * 1000));
+
+      await request(app.getHttpServer())
+        .post(refreshPath)
+        .set('Cookie', cookie)
+        .expect(401);
+    });
+
+    // Four days of silence: the ceiling has not been reached, the idle deadline
+    // has. This is the case the ceiling alone would let through.
+    it('refuses to renew a session left unused for four days', async () => {
+      const cookie = refreshCookie(await login().expect(200)) as string;
+
+      jest.setSystemTime(new Date(Date.now() + 4 * 24 * 60 * 60 * 1000));
+
+      await request(app.getHttpServer())
+        .post(refreshPath)
+        .set('Cookie', cookie)
+        .expect(401);
+    });
+
+    // The mirror image: coming back every two days keeps it alive. Without the
+    // idle deadline being pushed back on rotation, the lawyer would be logged
+    // out on the third day mid-work.
+    it('keeps a session alive when it is used every two days', async () => {
+      let cookie = refreshCookie(await login().expect(200)) as string;
+
+      for (let round = 0; round < 3; round += 1) {
+        jest.setSystemTime(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000));
+        const renewed = await request(app.getHttpServer())
+          .post(refreshPath)
+          .set('Cookie', cookie)
+          .expect(200);
+        cookie = refreshCookie(renewed) as string;
+      }
+    });
+  });
+
+  it('makes logout revoke the session server-side, not just the cookie', async () => {
+    const cookie = refreshCookie(await login().expect(200)) as string;
+
+    await request(app.getHttpServer())
+      .post(logoutPath)
+      .set('Cookie', cookie)
+      .expect(204);
+
+    // The whole point: the refresh token no longer works, even though the
+    // client kept a copy of it.
+    await request(app.getHttpServer())
+      .post(refreshPath)
+      .set('Cookie', cookie)
+      .expect(401);
   });
 
   /**

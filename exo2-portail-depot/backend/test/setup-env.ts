@@ -27,9 +27,11 @@ process.env.STORAGE_ACCESS_KEY = 'test';
 process.env.STORAGE_SECRET_KEY = 'test';
 // 32 characters minimum, enforced by validateEnv.
 process.env.JWT_SECRET = 'test-jwt-secret-for-the-e2e-suites';
-// The production value, so that the cookie's Max-Age asserted by
-// auth.e2e-spec.ts is the one a real deployment produces.
-process.env.JWT_EXPIRES = '2h';
+// The production values, so that the cookie lifetimes asserted by
+// auth.e2e-spec.ts are the ones a real deployment produces.
+process.env.JWT_EXPIRES = '15m';
+process.env.SESSION_EXPIRES = '7d';
+process.env.SESSION_IDLE_EXPIRES = '3d';
 // The SEED_LAWYER_* variables are deliberately absent: they are read by
 // src/seed.ts alone, never by the API, so requiring them here would make every
 // e2e suite depend on a fixture it does not use.

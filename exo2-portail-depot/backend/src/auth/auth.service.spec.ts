@@ -15,18 +15,27 @@ import { hashSecret } from '../crypto/secrets';
 import { Lawyer } from '../generated/prisma/client';
 import { LawyersService } from '../lawyers/lawyers.service';
 import { AuthService, INVALID_CREDENTIALS } from './auth.service';
+import { RefreshTokenService } from './refresh-token.service';
 
 describe('AuthService', () => {
   const password = 'un-mot-de-passe-de-test';
   let lawyer: Lawyer;
   let service: AuthService;
   const findByEmail = jest.fn();
+  const findById = jest.fn();
   const signAsync = jest.fn();
-  // Answers per key rather than returning '2h' whatever it is asked: otherwise
-  // the sessionMaxAgeMs test would still pass if the code read JWT_SECRET.
+  const issue = jest.fn();
+  const rotate = jest.fn();
+  const revokeFamilyOf = jest.fn();
+  const purgeExpired = jest.fn();
+  // Answers per key rather than one value whatever it is asked: the two
+  // lifetimes below would otherwise still pass with the wrong key read.
   const getOrThrow = jest.fn((key: string) => {
     if (key === 'JWT_EXPIRES') {
-      return '2h';
+      return '15m';
+    }
+    if (key === 'SESSION_EXPIRES') {
+      return '7d';
     }
     throw new Error(`unexpected configuration key: ${key}`);
   });
@@ -44,15 +53,33 @@ describe('AuthService', () => {
   });
 
   beforeEach(async () => {
-    findByEmail.mockReset();
-    signAsync.mockReset();
+    [
+      findByEmail,
+      findById,
+      signAsync,
+      issue,
+      rotate,
+      revokeFamilyOf,
+      purgeExpired,
+    ].forEach((m) => m.mockReset());
+    issue.mockResolvedValue({
+      token: 'a-refresh-token',
+      expiresAt: new Date('2026-08-16T00:00:00Z'),
+    });
+    purgeExpired.mockResolvedValue(undefined);
     signAsync.mockResolvedValue('signed.jwt.token');
 
     getOrThrow.mockClear();
     service = new AuthService(
-      { findByEmail } as unknown as LawyersService,
+      { findByEmail, findById } as unknown as LawyersService,
       { signAsync } as unknown as JwtService,
       { getOrThrow } as unknown as ConfigService,
+      {
+        issue,
+        rotate,
+        revokeFamilyOf,
+        purgeExpired,
+      } as unknown as RefreshTokenService,
     );
     // The decoy hash is normally computed by Nest before the first request.
     await service.onModuleInit();
@@ -135,8 +162,59 @@ describe('AuthService', () => {
     expect(signAsync).toHaveBeenCalledWith({ sub: 'lawyer-1' });
   });
 
-  it('derives the cookie lifetime from JWT_EXPIRES', () => {
-    expect(service.sessionMaxAgeMs()).toBe(7_200_000);
+  it('opens a session with both tokens, and clears the dead rows first', async () => {
+    const profile = { id: 'lawyer-1', name: 'Maitre Dupont', email: 'a@b.fr' };
+
+    await expect(service.openSession(profile)).resolves.toEqual({
+      accessToken: 'signed.jwt.token',
+      refreshToken: 'a-refresh-token',
+      // Carried out so the cookie can be given what REMAINS of the session
+      // rather than a fresh seven days at every rotation.
+      refreshExpiresAt: new Date('2026-08-16T00:00:00Z'),
+    });
+    expect(purgeExpired).toHaveBeenCalledWith('lawyer-1');
+  });
+
+  /**
+   * A rotation can succeed against a session whose account has since been
+   * deleted -- the token table cascades, but the request may already be in
+   * flight. Renewing then would hand back a valid access token for nobody.
+   */
+  it('refuses to renew when the account no longer exists', async () => {
+    rotate.mockResolvedValue({
+      status: 'rotated',
+      token: 'new-token',
+      lawyerId: 'deleted-lawyer',
+    });
+    findById.mockResolvedValue(null);
+
+    await expect(service.renewSession('a-token')).resolves.toEqual({
+      status: 'rejected',
+      reason: 'unknown',
+    });
+    expect(signAsync).not.toHaveBeenCalled();
+  });
+
+  it('passes a refusal through untouched', async () => {
+    rotate.mockResolvedValue({ status: 'rejected', reason: 'reused' });
+
+    await expect(service.renewSession('stolen')).resolves.toEqual({
+      status: 'rejected',
+      reason: 'reused',
+    });
+    expect(findById).not.toHaveBeenCalled();
+  });
+
+  // Two lifetimes, two sources: the access cookie dies with its token, the
+  // refresh cookie with the session. Reading one for the other would give the
+  // access cookie a seven-day life, or expire the session in 15 minutes.
+  it('derives the access cookie lifetime from JWT_EXPIRES', () => {
+    expect(service.accessMaxAgeMs()).toBe(900_000);
     expect(getOrThrow).toHaveBeenCalledWith('JWT_EXPIRES');
+  });
+
+  it('derives the session cookie lifetime from SESSION_EXPIRES', () => {
+    expect(service.sessionMaxAgeMs()).toBe(604_800_000);
+    expect(getOrThrow).toHaveBeenCalledWith('SESSION_EXPIRES');
   });
 });

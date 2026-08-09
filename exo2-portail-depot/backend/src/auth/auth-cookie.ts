@@ -9,31 +9,18 @@ import { CookieOptions } from 'express';
 // staging machine is shared with other candidates.
 export const AUTH_COOKIE_NAME = 'portail_auth';
 
-const MILLISECONDS: Record<string, number> = {
-  s: 1000,
-  m: 60 * 1000,
-  h: 60 * 60 * 1000,
-  d: 24 * 60 * 60 * 1000,
-};
+export const REFRESH_COOKIE_NAME = 'portail_refresh';
 
 /**
- * Converts JWT_EXPIRES ("2h") into milliseconds, so that the cookie's Max-Age
- * and the token's expiry cannot drift apart.
+ * The refresh cookie is scoped to the auth routes, unlike the access cookie
+ * which needs `/`. A cookie the browser only sends to a handful of endpoints is
+ * absent from every other request, hence from most places it could leak.
  *
- * No leading zero: "0h" parses, and would sign already-expired tokens behind a
- * cookie the browser drops on arrival -- every login answering 200 with no
- * session behind it.
+ * Derived from API_PREFIX because nginx does not strip the prefix: the path the
+ * browser sees is the one the API serves.
  */
-export const durationToMilliseconds = (duration: string): number => {
-  const match = /^([1-9]\d*)([smhd])$/.exec(duration.trim());
-  if (match === null) {
-    throw new Error(
-      'JWT_EXPIRES is not a duration with its unit (expected: 60s, 15m, 2h, 7d).',
-    );
-  }
-
-  return Number(match[1]) * MILLISECONDS[match[2]];
-};
+export const refreshCookiePath = (apiPrefix: string): string =>
+  `${apiPrefix}/auth`;
 
 /**
  * `sameSite: 'strict'` removes CSRF without a synchroniser token, and costs
@@ -62,3 +49,14 @@ export const buildAuthCookie = (
 /** Same attributes, minus the lifetime: `res.clearCookie` sets its own. */
 export const clearAuthCookie = (secure: boolean): CookieOptions =>
   baseOptions(secure);
+
+export const buildRefreshCookie = (
+  secure: boolean,
+  maxAgeMs: number,
+  path: string,
+): CookieOptions => ({ ...baseOptions(secure), path, maxAge: maxAgeMs });
+
+export const clearRefreshCookie = (
+  secure: boolean,
+  path: string,
+): CookieOptions => ({ ...baseOptions(secure), path });

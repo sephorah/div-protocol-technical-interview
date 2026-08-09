@@ -51,8 +51,9 @@ const TOKEN_BYTES = 32;
 const PIN_DIGITS = 4;
 
 /**
- * Public link token: 256 bits drawn from the operating system generator,
- * encoded as base64url.
+ * An opaque bearer token: 256 bits drawn from the operating system generator,
+ * encoded as base64url. Used by public deposit links and by refresh tokens --
+ * both are secrets whose holder gets access, and neither can be guessed.
  *
  * base64url rather than hex: 43 characters instead of 64 for the same entropy,
  * and an alphabet that is safe in a URL as well as in a QR code -- this link is

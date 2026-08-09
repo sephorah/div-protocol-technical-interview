@@ -718,10 +718,53 @@ Seven things are non-obvious:
   instead is `@MaxLength` on the DTO: argon2id's cost grows with its input, and the route is
   anonymous.
 
-`JWT_EXPIRES` is **2h** with no refresh token, and the cookie's `Max-Age` comes from the same
-`durationToMilliseconds` parser, so the two cannot diverge. The value is passed to `JwtModule` in
-**seconds** rather than as `"2h"`: jsonwebtoken types `expiresIn` as a template literal that a value
-read from the environment is not, and converting is better than casting the type away.
+`JWT_EXPIRES` is **15m**, and the cookie's `Max-Age` comes from the same `durationToMilliseconds`
+parser (now in `src/config/duration.ts`), so the two cannot diverge. The value is passed to
+`JwtModule` in **seconds** rather than as `"15m"`: jsonwebtoken types `expiresIn` as a template
+literal that a value read from the environment is not, and converting is better than casting the type
+away.
+
+### Refresh tokens (B1c)
+
+The access token is short-lived and **irrevocable**; the refresh token is what makes a session
+closable. It is an opaque 256-bit secret stored as a SHA-256 hash in `RefreshToken`, rotated on every
+use, per **RFC 9700 § 4.14.2** — which mandates rotation *or* cryptographic client binding for public
+clients, and says nothing about durations.
+
+Six things are non-obvious:
+
+- **Rotated rows are KEPT, never deleted.** Their presence is the only thing that makes a reuse
+  recognisable: deleted, a stolen token would look exactly like an unknown one and no detection would
+  ever fire. `purgeExpired` only removes rows past a deadline, and runs at login.
+- **A 30-second race window is what keeps the feature from turning on its user.** Two tabs refreshing
+  at once present the same token; the second arrives after the first has rotated it and looks like a
+  theft. Inside the window the request is refused *without* revoking the family — the browser shares
+  cookies across tabs, so the retry succeeds. Remove it and normal two-tab use logs the lawyer out.
+- **Revoking the whole family is OUR decision, not the RFC's** — it speaks of "the active refresh
+  token". We go further because the server cannot tell the thief from the victim.
+- **Two deadlines, and the asymmetry is load-bearing.** `expiresAt` (7d ceiling) is **copied** on
+  rotation; `idleExpiresAt` (3d) is **recomputed**. Copy the idle one and the lawyer is logged out
+  mid-work on day three; recompute the ceiling and the session becomes immortal. Two unit tests exist
+  for that alone.
+- **`validateEnv` refuses `SESSION_IDLE_EXPIRES >= SESSION_EXPIRES`**: the idle deadline could never
+  be reached, so the protection would be off while the variable looks configured. That cross-check is
+  why `durationToMilliseconds` lives in `config/` — configuration must not import from `auth/`.
+- **The claim is an atomic compare-and-set** (`updateMany ... where revokedAt: null`, then check
+  `count`), wrapped with the successor's INSERT in one `$transaction`. A read-then-write would let two
+  concurrent requests both believe they won; splitting the pair would let a failed INSERT leave the
+  presented token revoked with no replacement, i.e. one database hiccup ending a seven-day session.
+- **`refresh()` must NOT clear the cookies on a `raced` refusal** (`auth.controller.ts`). It is the
+  client half of the race window: the browser holds the cookie the other tab has just obtained, and
+  clearing it logs the lawyer out for having two tabs open — cancelling the very protection the 30 s
+  constant buys. Every other refusal is terminal and does clear. An e2e case asserts both halves.
+- **`purgeExpired` deletes on the ceiling only**, never on `idleExpiresAt`: a rotated row keeps the
+  idle deadline it was given, so purging on it would remove the older links of a live chain, and
+  replaying one would read as `unknown` rather than `reused` — detection silently shrinking to the
+  last three days.
+
+The refresh cookie is scoped to `${API_PREFIX}/auth`, so the browser never attaches the long-lived
+secret to an ordinary API call. Moving the routes out from under that prefix would break renewal
+silently — the e2e suite asserts the path.
 
 `src/seed.ts` compiles to `dist/seed.js`, which `install.sh` already detects and runs. **The demo
 account is identified by the request it owns, never by its e-mail address**: keyed on the address,

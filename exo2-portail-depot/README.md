@@ -116,7 +116,8 @@ de faire écouter le service au mauvais endroit ou de démarrer Postgres sans mo
 | `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET` | non | MinIO local, `us-east-1`, `portail-depot` | endpoint S3. Le compose le surcharge en `http://minio:9000` |
 | `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | oui | — | utilisateur applicatif, restreint au seul bucket |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | oui | — | administration du serveur de stockage |
-| `JWT_SECRET`, `JWT_EXPIRES` | secret | —, `2h` | authentification avocat. 32 caractères minimum, unité de durée obligatoire (et non nulle) |
+| `JWT_SECRET`, `JWT_EXPIRES` | secret | —, `15m` | authentification avocat. 32 caractères minimum, unité de durée obligatoire (et non nulle). **`JWT_EXPIRES` n'est pas corrigé dans un `.env` existant** : `install.sh` n'écrase jamais une valeur choisie, donc une machine antérieure garde `2h` jusqu'à édition à la main |
+| `SESSION_EXPIRES`, `SESSION_IDLE_EXPIRES` | non | `7d`, `3d` | plafond de la session depuis la connexion, et inactivité tolérée. La seconde doit être **strictement inférieure** à la première, sinon elle ne s'appliquerait jamais — le démarrage échoue en le disant |
 | `SEED_LAWYER_EMAIL`, `SEED_LAWYER_NAME` | non | `avocat@example.com`, `Maitre Dupont` | compte de démonstration. Lues **par le seed seul**, jamais par l'API. Changer l'adresse **renomme** le compte, elle n'en crée pas un second |
 | `SEED_LAWYER_PASSWORD` | oui | — | mot de passe du compte de démonstration, tiré au sort une fois par `install.sh`. Stocké en clair dans `.env` **parce qu'il doit rester relisible** : c'est ce que le seed réaffiche à chaque exécution, et un hachage ne se relit pas |
 | `DOMAIN`, `ACME_EMAIL`, `ACME_STAGING` | non | *(vides)* | HTTPS. Lues **ni** par compose **ni** par l'application : seul `install.sh` les lit, pour les passer à certbot |
@@ -142,17 +143,30 @@ et un PIN pour seuls justificatifs.
 
 | Route | Accès | Effet |
 |---|---|---|
-| `POST /api/v1/auth/login` | ouverte | vérifie e-mail + mot de passe, pose le cookie de session, renvoie `{ id, name, email }` |
-| `POST /api/v1/auth/logout` | ouverte | efface le cookie |
+| `POST /api/v1/auth/login` | ouverte | vérifie e-mail + mot de passe, pose les deux cookies, renvoie `{ id, name, email }` |
+| `POST /api/v1/auth/refresh` | ouverte | échange le cookie de rafraîchissement contre une paire neuve |
+| `POST /api/v1/auth/logout` | ouverte | **révoque la session côté serveur** et efface les cookies |
 | `GET /api/v1/auth/me` | authentifiée | le profil de la session en cours |
 
-**Le jeton voyage dans un cookie `httpOnly`**, jamais dans le corps de la réponse : le JavaScript du
-navigateur ne peut donc pas le lire, et un script injecté dans la page ne peut pas l'emporter. Le
-cookie est `SameSite=Strict` — le navigateur ne l'attache jamais à une requête venue d'un autre site,
-ce qui écarte le CSRF sans jeton supplémentaire — et son `Secure` (« à n'envoyer que chiffré ») est
-décidé **requête par requête** d'après `X-Forwarded-Proto` : posé systématiquement, il casserait la
-connexion sur le `http://127.0.0.1:21600` de l'évaluateur ; jamais posé, il laisserait le cookie
-capturable sur le domaine public.
+**Deux jetons, deux cookies `httpOnly`**, jamais dans le corps de la réponse : le JavaScript du
+navigateur ne peut donc pas les lire, et un script injecté dans la page ne peut pas les emporter.
+
+| | Jeton d'accès | Jeton de rafraîchissement |
+|---|---|---|
+| Nature | JWT signé, sans état | secret opaque de 256 bits, stocké **haché** en base |
+| Durée | 15 min | jusqu'à la fin de la session |
+| Cookie | `portail_auth`, chemin `/`, 15 min | `portail_refresh`, chemin `/api/v1/auth`, expire **avec la session** |
+| Révocable | **non** — c'est la nature d'un JWT | **oui**, c'est tout son intérêt |
+
+Le cookie de rafraîchissement est limité aux routes d'authentification : le navigateur ne l'attache
+donc jamais à un appel ordinaire, et le secret le plus précieux est absent de la quasi-totalité du
+trafic.
+
+Les deux cookies sont `SameSite=Strict` — le navigateur ne les attache jamais à une requête venue
+d'un autre site, ce qui écarte le CSRF sans jeton supplémentaire — et leur `Secure` (« à n'envoyer
+que chiffré ») est décidé **requête par requête** d'après `X-Forwarded-Proto` : posé
+systématiquement, il casserait la connexion sur le `http://127.0.0.1:21600` de l'évaluateur ; jamais
+posé, il laisserait le cookie capturable sur le domaine public.
 
 **Toutes les routes sont fermées par défaut.** Le garde est global (`APP_GUARD`) et seul le
 décorateur `@Public()` ouvre une route — le sens inverse, un garde à poser sur chaque route, publie
@@ -160,11 +174,34 @@ une route dès qu'on l'oublie, et sans rien signaler. Aujourd'hui `@Public()` po
 logout et la sonde de santé ; les futures routes `/public/*` du client (C1, C2) devront le porter
 aussi.
 
-**Expiration et « refresh ».** Le jeton vaut `JWT_EXPIRES`, soit **2 h**, et il n'y a **pas de jeton
-de rafraîchissement** : passé ce délai, l'avocat se reconnecte. Le choix tient à l'usage — créer une
-demande, regarder où en sont les dépôts — qui se fait en visites courtes. Un *refresh* révocable
-supposerait une table, une rotation et sa suite de tests ; sans révocation, il ne ferait qu'allonger
-la durée de vie d'un jeton volé.
+### Expiration, renouvellement, révocation
+
+**Deux échéances bornent une session, et la première atteinte gagne** : un **plafond de 7 jours**
+figé à la connexion, que le renouvellement ne repousse jamais, et une **inactivité de 3 jours**, que
+chaque renouvellement repousse. Le plafond borne une session active ; l'inactivité referme une
+session oubliée — un poste laissé ouvert, un cookie recopié et gardé de côté. Trois jours plutôt que
+deux pour une raison prosaïque : une session du vendredi soir survit au lundi matin.
+
+**Le jeton de rafraîchissement est remplacé à chaque usage** (*rotation*), et l'ancien reste en base,
+marqué consommé. C'est ce qui rend une réutilisation détectable : si un jeton déjà consommé est
+représenté, c'est qu'une copie circule — le client légitime, lui, détient le successeur et n'a aucune
+raison de rejouer l'ancien. La session entière est alors coupée. Le serveur ne peut pas distinguer le
+voleur de la victime, donc les deux tombent : c'est le prix de la détection.
+
+**Une tolérance de 30 secondes** empêche cette détection de se retourner contre l'avocat. Deux onglets
+qui se rafraîchissent en même temps présentent le même jeton ; le second arrive après la rotation du
+premier et ressemblerait à un vol. En deçà de 30 secondes, la requête est refusée sans couper la
+session, et le navigateur — qui partage ses cookies entre onglets — réussit au réessai.
+
+**La déconnexion coupe réellement**, désormais : elle révoque la chaîne côté serveur, donc un cookie
+copié auparavant cesse de fonctionner. Reste que le jeton d'accès en cours, lui, vaut jusqu'à
+15 minutes : un JWT ne se révoque pas, c'est sa nature (voir les limites connues).
+
+Référence : **RFC 9700 (BCP 240, janvier 2025), § 4.14.2**. Elle impose, pour un client public comme
+un SPA, soit de lier le jeton au client par cryptographie, soit la rotation ; nous prenons la
+rotation. Couper toute la chaîne plutôt que le seul jeton présenté est en revanche **notre** décision,
+la norme ne parlant que du jeton actif. Elle ne fixe aucune durée : les 7 et 3 jours sont des
+arbitrages, pas une conformité.
 
 **Le mot de passe n'existe nulle part en clair côté serveur** : argon2id, paramètres OWASP
 (`src/crypto/secrets.ts`), le même primitif que le PIN des liens publics.
@@ -241,14 +278,22 @@ de validation. L'allowlist et la taille maximale (20 Mo) vivent dans la configur
   en argon2id (~67 ms), une taille de champ bornée pour que personne ne puisse faire hacher un
   mégaoctet, et des réponses indiscernables. La limitation revient en **G1**, par jeton de lien — la
   seule clé qui reste discriminante derrière ce relais.
-- **La déconnexion est côté client seul.** Effacer le cookie n'invalide pas le jeton : une copie
-  prise avant reste valable jusqu'à son expiration, donc au plus 2 h. Une révocation réelle demande
-  une liste de jetons révoqués, donc une lecture de stockage à chaque requête. Ce qui existe
-  aujourd'hui : un compte supprimé cesse immédiatement d'être utilisable, le garde relisant le compte
-  à chaque requête.
+- **Le jeton d'accès reste irrévocable pendant ses 15 minutes.** C'est la nature d'un JWT : rien
+  n'est consulté pour le valider, hormis la relecture du compte que fait le garde. La déconnexion
+  coupe le renouvellement, pas le quart d'heure en cours. Le fermer vraiment demanderait une liste de
+  jetons révoqués consultée à chaque requête — c'est-à-dire renoncer au JWT.
+- **La tolérance de 30 secondes sur la rotation est un compromis.** Un attaquant qui rejoue dans cet
+  intervalle échappe à la détection ; il n'y gagne rien, le jeton étant déjà consommé, mais l'alerte
+  ne part pas. Sans cette tolérance, deux onglets ouverts en parallèle déconnecteraient l'avocat.
+- **Aucune notification lors d'une détection.** La session est coupée sans que personne soit
+  prévenu : l'avocat constate qu'il doit se reconnecter. Un vrai signalement suppose G2 (journal
+  d'audit) et un canal de notification, dont l'énoncé ne parle pas.
+- **Pas de liste des sessions actives** ni de « déconnecter mes autres appareils ». Le modèle le
+  permet — une famille de jetons par connexion — c'est une route à écrire, pas un obstacle (B1b).
 - **Un seul compte avocat, celui du seed.** Pas d'inscription, pas de réinitialisation de mot de
   passe, pas de multi-cabinet. Changer le mot de passe, c'est changer `SEED_LAWYER_PASSWORD` et
-  relancer `./install.sh`.
+  relancer `./install.sh` — ce qui **renomme** le compte plutôt que d'en créer un second, le seed le
+  retrouvant par la demande qu'il possède et non par son adresse.
 - **Le seed réécrit ce qu'il a créé.** Chaque exécution repose le hachage du mot de passe et
   **révoque le lien public en cours** pour en émettre un nouveau — sans quoi il ne pourrait pas
   réafficher un PIN utilisable, celui-ci étant haché. Conséquence à connaître : relancer

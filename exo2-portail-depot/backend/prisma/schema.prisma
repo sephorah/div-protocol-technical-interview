@@ -53,7 +53,48 @@ model Lawyer {
 
   createdAt DateTime @default(now())
 
-  requests DepositRequest[]
+  requests      DepositRequest[]
+  refreshTokens RefreshToken[]
+}
+
+/// One link in a rotation chain. A family is the chain issued by one login;
+/// presenting a link that has already been rotated means a copy is circulating,
+/// so the whole family is revoked.
+///
+/// Rotated rows are KEPT rather than deleted: their presence is the only thing
+/// that makes a reuse recognisable. Deleted, a stolen token would look exactly
+/// like an unknown one.
+model RefreshToken {
+  id String @id @default(uuid())
+
+  /// SHA-256 of the token, never the token itself -- it is a bearer credential.
+  /// A fast hash suffices: 256 bits cannot be guessed, and the lookup must stay
+  /// a single indexed read. Same reasoning as PublicLink.tokenHash.
+  tokenHash String @unique
+
+  /// The chain issued by one login. Rotation copies it; revocation targets it.
+  familyId String
+
+  /// CEILING of the session, dated from the login and COPIED unchanged on every
+  /// rotation. Without it, a chain that rotates every 15 minutes never expires.
+  expiresAt DateTime
+
+  /// IDLE deadline, RECOMPUTED on every rotation. Closes a session nobody uses
+  /// -- an abandoned workstation, a cookie copied and kept for later.
+  ///
+  /// Beware the asymmetry: expiresAt is copied, this one is recomputed. Treating
+  /// them alike removes one of the two protections, and nothing would say so.
+  idleExpiresAt DateTime
+
+  /// Non-null once rotated, logged out, or killed by a reuse detection.
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  lawyerId String
+  lawyer   Lawyer @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@index([lawyerId])
 }
 
 /// A request for documents addressed to a client, for example
