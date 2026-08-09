@@ -173,9 +173,13 @@ installer Node ferait attendre l'évaluateur pour rien.
 - [x] Affiche les URLs fonctionnelles en fin d'exécution — portail et API, en clair
       (`http://127.0.0.1:21600`) ou en HTTPS sur le domaine public selon que `DOMAIN` est rempli,
       avec les commandes d'arrêt et de journaux en docker brut
-- [x] Aucune intervention manuelle requise sur machine vierge — mesuré **2 min 02 s** dans un
-      conteneur `ubuntu:24.04` nu, installation de Docker comprise, à partir de `git archive HEAD` ;
-      **14,8 s** avec les images en cache
+- [x] Aucune intervention manuelle requise sur machine vierge — **le critère était faux jusqu'ici**.
+      `ubuntu:24.04` n'a ni `curl` ni `wget`, et le script mourait en réclamant `apt install curl` ;
+      les trois campagnes de mesures (A8, A5, A6) ne l'avaient pas vu parce que le harnais installait
+      curl **avant** de lancer le script. `ensure_fetcher` obtient désormais curl au lieu de l'exiger.
+      Mesuré **2 min 28 s** dans un `ubuntu:24.04` où rien n'est préinstallé, installation de Docker
+      comprise, à partir de `git archive HEAD` ; **15 s** avec les images en cache. Rejouable par
+      `pnpm test:bare-machine`
 
 Dépendances : A1, A3, D1, F2.
 

@@ -52,8 +52,8 @@ trap 'rm -rf "$WORKDIR"' EXIT
 ARCHIVE="$WORKDIR/src.tar"
 
 step "Archive de HEAD (pas de l'arbre de travail)"
-# --prefix : l'archive de la racine du depot contient deja exo2-portail-depot/,
-# mais ce script doit aussi fonctionner si le depot EST ce dossier.
+# L'archive porte tout le depot, donc elle contient exo2-portail-depot/ quand le
+# depot est le dossier parent — le script interieur gere les deux dispositions.
 git archive HEAD -o "$ARCHIVE"
 printf '    %s, %s octets\n' "$(git rev-parse --short HEAD)" "$(stat -c %s "$ARCHIVE")"
 
@@ -72,7 +72,7 @@ set -e
 mkdir -p /app && tar -xf /src.tar -C /app
 # Le depot peut etre archive depuis sa racine (le dossier est alors dedans) ou
 # depuis le dossier lui-meme.
-if [ -d "/app/REPO_SUBDIR" ]; then cd "/app/REPO_SUBDIR"; else cd /app; fi
+if [ -d "/app/@@SUBDIR@@" ]; then cd "/app/@@SUBDIR@@"; else cd /app; fi
 
 echo "--- etat initial de la machine ---"
 for tool in docker curl wget git node pnpm; do
@@ -93,17 +93,27 @@ echo
 echo "=== ASSERTIONS ==="
 fail=0
 
-# curl est forcement la maintenant : install.sh l a installe lui-meme. C est en
-# soi la preuve que ensure_fetcher a fonctionne.
-command -v curl >/dev/null || { echo "  [KO] curl absent apres install.sh"; fail=1; }
+# La preuve centrale, donc affichee meme quand elle passe : curl etait absent
+# au demarrage (voir « etat initial » plus haut) et install.sh l a installe
+# lui-meme. C est ensure_fetcher qui est verifie ici.
+if command -v curl >/dev/null; then
+  echo "  [OK] curl                 -> installe par install.sh (absent au depart)"
+else
+  echo "  [KO] curl                 -> toujours absent apres install.sh"
+  fail=1
+  # Sans curl les assertions HTTP ne prouveraient rien : elles renverraient 000
+  # partout et accuseraient le portail au lieu de nommer la vraie cause.
+  echo "       les assertions HTTP suivantes sont ininterpretables sans lui."
+  exit 1
+fi
 
-code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://127.0.0.1:PORT/" || echo 000)
+code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://127.0.0.1:@@PORT@@/" || echo 000)
 if [ "$code" = 200 ]; then echo "  [OK] portail /            -> 200"
 else echo "  [KO] portail /            -> $code (attendu 200)"; fail=1; fi
 
 # 403 est le SEUL temoin fiable que notre nginx.conf est monte : une conf
 # absente donne la page d accueil nginx, ou / repond 200 quand meme.
-code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://127.0.0.1:PORT/api/v1/health" || echo 000)
+code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://127.0.0.1:@@PORT@@/api/v1/health" || echo 000)
 if [ "$code" = 403 ]; then echo "  [OK] sonde /api/v1/health -> 403 (deny voulu)"
 else echo "  [KO] sonde /api/v1/health -> $code (attendu 403 : notre nginx.conf n est peut-etre pas monte)"; fail=1; fi
 
@@ -113,8 +123,8 @@ else echo "  [KO] .env                 -> $perms (attendu 600)"; fail=1; fi
 
 exit $fail
 '
-INNER="${INNER//REPO_SUBDIR/$REPO_SUBDIR}"
-INNER="${INNER//PORT/$PORT}"
+INNER="${INNER//@@SUBDIR@@/$REPO_SUBDIR}"
+INNER="${INNER//@@PORT@@/$PORT}"
 
 RC=0
 docker run --rm --privileged \
