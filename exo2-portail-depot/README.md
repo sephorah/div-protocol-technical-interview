@@ -24,12 +24,12 @@ vérifie que le portail répond vraiment à la fin.
 Les secrets sont générés **une seule fois**, au premier lancement : relancer `./install.sh` ne les
 régénère pas, sans quoi le script casserait sa propre base de données au second passage.
 
-**Systèmes.** Linux avec bash — Debian/Ubuntu, Fedora/RHEL et les autres ; les paquets manquants
-sont installés via `apt-get`, `dnf`, `yum`, `apk`, `zypper` ou `pacman` selon la machine. Sur
-**macOS**, le script fonctionne une fois Docker Desktop lancé, et le dit clairement s'il ne l'est
-pas : `get.docker.com` n'installe qu'un démon Linux, et Docker Desktop demande une installation
-graphique qu'aucun script ne peut faire à votre place. Une machine **sans bash** (Alpine nu) n'est
-pas couverte — voir les limitations.
+**Systèmes couverts : Linux avec bash** — Debian/Ubuntu, Fedora/RHEL et les autres ; les paquets
+manquants sont installés via `apt-get`, `dnf`, `yum`, `apk`, `zypper` ou `pacman` selon la machine.
+C'est le seul système sur lequel le parcours est testé de bout en bout.
+
+**macOS et les machines sans bash ne sont pas couverts**, et le script ne prétend pas le contraire —
+voir les limitations.
 
 Rien n'est compilé sur place : les images sont construites par le CI et publiées sur
 [GHCR](https://github.com/sephorah?tab=packages). `./install.sh --from-source` construit en local à
@@ -201,8 +201,14 @@ de validation. L'allowlist et la taille maximale (20 Mo) vivent dans la configur
   bash puis `exec bash "$0" "$@"`, après quoi tout le reste est inchangé, `/dev/tcp` compris. Il
   n'est pas fait parce qu'aucune machine visée n'est concernée : Alpine est une image de base pour
   conteneurs, et Ubuntu/Debian, Fedora/RHEL et macOS livrent tous bash.
+- **macOS n'est pas couvert, faute de pouvoir le tester.** Sur un Mac sans Docker, `install.sh`
+  appelle `get.docker.com`, qui détecte lui-même le système et répond
+  `ERROR: Unsupported operating system 'macOS'` en renvoyant vers Docker Desktop — un message juste,
+  qu'il aurait été inutile de remplacer par le nôtre. Avec Docker Desktop déjà lancé, le reste du
+  script a de bonnes chances de fonctionner (aucune option GNU-only sur le chemin nominal), mais
+  **ce n'est pas vérifié** et rien dans le projet ne l'affirme.
 - **Le palier root de la cascade Docker est le seul testé automatiquement**
-  (`pnpm test:bare-machine`). Les paliers *sudo* et *rootless*, et macOS, restent vérifiés à la main.
+  (`pnpm test:bare-machine`). Les paliers *sudo* et *rootless* sont vérifiés à la main.
 - **Un `.env` et un volume Postgres peuvent diverger** sur une machine de développement dont le
   `.env` a été régénéré alors que les volumes survivaient : Postgres ne lit son mot de passe qu'à la
   création du volume. Le backend boucle alors sur `P1000` et le remède est `down -v`. Le cas ne peut

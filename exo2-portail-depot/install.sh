@@ -290,19 +290,11 @@ elif command -v docker >/dev/null && ! docker_usable && can_sudo && sudo docker 
   # Docker est la et tourne, mais l'utilisateur n'est pas dans le groupe.
   use_sudo_docker_for_this_run
 else
-  # macOS d'abord : get.docker.com n'installe qu'un demon Linux, et sur macOS
-  # c'est Docker Desktop, qui ne s'installe pas sans interaction graphique. Sans
-  # ce garde-fou la cascade part quand meme et echoue plus loin sur un message
-  # qui parle de paquets Linux — donc qui n'aide pas.
-  if [ "$(uname -s)" = Darwin ]; then
-    die "macOS detecte, et Docker n'y est pas joignable.
-       get.docker.com n'installe qu'un demon Linux. Sur macOS, Docker passe par
-       Docker Desktop :
-         1. installez-le (https://docs.docker.com/desktop/install/mac-install/)
-         2. lancez-le et attendez que son icone indique « running »
-         3. relancez ./install.sh
-       Le reste du script fonctionne sur macOS une fois Docker Desktop demarre."
-  fi
+  # Pas de garde macOS ici, deliberement : get.docker.com detecte Darwin lui-meme
+  # et sort sur « ERROR: Unsupported operating system 'macOS' / Please get Docker
+  # Desktop from ... ». Ajouter la notre remplacerait un message correct par un
+  # autre, et nous ferait affirmer sur le reste du parcours macOS une chose que
+  # nous n'avons pas verifiee, faute de Mac. macOS n'est pas un systeme couvert.
 
   # Obtenir de quoi telecharger AVANT d'essayer de telecharger. Cette marche
   # peut demander sudo : la mettre ici la fait passer par can_sudo, donc

@@ -521,15 +521,19 @@ single download helper both installers go through. **`apt-get update` before `ap
 load-bearing**: on a bare Ubuntu the package lists are empty and `install -y curl` answers `Unable to
 locate package curl`, blaming the package when the index is what is missing.
 
-**macOS is guarded, not supported blindly.** `get.docker.com` only installs a Linux daemon, so a
-`uname -s` of `Darwin` with Docker unreachable now dies naming Docker Desktop instead of failing
-later on a message about Linux packages. With Docker Desktop already running the rest of the script
-works — no GNU-only option sits on the nominal path.
+**There is deliberately no macOS guard, and re-adding one would be a regression.** A `Darwin` check
+dying with our own Docker Desktop message was written, then removed: `get.docker.com` **detects
+macOS itself** and exits with `ERROR: Unsupported operating system 'macOS' / Please get Docker
+Desktop from …` (line 763 of the upstream script). Ours replaced a correct message with another one,
+and its text asserted that the rest of the script works on macOS — a claim nobody here can verify,
+there being no Mac. macOS is simply not a covered system, and the code says so in a comment where
+the guard used to be.
 
-**`timeout` is optional, via `tcp_probe`.** It comes from GNU coreutils and does **not** exist on
-macOS. Hard-coded, the missing command returned 127, the `if` failed, and `port_state` declared an
+**`timeout` is optional, via `tcp_probe`.** This one is *not* about macOS support, which is why it
+stayed: it is about the script degrading silently when a command is absent. `timeout` comes from GNU
+coreutils; hard-coded, a missing one returned 127, the `if` failed, and `port_state` declared an
 occupied port *free* — the failure then surfaced at `up` without naming the culprit. Reproduced on
-the old code, fixed on the new.
+the old code (with `timeout` stripped from `PATH`), fixed on the new.
 
 **Alpine is deliberately not covered**, and the technique is recorded here so the decision stays
 reviewable rather than becoming a hole: the shebang is `bash`, absent from Alpine, so nothing runs at
@@ -648,7 +652,7 @@ it are load-bearing:
   died on a bare Ubuntu. Adding a package here reintroduces it.
 
 Its scope is the **root** tier of the docker cascade (`id -u` = 0 in the container). The *sudo* and
-*rootless* tiers, and macOS, are still manual.
+*rootless* tiers are still manual. macOS is not covered at all.
 
 ## Data model (A2)
 
