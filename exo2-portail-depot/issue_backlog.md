@@ -125,11 +125,15 @@ Dépendances : A5.
 Serveur partagé : proxy frontal par `Host` header en HTTP et SNI passthrough en HTTPS, services sur
 `127.0.0.1` dans la plage de ports attribuée.
 
-- [x] Écoute sur `127.0.0.1:<port attribué>` uniquement — `127.0.0.1:21601:443`, bind explicite
+- [x] Écoute sur `127.0.0.1:<port attribué>` uniquement — `127.0.0.1:21601:443`, bind explicite ;
+      vérifié depuis internet, les six ports du projet (21600, 21601, 21610, 21632, 21690, 21691)
+      refusent la connexion
 - [x] Challenge HTTP-01 relayé par le proxy sur :80 — `location /.well-known/acme-challenge/`
-- [ ] Essais avec l'endpoint **staging** de Let's Encrypt avant le certificat réel
+- [x] Essais avec l'endpoint **staging** de Let's Encrypt avant le certificat réel
 - [ ] Renouvellement automatique vérifié (dry-run)
-- [ ] `https://sephorah-aniambossou.stage2-div.rayan-drissi.com` répond
+- [x] `https://sephorah-aniambossou.stage2-div.rayan-drissi.com` répond — 200 en HTTP/2, émetteur
+      `O=Let's Encrypt, CN=YE2` (le vrai, pas le serveur de test), valide du 9 août au 7 novembre
+      2026, accepté sans `-k` ; le HTTP répond 301 vers HTTPS et la sonde de santé reste en 403
 
 Dépendances : A6.
 

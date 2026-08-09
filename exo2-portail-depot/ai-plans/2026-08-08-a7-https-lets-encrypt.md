@@ -146,8 +146,26 @@ Le diff a été relu en entier. Quatre défauts trouvés et corrigés :
 Un cinquième point est cosmétique : `COMPOSE_TLS` est écrit en entier au lieu d'être dérivé de
 `$COMPOSE`, pour que le `-f` du calque ne se retrouve pas derrière `--env-file` dans la bannière.
 
-**Sur la machine de staging** : à faire — déploiement A6 par `git sparse-checkout`, puis
-`ACME_STAGING=1`, puis le certificat réel, puis `certbot renew --dry-run`.
+**Sur la machine de staging**, déploiement effectué (premier déploiement réel du projet, ce qui
+valide A6 du même coup) : `git sparse-checkout`, `./install.sh` en HTTP, puis `ACME_STAGING=1`, puis
+le certificat réel. Contrôlé depuis internet, hors de la machine :
+
+| Test | Attendu | Obtenu |
+|---|---|---|
+| `https://<domaine>/` | 200 | 200, HTTP/2 |
+| `http://<domaine>/` | 301 vers HTTPS | 301 |
+| émetteur du certificat | Let's Encrypt, **pas** `(STAGING)` | `O=Let's Encrypt, CN=YE2` |
+| validité | 90 jours | 9 août → 7 novembre 2026 |
+| confiance | `curl` accepte sans `-k` | accepté |
+| `/api/v1/health` | 403 — c'est notre conf qui tourne | 403 |
+| `/api/` | 404 du backend, et non l'index du frontend | 404 |
+| HSTS | présent | `max-age=15552000` |
+| ports 21600, 21601, 21610, 21632, 21690, 21691 depuis internet | tous refusés | tous refusés |
+
+Le dernier contrôle vaut les autres : la machine est partagée, et un seul port publié sur `0.0.0.0`
+aurait exposé la base par `/api` et la console MinIO, c'est-à-dire toutes les pièces des clients.
+
+Reste : `certbot renew --dry-run`, qui demande un accès à la machine.
 
 ## Sécurité
 
