@@ -68,13 +68,24 @@ explicitement : le premier usage de curl est un `https://`.
 `can_sudo` affichait « Docker doit etre installe, ce qui demande les droits administrateur ».
 `ensure_fetcher` appelant la même fonction pour curl, le message est devenu général.
 
-### 2. macOS, et `timeout` rendu optionnel
+### 2. `timeout` rendu optionnel (et la garde macOS, écrite puis retirée)
 
-`get.docker.com` n'installe qu'un démon Linux. La cascade y partait quand même et échouait plus loin
-sur un message parlant de paquets Linux. Un `uname -s` valant `Darwin` sans Docker joignable meurt
-maintenant en nommant Docker Desktop et ses trois étapes.
+Une garde macOS a d'abord été ajoutée : `uname -s` valant `Darwin` sans Docker joignable mourait en
+nommant Docker Desktop. **Elle a été retirée avant la fin**, après vérification de ce que fait
+réellement `get.docker.com` : le script officiel **détecte macOS lui-même** (ligne 763) et sort sur
+`ERROR: Unsupported operating system 'macOS' / Please get Docker Desktop from …`. La nôtre
+remplaçait donc un message correct par un autre — et surtout, son texte affirmait « le reste du
+script fonctionne sur macOS une fois Docker Desktop démarré », ce que personne ici ne peut vérifier
+faute de Mac. Une promesse non vérifiée imprimée à l'utilisateur.
 
-**`timeout` vient des coreutils GNU et n'existe pas sur macOS.** Écrit en dur dans `port_state`, la
+**La leçon, plus large que ce cas** : avant d'encadrer l'échec d'un outil tiers, lire ce que cet
+outil dit déjà. J'avais justifié la garde sur une supposition — « la cascade échouerait sur un
+message parlant de paquets Linux » — sans ouvrir le script en question. Un commentaire à l'endroit
+de la garde explique maintenant pourquoi il n'y en a pas, pour qu'elle ne soit pas réintroduite.
+
+**`timeout` vient des coreutils GNU et n'existe pas sur macOS. Ce correctif-là est resté**, parce
+qu'il ne porte pas sur le support de macOS mais sur une dégradation silencieuse quand une commande
+manque, quelle que soit la machine. Écrit en dur dans `port_state`, la
 commande absente renvoyait 127, le `if` échouait, et un port **occupé** était déclaré **libre** —
 l'échec n'arrivait qu'au `up`, sans nommer le coupable. C'est exactement la dégradation silencieuse
 que le commentaire de `port_state` disait vouloir éviter. `tcp_probe` le rend optionnel.
@@ -165,16 +176,15 @@ vérifié.
 | `ensure_fetcher`, palier **sudo** | utilisateur non privilégié (uid 1001) avec sudo : curl installé via `sudo apt-get`, script poursuivi |
 | `ensure_fetcher`, **ni root ni sudo** | même conteneur sans sudo : exit 1, message nommant les trois commandes par distribution — pas d'échec muet |
 | Non-régression machine équipée | `./install.sh` ici : **15 s**, cinq services healthy, HTTP 200 |
-| Garde macOS | `uname` truqué à `Darwin` : le script meurt en nommant Docker Desktop, exit 1 |
 | `timeout` absent | `PATH` amputé : port occupé toujours détecté (l'ancien code le déclarait libre) |
 | Bannière SSH | `SSH_CONNECTION` défini → la ligne `ssh -L` apparaît ; absent → elle n'apparaît pas |
 | Secrets non régénérés | trois `./install.sh` consécutifs → même `DB_PASSWORD` (`bf657bf910e3`) |
 | `.env.example` autoportant | `cp` + secrets seuls → `docker compose config` passe sur le compose dev **et** prod |
 | `.env` ancien réparé | `DB_USER=` vide → rempli à `portail` par `set_env_default`, `.env` en 600 |
 
-**Non vérifié** : un vrai macOS (pas de machine disponible — la branche a été exercée en truquant
-`uname`, ce qui teste la logique et le message, pas le comportement de Docker Desktop) ; le palier
-*rootless* de la cascade Docker, inchangé par ce lot mais non rejoué.
+**Non vérifié** : macOS, qui n'est donc pas couvert et que rien dans le projet ne prétend couvrir
+(c'est ce qui a fait retirer la garde) ; le palier *rootless* de la cascade Docker, inchangé par ce
+lot mais non rejoué.
 
 **Trouvé par la relecture du diff, et corrigé** :
 
@@ -216,7 +226,7 @@ modules B/C n'existent pas) et accord explicite.
 ## Fichiers touchés
 
 - `install.sh` — `fetch_url`, `detect_package_manager`, `install_curl_with`, `ensure_fetcher`,
-  `tcp_probe`, garde Darwin, `$USER` gardé, bannière SSH
+  `tcp_probe`, `$USER` gardé, bannière SSH
 - `.env.example` — `DB_USER` et `DB_NAME` renseignés, commentaire expliquant pourquoi
 - `scripts/test-bare-machine.sh` — nouveau
 - `package.json` — `test:bare-machine`
