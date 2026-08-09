@@ -4,9 +4,12 @@
  * function main.ts calls, so cookie-parser, the ValidationPipe, the proxy trust
  * and the global prefix are the production ones.
  *
- * What it does NOT prove: that the queries reach a real Postgres. PrismaService
- * is replaced by a double. The real chain is verified by `./install.sh` plus a
- * login through nginx (see ai-plans).
+ * The queries reach a REAL Postgres, started by test/global-setup.ts: the
+ * rotation and the reuse detection run against actual RefreshToken rows, which
+ * an in-memory stand-in could only imitate.
+ *
+ * What it still does NOT prove: that the portal works through nginx and the
+ * frontend. That remains `./install.sh` plus a login by hand (see ai-plans).
  */
 
 import { ConfigService } from '@nestjs/config';
@@ -24,6 +27,7 @@ import { INVALID_CREDENTIALS } from './../src/auth/auth.service';
 import { hashSecret } from './../src/crypto/secrets';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { StorageService } from './../src/storage/storage.service';
+import { insertLawyer, resetDatabase } from './database';
 
 const PASSWORD = 'un-mot-de-passe-de-test';
 
@@ -37,96 +41,20 @@ describe('Auth (e2e)', () => {
   let healthPath: string;
 
   const lawyer = {
-    id: 'lawyer-1',
     name: 'Maitre Dupont',
     email: 'avocat@exemple.fr',
     passwordHash: '',
-    createdAt: new Date(),
   };
 
-  /**
-   * Stands in for prisma.lawyer.findUnique, which both paths go through:
-   * AuthService looks the account up by e-mail, JwtAuthGuard by identifier.
-   * The double honours both so the suite exercises the real code, not a
-   * shortcut.
-   */
-  const findUnique = jest.fn(
-    ({ where }: { where: { id?: string; email?: string } }) => {
-      if (where.id !== undefined) {
-        return Promise.resolve(where.id === lawyer.id ? lawyer : null);
-      }
-      return Promise.resolve(where.email === lawyer.email ? lawyer : null);
-    },
-  );
+  // Handed out by the insertion, so it is a real uuid rather than a constant
+  // the double used to return.
+  let lawyerId: string;
 
-  /**
-   * An in-memory stand-in for the RefreshToken table, so that the suite drives
-   * the REAL rotation logic rather than a stub of it: a double returning fixed
-   * values would let a broken reuse detection pass.
-   */
-  let stored: Map<string, Record<string, unknown>>;
-
-  const refreshFindUnique = jest.fn(
-    ({ where }: { where: { tokenHash: string } }) =>
-      Promise.resolve(stored.get(where.tokenHash) ?? null),
-  );
-
-  const refreshCreate = jest.fn(
-    ({ data }: { data: Record<string, unknown> }) => {
-      stored.set(data.tokenHash as string, {
-        id: `t${stored.size}`,
-        revokedAt: null,
-        createdAt: new Date(),
-        ...data,
-      });
-      return Promise.resolve({});
-    },
-  );
-
-  const refreshUpdateMany = jest.fn(
-    ({
-      where,
-      data,
-    }: {
-      where: { tokenHash?: string; familyId?: string; revokedAt?: null };
-      data: { revokedAt: Date };
-    }) => {
-      // Without a discriminator the loop below would match every row, so a
-      // call meant for one family would revoke every session in the store --
-      // and the test would still pass. Fail loudly instead.
-      if (where.tokenHash === undefined && where.familyId === undefined) {
-        throw new Error('updateMany without tokenHash or familyId');
-      }
-
-      let count = 0;
-      for (const row of stored.values()) {
-        const matches =
-          (where.tokenHash === undefined ||
-            row.tokenHash === where.tokenHash) &&
-          (where.familyId === undefined || row.familyId === where.familyId) &&
-          (where.revokedAt !== null || row.revokedAt === null);
-        if (matches) {
-          row.revokedAt = data.revokedAt;
-          count += 1;
-        }
-      }
-      return Promise.resolve({ count });
-    },
-  );
-
-  /** Deletes the rows whose ceiling has passed, like the real purge. */
-  const refreshDeleteMany = jest.fn(
-    ({ where }: { where: { expiresAt: { lt: Date } } }) => {
-      let count = 0;
-      for (const [hash, row] of stored) {
-        if ((row.expiresAt as Date).getTime() < where.expiresAt.lt.getTime()) {
-          stored.delete(hash);
-          count += 1;
-        }
-      }
-      return Promise.resolve({ count });
-    },
-  );
+  const profile = (): Record<string, string> => ({
+    id: lawyerId,
+    name: lawyer.name,
+    email: lawyer.email,
+  });
 
   /**
    * Reads the value of a Set-Cookie header by name, or null.
@@ -166,39 +94,9 @@ describe('Auth (e2e)', () => {
   });
 
   beforeEach(async () => {
-    [
-      findUnique,
-      refreshFindUnique,
-      refreshCreate,
-      refreshUpdateMany,
-      refreshDeleteMany,
-    ].forEach((m) => m.mockClear());
-    stored = new Map();
-    // Real timers by default; the deadline tests move the clock themselves.
-    jest.useFakeTimers({ advanceTimers: true, doNotFake: ['nextTick'] });
-
-    const prismaDouble: Record<string, unknown> = {
-      lawyer: { findUnique },
-      refreshToken: {
-        findUnique: refreshFindUnique,
-        create: refreshCreate,
-        updateMany: refreshUpdateMany,
-        deleteMany: refreshDeleteMany,
-      },
-      $queryRaw: jest.fn(),
-      $connect: jest.fn(),
-      $disconnect: jest.fn(),
-    };
-    // Interactive form, handing the same client back: the rotation then runs
-    // its real sequence instead of a transaction-shaped stub.
-    prismaDouble.$transaction = (fn: (tx: unknown) => Promise<unknown>) =>
-      fn(prismaDouble);
-
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
-      .overrideProvider(PrismaService)
-      .useValue(prismaDouble)
       .overrideProvider(StorageService)
       .useValue({
         ping: jest.fn().mockResolvedValue(true),
@@ -213,6 +111,15 @@ describe('Auth (e2e)', () => {
     });
     configureApp(app);
     await app.init();
+
+    const prisma = app.get(PrismaService);
+    await resetDatabase(prisma);
+    lawyerId = (await insertLawyer(prisma, lawyer)).id;
+
+    // Installed only now, and never around app.init() or the seeding: the
+    // Postgres driver arms timers of its own, and freezing the clock while it
+    // connects is asking for a hang that looks like a slow test.
+    jest.useFakeTimers({ advanceTimers: true, doNotFake: ['nextTick'] });
 
     jwt = app.get(JwtService);
     const prefix = app.get(ConfigService).getOrThrow<string>('API_PREFIX');
@@ -232,11 +139,7 @@ describe('Auth (e2e)', () => {
     it('answers 200 with the profile and sets the session cookie', async () => {
       const response = await login().expect(200);
 
-      expect(response.body).toEqual({
-        id: 'lawyer-1',
-        name: 'Maitre Dupont',
-        email: 'avocat@exemple.fr',
-      });
+      expect(response.body).toEqual(profile());
 
       const cookie = sessionCookie(response);
       expect(cookie).not.toBeNull();
@@ -349,18 +252,14 @@ describe('Auth (e2e)', () => {
         .set('Cookie', cookie as string)
         .expect(200);
 
-      expect(response.body).toEqual({
-        id: 'lawyer-1',
-        name: 'Maitre Dupont',
-        email: 'avocat@exemple.fr',
-      });
+      expect(response.body).toEqual(profile());
       expect(JSON.stringify(response.body)).not.toContain('argon2');
     });
 
     it('answers 401 on a token signed with another secret', async () => {
       const forged = new JwtService({
         secret: 'an-entirely-different-secret-of-the-right-length',
-      }).sign({ sub: lawyer.id });
+      }).sign({ sub: lawyerId });
 
       await request(app.getHttpServer())
         .get(mePath)
@@ -369,7 +268,7 @@ describe('Auth (e2e)', () => {
     });
 
     it('answers 401 on an expired token', async () => {
-      const expired = jwt.sign({ sub: lawyer.id }, { expiresIn: '-1s' });
+      const expired = jwt.sign({ sub: lawyerId }, { expiresIn: '-1s' });
 
       await request(app.getHttpServer())
         .get(mePath)
@@ -431,11 +330,7 @@ describe('Auth (e2e)', () => {
 
       expect(refreshCookie(renewed)).not.toBe(first);
       expect(sessionCookie(renewed)).not.toBeNull();
-      expect(renewed.body).toEqual({
-        id: 'lawyer-1',
-        name: 'Maitre Dupont',
-        email: 'avocat@exemple.fr',
-      });
+      expect(renewed.body).toEqual(profile());
     });
 
     it('answers 401 with no refresh cookie', async () => {
