@@ -2,7 +2,9 @@
 FROM node:22-alpine AS build
 RUN corepack enable && corepack prepare pnpm@11.20.0 --activate
 WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
+# pnpm-workspace.yaml carries the allowBuilds list; without it here,
+# --frozen-lockfile exits 1 on ERR_PNPM_IGNORED_BUILDS.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # Pas de `--mount=type=cache` ici non plus : voir backend/Dockerfile.
 RUN pnpm install --frozen-lockfile
 COPY . .

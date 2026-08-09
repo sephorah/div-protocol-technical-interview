@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "./scripts/verify-type-aware.sh && oxlint --deny-warnings",
+    "theme:typegen": "chakra typegen src/theme/index.ts",
+    "build": "pnpm run theme:typegen && tsc -b && vite build",
+    "lint": "pnpm run theme:typegen && ./scripts/verify-type-aware.sh && oxlint --deny-warnings",
     "preview": "vite preview",
     "start": "serve -s dist -l 4000",
     "test": "vitest run",
@@ -23,6 +24,7 @@
     "serve": "^14.2.6"
   },
   "devDependencies": {
+    "@chakra-ui/cli": "^3.36.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
