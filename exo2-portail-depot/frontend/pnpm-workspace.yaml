@@ -1,0 +1,5 @@
+# pnpm 11 refuse install scripts by default. esbuild's is genuinely needed: it
+# is what puts the platform binary in place, and @chakra-ui/cli loads the
+# TypeScript theme through esbuild to generate the recipe types.
+allowBuilds:
+  esbuild: true

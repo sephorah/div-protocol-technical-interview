@@ -5,15 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "./scripts/verify-type-aware.sh && oxlint --deny-warnings",
+    "theme:typegen": "chakra typegen src/theme/index.ts",
+    "build": "pnpm run theme:typegen && tsc -b && vite build",
+    "lint": "pnpm run theme:typegen && ./scripts/verify-type-aware.sh && oxlint --deny-warnings",
     "preview": "vite preview",
-    "start": "serve -s dist -l 4000"
+    "start": "serve -s dist -l 4000",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@chakra-ui/react": "^3.36.1",
     "@emotion/react": "^11.14.0",
-    "next-themes": "^0.4.6",
+    "@fontsource-variable/inter": "^5.3.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-icons": "^5.7.0",
@@ -21,14 +24,22 @@
     "serve": "^14.2.6"
   },
   "devDependencies": {
+    "@chakra-ui/cli": "^3.36.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.3",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
+    "@vitest/coverage-v8": "^4.1.10",
+    "jsdom": "^30.0.1",
     "oxlint": "1.77.0",
     "oxlint-tsgolint": "7.0.2001",
     "typescript": "~6.0.2",
-    "vite": "^8.2.0"
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
   },
   "packageManager": "pnpm@11.20.0"
 }

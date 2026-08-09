@@ -208,7 +208,11 @@ pnpm preview                # serve the production build
 pnpm lint                   # scripts/verify-type-aware.sh && oxlint --deny-warnings
 ```
 
-No frontend test runner is installed yet; picking one is still open.
+The frontend runs **Vitest 4 + Testing Library + jsdom** (`pnpm -C frontend test`), and root
+`pnpm test` now runs both suites. Vitest rather than Jest because it reads `vite.config.ts`, and
+because Chakra v3 and Ark UI are ESM-only -- Jest would need a `transformIgnorePatterns` list to
+maintain. `globals: false`, so every test imports `describe`/`it`/`expect` and `types` in
+`tsconfig.app.json` stays untouched.
 
 The frontend linter is **oxlint, not eslint** — it came with the Vite 8 `react-ts` template, as the
 backend's eslint came with the Nest one. Neither was a decision; both are now at the same
@@ -225,10 +229,11 @@ directory `tsconfig.app.json` covers, so the only one with type information) and
 gitignored — oxlint honours `.gitignore` and would refuse to read it; `--no-ignore` does not help,
 it only covers `.eslintignore`. Cleanup is the script's `trap`.
 
-`--deny-warnings` makes the frontend lint blocking: warnings fail the command. The two
-`react/only-export-components` warnings in the Chakra-generated `color-mode.tsx` are silenced with
-scoped `oxlint-disable-next-line` comments rather than by splitting the file, which would diverge
-from the upstream snippet on every regeneration.
+`--deny-warnings` makes the frontend lint blocking: warnings fail the command. The rule that used to
+need silencing lived in the Chakra-generated `color-mode.tsx`, which **E1 deleted**. Where it fires
+now the answer is to **split the file**, not to disable it: `src/auth/session.ts` holds the context
+and `useSession`, `src/auth/session-provider.tsx` holds the component, precisely because a file
+exporting both breaks fast refresh.
 
 The backend lint is blocking too, via `--max-warnings 0`. Its one warning was the stock
 `bootstrap();` in `main.ts`. It is handled rather than silenced: `void bootstrap()` would satisfy
@@ -935,6 +940,63 @@ Two mitigations, both in nginx, both load-bearing:
   so `docker logs frontend` held `GET /depot/<token>` in clear — the same token nginx redacts, in the
   same place. Dropping the flag makes the whole nginx effort worthless.
 
+## Theme and lawyer screens (E1)
+
+`frontend/src/theme/` holds one `createSystem`: raw tokens, semantic tokens, five recipes and one
+text style. Screens consume them and **never write a colour, a font or a radius**. A missing
+component is created in the theme, not in the page. The login screen (`src/pages/login-page.tsx`,
+route `/login`) exists to prove the theme on something real, and it authenticates against B1.
+
+Eight things are non-obvious, and the first three cost a browser session to find because **jsdom
+computes no styles** -- it says a button exists, never that it is violet:
+
+- **Chakra's own variants beat a recipe's `base`, silently.** The card title was written at 11px in
+  `base` and rendered at **18px**; the card root took `bg.panel` and the input stayed transparent,
+  both from the default `outline` variant. Anything the charter fixes must therefore be repeated in
+  the variants that could override it. The recipe tests read the **effective** value -- `base` plus
+  the default variants -- rather than `base`, which is what would have caught it.
+- **A `textStyle` beats a `fontSize` declared beside it.** Chakra's card recipe sets
+  `textStyle: 'lg'` on the title slot, so adding `fontSize: '11px'` next to it changed nothing. The
+  answer is our own `cardTitle` textStyle (`src/theme/text-styles.ts`), replacing theirs on the
+  same key. `headingRecipe` needs no such thing: Chakra's weight sits in `base` and no size variant
+  touches it.
+- **The kit's card header band is a SECTION LABEL at 11px, not a page title.** Used as one, the
+  login screen's own name became unreadable. The band carries an eyebrow; the readable heading goes
+  in the body.
+- **`chakra typegen` runs before `tsc` and before the type-aware lint.** Chakra's `BadgeVariant` is
+  a closed union and declaration merging cannot widen an existing property, so a custom variant does
+  not type-check without it. It **rewrites files inside `node_modules`**, which is why it must also
+  run in the image build -- hence `frontend/pnpm-workspace.yaml` (esbuild's install script) being
+  COPYed in `frontend/Dockerfile`. Adding a variant without rerunning it fails the build, loudly.
+- **`height: 'auto'` in the button and input recipes is load-bearing**: Chakra sets a height per
+  size that otherwise wins over the charter's padding and flattens the component.
+- **The hover outline is `boxShadow: inset`, never a `border`.** A border appearing on hover shifts
+  the label by a pixel; an inset ring takes no space. Measured: same 153x40 box at the same position
+  before and after. A test asserts the absence of `border`/`borderWidth` on both variants, which is
+  all jsdom can see -- the inversion itself stays a manual check.
+- **`Stack` stretches its children**, so a button inside one loses the charter's hug-the-label
+  shape. `alignSelf` is the fix, in the screen, where layout belongs.
+- **`/auth/login` never triggers a session renewal.** A 401 there means wrong password, not expired
+  token; without the exception a refused sign-in fired `/auth/login` then `/auth/refresh`.
+  `NEVER_RENEWED` in `src/api/client.ts` holds both routes.
+
+**Light only, and the mechanism is absence**: `next-themes` and `color-mode.tsx` are gone, no
+`_dark` condition is declared, and nothing puts the `dark` class on the document. Do not reintroduce
+a toggle to "make it configurable".
+
+**Inter is self-hosted** (`@fontsource-variable/inter`, imported first in `main.tsx`). Google Fonts
+would make the lawyer's browser contact a third party on every visit, on a product whose argument is
+the traceability of a case file. Verified: 40 requests on load, none off-origin.
+
+**Lawyer-side routes are English** (`/login`, `/dashboard`). The client route is **not ours to
+rename**: the backend composes it (`DEPOSIT_PATH` in `backend/src/requests/public-url.ts`) and
+`infra/nginx/log-redact.conf` redacts that exact prefix, so `/depot` only moves if all three move
+together.
+
+**The scroll reveal is deliberately NOT here** -- it moved to B5, and the backlog says so rather
+than leaving a box ticked wrongly. The login screen fits in one viewport: nothing to reveal, so
+nothing verifiable.
+
 ## Dashboard (B4)
 
 `GET /requests` (paginated) and `GET /requests/:id` (one request with its pieces), both served by
@@ -1090,8 +1152,12 @@ was absent.
 made the API reachable around the proxy on a shared machine. It is `127.0.0.1` on the host and
 `0.0.0.0` in the container (isolated network, no published port, and nginx must reach the service).
 
-Three files freeze these values and must change together, since nginx does not read the
-environment: `.env`, `infra/nginx/nginx.conf` and the `healthcheck` in `infra/docker-compose.yml`.
+Four files freeze these values and must change together, since nginx does not read the
+environment: `.env`, `infra/nginx/nginx.conf`, the `healthcheck` in `infra/docker-compose.yml`, and
+**`frontend/src/api/client.ts`** -- the browser cannot read `.env` either. A `VITE_API_PREFIX` would
+be baked into the image at build time in CI, so it would be configurable in appearance only. What
+the fourth copy buys instead is that a drift reads as itself: the API client reports a 404 as its
+own error kind and the login screen says "API introuvable", not "serveur injoignable".
 In `nginx.conf`,
 `proxy_pass http://backend:21610` carries **no trailing slash** — a trailing slash would strip the
 prefix Nest now serves itself, and everything would 404. The `deny all` rule targets

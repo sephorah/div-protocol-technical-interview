@@ -95,6 +95,7 @@ travailler avec le rechargement à chaud (Node 22 et pnpm 11 requis sur la machi
 pnpm install:all
 pnpm db:up      # Postgres seul, sur 127.0.0.1:21632
 pnpm dev        # API :21610, frontend :5173
+pnpm test       # les deux suites : backend (jest) puis frontend (vitest)
 ```
 
 L'API lit sa configuration dans `.env` à la racine et **refuse de démarrer si une variable
@@ -375,6 +376,18 @@ de validation. L'allowlist et la taille maximale (20 Mo) vivent dans la configur
 - **Pas de filtre ni de tri par statut.** Le statut étant calculé à la lecture, le filtrer en SQL en
   ferait une seconde définition de la règle, susceptible de diverger de la première sans qu'aucun
   test ne le voie. Ni l'énoncé ni le backlog ne le demandent.
+- **Français uniquement, sans mécanisme de traduction.** Les messages de validation de l'API sont
+  écrits en français dans les DTO, et un test unitaire de B2 refuse tout message anglais : traduire
+  l'interface seule donnerait des écrans anglais à erreurs françaises. Un vrai multilingue demande
+  deux catalogues et la reprise de trois modules déjà livrés. Ce qui est fait à la place ne coûte
+  rien et rendrait la traduction mécanique : les textes de chaque écran sont regroupés dans un objet
+  `TEXT` en tête de fichier, et `<html lang="fr">` est posé.
+- **Aucun en-tête `Content-Security-Policy`.** L'application n'en a pas besoin pour fonctionner, mais
+  c'est la défense qui limiterait les dégâts d'une dépendance frontend compromise. À régler dans
+  `infra/nginx/server-hardening.conf`.
+- **Le survol du bouton n'est couvert par aucun test.** jsdom ne calcule pas les styles ; c'est une
+  vérification au navigateur (mesurée : fond `#F7F6FF`, texte violet, contour intérieur, et le même
+  gabarit de 153×40 px à la même position — donc aucun décalage d'un pixel).
 - **Le nom de fichier d'origine est restitué tel que le client l'a envoyé.** Il n'est jamais utilisé
   comme chemin — la clé de stockage est composée à partir des identifiants — mais l'interface qui
   l'affichera (B5) devra l'échapper comme n'importe quelle donnée venue de l'extérieur.
@@ -459,7 +472,9 @@ Trois étages, qui ne prouvent pas la même chose. Chacun a une dépendance et u
 
 | Commande | Ce que ça exerce | Docker | Durée mesurée |
 |---|---|---|---|
-| `pnpm test` | Les unités seules, avec des doublures : validation de configuration, dérivation du statut, primitives de hachage, règles de rotation | non | 3,7 s — 244 tests |
+| `pnpm test` | Les deux suites unitaires, backend puis frontend | non | ~9 s — 314 tests |
+| `pnpm -C backend test` | Les unités du backend, avec des doublures : validation de configuration, dérivation du statut, primitives de hachage, règles de rotation | non | 3,8 s — 257 tests |
+| `pnpm -C frontend test` | Le thème (les valeurs de la charte verrouillées), le client d'API, le contexte de session, l'écran de connexion — jsdom, Vitest | non | 4,8 s — 57 tests |
 | `pnpm test:e2e` | L'API entière par HTTP, contre un **vrai PostgreSQL 17** monté par testcontainers, migrations réelles appliquées | oui | 20,3 s — 65 tests |
 | `pnpm test:integration` | `StorageService` contre un **vrai MinIO**, sous la politique d'accès restreinte de la production | oui | 4,7 s — 9 tests |
 | `pnpm test:bare-machine` | `./install.sh` sur une image `ubuntu:24.04` où rien n'est préinstallé | oui | ~2 min |
@@ -482,10 +497,22 @@ que ce test précis échoue, puis en remettant le fichier.
 passe de 8,5 s à 20 s. L'argument qui justifiait l'ancien montage — « la CI ne pourra pas lancer
 Docker » — était faux : les exécuteurs GitHub embarquent un démon Docker.
 
-**Ce qu'aucun étage ne couvre.** Aucun test ne traverse nginx ni le frontend : le parcours réel d'un
-avocat ou d'un client à travers la pile complète reste une vérification à la main, et le restera
-jusqu'à ce qu'un test de bout en bout piloté par un navigateur existe. Le frontend n'a d'ailleurs
-aucun lanceur de tests installé.
+**Pourquoi Vitest côté frontend et pas Jest**, alors que le backend est en Jest. Vitest relit
+`vite.config.ts` : les greffons, les alias et TypeScript sont déjà réglés. Jest ne le lit pas, et
+Chakra v3 comme Ark UI ne sont livrés qu'en modules ES, ce qui impose une liste d'exceptions de
+transformation à maintenir. La cohérence entre les deux applications est une préférence ; la
+compatibilité avec des modules ES est une contrainte, et c'est elle qui tranche.
+
+**Ce qu'aucun étage ne couvre.** Aucun test ne traverse nginx : le parcours réel d'un avocat ou d'un
+client à travers la pile complète reste une vérification à la main.
+
+Et **jsdom ne calcule aucun style**. Il dit qu'un bouton existe, jamais qu'il est violet. Trois
+défauts de la charte sont passés au travers de 55 tests verts et n'ont été vus qu'au navigateur :
+un titre de carte rendu à 18 px alors que la recette écrivait 11, un fond de carte et un fond de
+champ pris à Chakra plutôt qu'à la charte. Les tests de recette lisent depuis la valeur **effective**
+— `base` plus les variantes par défaut — au lieu de `base` seul, ce qui les aurait attrapés ; mais
+l'inversion au survol, elle, reste hors de leur portée. La couvrir demanderait Vitest en mode
+navigateur, donc un Chromium téléchargé en CI.
 
 ---
 

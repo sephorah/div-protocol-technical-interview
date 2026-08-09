@@ -30,3 +30,6 @@ pnpm-debug.log*
 .vscode/*
 !.vscode/extensions.json
 .cache/
+
+# Captures Playwright MCP, hors depot
+.playwright-mcp/
