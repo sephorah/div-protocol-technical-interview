@@ -46,9 +46,10 @@ model with its crypto primitives (`src/crypto/secrets.ts`), and containerised Mi
 `StorageService`. **A6 is done too**: the images are built and published to GHCR by a workflow, and
 the production stack pulls them. **B1 is done**: lawyer authentication (`/auth/login`,
 `/auth/logout`, `/auth/me`), a JWT in an httpOnly cookie, a **global** guard, and `src/seed.ts` — the
-demonstration account `install.sh` already knew how to run. There is still no request creation (B2),
-no upload route (C2), and no CI running lint or tests (D3 — the only workflow so far publishes
-images).
+demonstration account `install.sh` already knew how to run. **B2 is done**: `POST /requests` creates
+a deposit request, its expected items, its public link and its 4-digit PIN. There is still no public
+URL builder or link regeneration (B3), no dashboard (B4), no upload route (C2), and no CI running
+lint or tests (D3 — the only workflow so far publishes images).
 Regenerate this file (`/init`) once the business modules exist.
 
 **pnpm is the package manager** in both apps (`pnpm-lock.yaml` is the source of truth) — do not run
@@ -779,6 +780,47 @@ could not have its PIN reprinted, and a demonstration link whose PIN nobody know
 The three `SEED_LAWYER_*` variables are deliberately **not** in `validateEnv`: the API never reads
 them, and requiring them would tie its startup to a demo fixture. They are guarded by `${VAR:?}` in
 compose and by an explicit non-empty check in the seed — `getOrThrow` accepts an empty string.
+
+## Deposit requests (B2)
+
+`POST /requests` (`src/requests/`) creates a request, its expected items, its public link and its
+PIN, in **one nested Prisma write** — an implicit transaction, so there can be no request without a
+link nor a link without a request. The body is `{ title, items: string[], expiresInDays }`.
+
+Six things are non-obvious:
+
+- **The token and the PIN exist in clear exactly once**, in the creation response. The database
+  holds a SHA-256 and an argon2id. Consequence to state out loud rather than rediscover: **a lost
+  PIN is not redisplayed, it is replaced** by regenerating the link (B3). `IssuedLink` is the type
+  that carries them, and it appears in no other response.
+- **`RequestedItem.position` exists because `createdAt` cannot order them.** The items of one
+  request are inserted in the same nested write, so they share a timestamp to the millisecond and
+  Postgres is free to return them in any order — the client's checklist would reshuffle between two
+  page loads. Every read therefore carries `orderBy: { position: 'asc' }`; the column's `@default(0)`
+  only exists to migrate rows written before it. The **seed realigns** pre-existing items, which the
+  migration cannot: it is the only thing that knows the demonstration order.
+- **`deriveStatus(input, now)` takes the clock as an argument.** Expiry tests then need no frozen
+  clock, and B4 will classify a whole list against a single instant. Expiry wins over completeness
+  (A2's rule), and the comparison is **strict** — at the exact expiry instant the link still works.
+  A test covers that boundary and another covers the order of the two branches.
+- **`lawyerId` is read from `request.lawyer`, never from the body.** A body naming one answers 400
+  through `forbidNonWhitelisted`, and an e2e case asserts it. The controller carries no `@UseGuards`
+  and must never carry `@Public()`: the global guard is what closes it, and the 401 test is what
+  proves it.
+- **Validation messages are in French**, like `auth/dto/login.dto.ts`, and **every decorator needs
+  one explicitly**. Without it class-validator serves its English default in the middle of French
+  ones ("title must be shorter than or equal to 200 characters"). A unit test rejects any message
+  containing "must be".
+- **Duplicate labels are refused by `@ArrayUnique(foldCase)`**, after `@Transform` has trimmed each
+  entry — class-transformer runs before class-validator, which is what makes `"Bail "` a duplicate
+  of `"Bail"`. Doing either in the service would arrive after validation, with a differently shaped
+  error body.
+
+Bounds, all constants rather than environment variables: 1 to 20 items, 200 characters per label and
+per title, 1 to 90 days. The 90-day ceiling bounds how long a forgotten link stays alive. The 4-digit
+PIN is 10 000 combinations: what protects it is C1 (indistinguishable answers) and **G1** (rate
+limiting per link token, which does not exist yet), argon2id being the only thing bounding an
+attacker's rate today.
 
 ## Data model (A2)
 

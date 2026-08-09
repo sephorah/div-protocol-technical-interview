@@ -8,6 +8,7 @@ import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { LawyersModule } from './lawyers/lawyers.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { RequestsModule } from './requests/requests.module';
 import { StorageModule } from './storage/storage.module';
 
 @Module({
@@ -37,6 +38,7 @@ import { StorageModule } from './storage/storage.module';
     // EVERY route of the application protected by default, @Public() being the
     // only way out. A new controller is therefore born closed.
     AuthModule,
+    RequestsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

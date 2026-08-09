@@ -277,12 +277,34 @@ lui, est livré.
 
 Dépendances : B1c.
 
-### B2. Création d'une demande de dépôt — P0
+### B2. Création d'une demande de dépôt — P0 — **fait**
 
-- [ ] `POST /requests` : intitulé (ex. « Dossier Martin, pièces 2026 »), liste des pièces attendues,
-      durée de validité
-- [ ] Génère un token public unique + un PIN (affiché **une seule fois** en clair à la création)
-- [ ] Validation des entrées (DTO + `class-validator`)
+- [x] `POST /requests` : intitulé, liste des pièces attendues, durée de validité — **`expiresInDays`,
+      entier borné 1 à 90**, plutôt qu'une date ISO : l'horloge du navigateur peut différer de celle
+      du serveur, et il faudrait refuser le passé *et* borner le futur pour la même valeur métier
+- [x] Génère un token public unique + un PIN (affiché **une seule fois** en clair à la création) —
+      256 bits en base64url et 4 chiffres, stockés en SHA-256 et argon2id. La réponse est le seul
+      endroit où ils existent en clair : **un PIN perdu ne se réaffiche pas, il se remplace** en
+      régénérant le lien (B3)
+- [x] Validation des entrées (DTO + `class-validator`) — au moins une pièce, 20 au plus, pas deux
+      libellés identiques à la casse et aux espaces près, tout borné en longueur. Les messages sont
+      en français, et un test interdit le repli sur les messages anglais de la bibliothèque
+
+Trois choix ne sont pas dans l'énoncé. Le **plafond de 90 jours**, qui borne la durée pendant
+laquelle un lien oublié reste vivant. La **règle des doublons**, parce que le client ne peut pas
+distinguer deux pièces au même libellé alors que C2 rattachera un fichier à une pièce précise. Et
+une **colonne `position` sur `RequestedItem`**, avec sa migration : les pièces d'une demande sont
+insérées dans la même écriture, donc partagent leur `createdAt` à la milliseconde et Postgres est
+libre de les rendre dans n'importe quel ordre — la liste du client se réordonnerait d'un affichage à
+l'autre. Le seed réaligne les pièces antérieures, que la migration ne peut pas ordonner.
+
+Le statut est dérivé par une **fonction pure** prenant `now` en argument (`request-status.ts`), donc
+réutilisable telle quelle par B4 et testable sans geler l'horloge. `expired` l'emporte sur
+`complete`, comme A2 l'a consigné.
+
+Vérifié : 206 tests unitaires, 50 e2e, lint sans avertissement ; création en 201 à travers nginx en
+157 ms, `pinHash` en argon2id et `tokenHash` en 64 hexadécimaux en base, aucune trace du PIN ni du
+jeton en clair. Détail dans `ai-plans/2026-08-09-b2-creation-demande.md`.
 
 Dépendances : A2, B1.
 
