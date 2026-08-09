@@ -161,6 +161,13 @@ services:
       # le conteneur — l'oubli ne se serait vu qu'a la premiere connexion.
       JWT_SECRET: ${JWT_SECRET:?definir JWT_SECRET dans .env}
       JWT_EXPIRES: ${JWT_EXPIRES:?definir JWT_EXPIRES dans .env}
+      # Compte de demonstration, lu par `node dist/seed.js` — qu'install.sh
+      # execute dans CE conteneur apres les healthchecks. C'est la raison pour
+      # laquelle les trois variables sont passees au backend et pas ailleurs :
+      # le seed n'a pas de conteneur a lui.
+      SEED_LAWYER_EMAIL: ${SEED_LAWYER_EMAIL:?definir SEED_LAWYER_EMAIL dans .env}
+      SEED_LAWYER_NAME: ${SEED_LAWYER_NAME:?definir SEED_LAWYER_NAME dans .env}
+      SEED_LAWYER_PASSWORD: ${SEED_LAWYER_PASSWORD:?definir SEED_LAWYER_PASSWORD dans .env}
     depends_on:
       db:
         # Postgres accepte les connexions plusieurs secondes apres que son

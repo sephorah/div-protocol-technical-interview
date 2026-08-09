@@ -432,6 +432,19 @@ set_env_default STORAGE_ACCESS_KEY "$(random_hex 16)"
 set_env_default STORAGE_SECRET_KEY "$(random_hex 32)"
 set_env_default MINIO_ROOT_USER "$(random_hex 16)"
 set_env_default MINIO_ROOT_PASSWORD "$(random_hex 32)"
+# Compte avocat de demonstration. Le mot de passe est le seul des trois a etre
+# genere : les deux autres sont des valeurs d'affichage, posees par
+# .env.example. 12 octets, soit 24 caracteres hexadecimaux — assez court pour
+# etre recopie a la main depuis la sortie du seed, assez long (~96 bits) pour
+# qu'une attaque par force brute soit hors de question, ce qui est necessaire
+# ici : le portail n'a pas de limitation de debit sur /auth/login (voir README).
+#
+# Comme les autres, genere UNE fois : le regenerer a chaque execution
+# changerait le mot de passe imprime a l'evaluateur d'un `./install.sh` a
+# l'autre, sans rien dire.
+set_env_default SEED_LAWYER_PASSWORD "$(random_hex 12)"
+set_env_default SEED_LAWYER_EMAIL avocat@exemple.fr
+set_env_default SEED_LAWYER_NAME "Maitre Dupont"
 
 # chmod APRES les substitutions : set_env_value ecrit un fichier temporaire puis
 # le deplace, ce qui reinitialiserait les permissions au umask.

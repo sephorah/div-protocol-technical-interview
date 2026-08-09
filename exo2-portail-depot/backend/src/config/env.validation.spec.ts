@@ -254,12 +254,14 @@ describe('validateEnv', () => {
       ).not.toThrow();
     });
 
-    it.each(['900', '15 m', '15min', 'quinze minutes', 'm15'])(
+    it.each(['900', '15 m', '15min', 'quinze minutes', 'm15', '0s', '0h'])(
       'rejects a JWT_EXPIRES without a usable unit (%s)',
       (expires) => {
         // "900" is the dangerous one: jsonwebtoken reads a bare number as
         // seconds and a numeric string as milliseconds, so a quote decides
-        // between a 15-minute session and a 0.9-second one.
+        // between a 15-minute session and a 0.9-second one. "0h" is the other:
+        // it parses, and issues tokens already expired -- a login answering 200
+        // with no session behind it.
         expect(() => validateEnv({ ...db, JWT_EXPIRES: expires })).toThrow(
           /JWT_EXPIRES is not a duration with its unit/,
         );

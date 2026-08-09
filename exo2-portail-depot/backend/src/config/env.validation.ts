@@ -53,7 +53,11 @@ const JWT_SECRET_MIN_LENGTH = 32;
 
 // The unit is mandatory: jsonwebtoken reads a bare number as seconds and a
 // numeric string as milliseconds, so "900" would mean 15 minutes or 0.9 second.
-const DURATION_PATTERN = /^\d+[smhd]$/;
+//
+// No leading zero either: "0h" would pass, and every token would then be
+// expired at the instant it is signed -- a login answering 200 and a session
+// that never exists.
+const DURATION_PATTERN = /^[1-9]\d*[smhd]$/;
 
 const URL_PROTOCOLS = new Set(['postgres:', 'postgresql:']);
 
