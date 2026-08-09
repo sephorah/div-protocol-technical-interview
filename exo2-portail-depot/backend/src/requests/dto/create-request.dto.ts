@@ -4,19 +4,14 @@ import {
   ArrayMinSize,
   ArrayUnique,
   IsArray,
-  IsInt,
   IsString,
-  Max,
   MaxLength,
-  Min,
   MinLength,
 } from 'class-validator';
+import { IsExpiresInDays } from './expires-in-days.decorator';
 
 /** Bounds the number of inserts, and the size of the response, in one write. */
 export const MAX_ITEMS = 20;
-
-/** Bounds how long a forgotten link stays alive. */
-export const MAX_EXPIRES_DAYS = 90;
 
 const TITLE_MAX_LENGTH = 200;
 const LABEL_MAX_LENGTH = 200;
@@ -89,12 +84,6 @@ export class CreateRequestDto {
   })
   items!: string[];
 
-  // No @Type(() => Number): a JSON body carries a real number, and coercing
-  // would silently accept "14" from a caller who believes they sent a string.
-  @IsInt({ message: 'La durée de validité est un nombre de jours entier.' })
-  @Min(1, { message: "La durée de validité est d'au moins un jour." })
-  @Max(MAX_EXPIRES_DAYS, {
-    message: `La durée de validité ne peut pas dépasser ${MAX_EXPIRES_DAYS} jours.`,
-  })
+  @IsExpiresInDays()
   expiresInDays!: number;
 }

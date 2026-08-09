@@ -1,9 +1,30 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { hashPublicToken } from '../crypto/secrets';
+import {
+  generatePin,
+  generatePublicToken,
+  hashPublicToken,
+  hashSecret,
+} from '../crypto/secrets';
 import { DepositRequest, PublicLink } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { buildDepositUrl } from './public-url';
 import { isExpired } from './request-status';
+import { IssuedLink } from './request.types';
+
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** Prisma's code for a unique constraint violation. */
+const UNIQUE_VIOLATION = 'P2002';
+
+const isUniqueViolation = (error: unknown): boolean =>
+  typeof error === 'object' &&
+  error !== null &&
+  (error as { code?: unknown }).code === UNIQUE_VIOLATION;
 
 /**
  * The outcome of presenting a token.
@@ -57,5 +78,116 @@ export class PublicLinksService {
     }
 
     return { outcome: 'ok', link, request: link.request };
+  }
+
+  /**
+   * Loads a request only if it belongs to the caller.
+   *
+   * findFirst with both criteria rather than findUnique then a comparison: one
+   * query, and no branch in which the check can be forgotten.
+   */
+  private async ownedRequestId(
+    requestId: string,
+    lawyerId: string,
+  ): Promise<string> {
+    const found = await this.prisma.depositRequest.findFirst({
+      where: { id: requestId, lawyerId },
+      select: { id: true },
+    });
+
+    // 404 and not 403: telling a lawyer that an id exists but is not theirs is
+    // enough to enumerate another practice's caseload.
+    if (found === null) {
+      throw new NotFoundException("Cette demande de dépôt n'existe pas.");
+    }
+    return found.id;
+  }
+
+  /**
+   * Replaces the active link: new token, NEW PIN, new deadline.
+   *
+   * The PIN is redrawn rather than preserved, and that is the point of the
+   * operation: it is stored as an argon2id hash, so a preserved PIN could not
+   * be reprinted, and a link whose code nobody knows is worth nothing.
+   *
+   * The case to have in mind is not the client losing the PIN, it is the LAWYER
+   * never seeing it: it appears once, in the creation response. A closed tab or
+   * a response lost after the write leaves a valid request whose code exists
+   * nowhere. This is the only way back.
+   *
+   * Extending an existing link is deliberately NOT offered: it would lengthen
+   * the life of a token already sent by email, beyond any control.
+   */
+  async regenerate(
+    requestId: string,
+    lawyerId: string,
+    expiresInDays: number,
+  ): Promise<IssuedLink> {
+    const ownedId = await this.ownedRequestId(requestId, lawyerId);
+
+    const token = generatePublicToken();
+    const pin = generatePin();
+    // Hashed BEFORE the transaction: argon2id takes tens of milliseconds, and
+    // holding a transaction open across it would serve no purpose. Same
+    // reasoning as RequestsService.create.
+    const pinHash = await hashSecret(pin);
+
+    const now = new Date();
+    const expiresAt = new Date(
+      now.getTime() + expiresInDays * MILLISECONDS_PER_DAY,
+    );
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.publicLink.updateMany({
+          where: { requestId: ownedId, revokedAt: null },
+          data: { revokedAt: now },
+        });
+        await tx.publicLink.create({
+          data: {
+            requestId: ownedId,
+            tokenHash: hashPublicToken(token),
+            pinHash,
+            expiresAt,
+          },
+        });
+      });
+    } catch (error) {
+      // The partial unique index (WHERE "revokedAt" IS NULL) is what forbids
+      // two active links. Two concurrent regenerations therefore land here, and
+      // the loser deserves a retryable answer rather than an opaque 500.
+      if (isUniqueViolation(error)) {
+        throw new ConflictException(
+          "Un autre lien vient d'être généré pour cette demande. Réessayez.",
+        );
+      }
+      throw error;
+    }
+
+    return {
+      url: buildDepositUrl(
+        this.config.getOrThrow<string>('PUBLIC_BASE_URL'),
+        token,
+      ),
+      pin,
+      expiresAt,
+    };
+  }
+
+  /**
+   * Cuts access without reissuing anything.
+   *
+   * Idempotent: called on a request with no active link it still succeeds,
+   * because the requested outcome -- nobody gets in -- holds either way.
+   * Reporting "there was nothing to revoke" would only invite the caller to
+   * treat a double click as a failure.
+   */
+  async revoke(requestId: string, lawyerId: string): Promise<void> {
+    const ownedId = await this.ownedRequestId(requestId, lawyerId);
+
+    await this.prisma.publicLink.updateMany({
+      where: { requestId: ownedId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
   }
 }
