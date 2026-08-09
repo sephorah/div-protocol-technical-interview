@@ -7,6 +7,7 @@ import { durationToMilliseconds } from '../config/duration';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { RefreshTokenService } from './refresh-token.service';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
   controllers: [AuthController],
   providers: [
     AuthService,
+    RefreshTokenService,
     // From THIS module because a provider resolves its dependencies where it is
     // declared, and JwtService lives here; APP_GUARD still applies globally.
     // Not app.useGlobalGuards(), which instantiates outside the injection
