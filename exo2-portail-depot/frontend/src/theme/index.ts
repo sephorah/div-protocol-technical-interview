@@ -1,4 +1,5 @@
 import { createSystem, defaultConfig, defineConfig } from '@chakra-ui/react'
+import { buttonRecipe } from './recipes/button'
 import { semanticTokens } from './semantic-tokens'
 import { tokens } from './tokens'
 
@@ -14,7 +15,11 @@ const config = defineConfig({
       lineHeight: '1.5',
     },
   },
-  theme: { tokens, semanticTokens },
+  theme: {
+    tokens,
+    semanticTokens,
+    recipes: { button: buttonRecipe },
+  },
 })
 
 export const system = createSystem(defaultConfig, config)
