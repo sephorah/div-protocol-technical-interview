@@ -152,7 +152,7 @@ describe('Requests (e2e)', () => {
     expect(requestCreate).not.toHaveBeenCalled();
   });
 
-  it('answers 201 with the request, its pieces, the token and the PIN', async () => {
+  it('answers 201 with the request, its pieces, the deposit URL and the PIN', async () => {
     const cookie = await sessionCookie();
 
     const response = await request(app.getHttpServer())
@@ -172,10 +172,18 @@ describe('Requests (e2e)', () => {
     });
     // supertest types the body as `any`; naming the shape is what the blocking
     // lint requires, and it documents what the SPA can rely on.
-    const { link } = response.body as { link: { pin: string; token: string } };
+    const { link } = response.body as {
+      link: Record<string, unknown> & { pin: string; url: string };
+    };
     expect(link.pin).toMatch(/^\d{4}$/);
-    // 32 bytes in base64url, so 43 characters and a URL-safe alphabet.
-    expect(link.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    // The origin comes from PUBLIC_BASE_URL (test/setup-env.ts), followed by
+    // 32 bytes in base64url -- 43 characters over a URL-safe alphabet.
+    expect(link.url).toMatch(
+      /^https:\/\/portail\.example\.test\/depot\/[A-Za-z0-9_-]{43}$/,
+    );
+    // The bare token no longer travels: it exists only inside the URL. A field
+    // reappearing here would be one more place for a bearer credential to leak.
+    expect(link).not.toHaveProperty('token');
   });
 
   // The whole point of hashing: a response leaking a hash would hand an

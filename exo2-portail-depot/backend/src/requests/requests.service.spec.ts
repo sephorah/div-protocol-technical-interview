@@ -1,8 +1,19 @@
 import { createHash } from 'node:crypto';
+import { ConfigService } from '@nestjs/config';
 import { verifySecret } from '../crypto/secrets';
 import { PrismaService } from '../prisma/prisma.service';
 import { RequestStatus } from './request-status';
 import { RequestsService } from './requests.service';
+
+const ORIGIN = 'https://portail.example.test';
+
+/**
+ * The token no longer travels on its own -- it only exists inside the returned
+ * URL. Reading it back is what keeps the "stored hash matches what the lawyer
+ * received" assertion as strong as it was.
+ */
+const tokenFrom = (url: string): string =>
+  decodeURIComponent(url.slice(`${ORIGIN}/depot/`.length));
 
 /**
  * What this suite protects: that no secret reaches the database in clear. The
@@ -13,7 +24,8 @@ import { RequestsService } from './requests.service';
 describe('RequestsService.create', () => {
   const create = jest.fn();
   const prisma = { depositRequest: { create } } as unknown as PrismaService;
-  const service = new RequestsService(prisma);
+  const config = { getOrThrow: () => ORIGIN } as unknown as ConfigService;
+  const service = new RequestsService(prisma, config);
 
   const body = {
     title: 'Dossier Martin, pieces 2026',
@@ -62,12 +74,23 @@ describe('RequestsService.create', () => {
     await expect(verifySecret(view.link.pin, pinHash)).resolves.toBe(true);
   });
 
+  it('returns the deposit URL built from the configured origin', async () => {
+    const view = await service.create('lawyer-1', body);
+
+    // 43 characters: 32 random bytes in base64url.
+    expect(view.link.url).toMatch(
+      new RegExp(`^${ORIGIN}/depot/[A-Za-z0-9_-]{43}$`),
+    );
+  });
+
   it('stores the SHA-256 of the token, and never the token', async () => {
     const view = await service.create('lawyer-1', body);
     const link = written().links.create;
 
     expect(link.tokenHash).toBe(
-      createHash('sha256').update(view.link.token, 'utf8').digest('hex'),
+      createHash('sha256')
+        .update(tokenFrom(view.link.url), 'utf8')
+        .digest('hex'),
     );
     // An exhaustive key list, so that a future field carrying a secret cannot
     // be added to the write without this test noticing.
@@ -125,7 +148,7 @@ describe('RequestsService.create', () => {
     const first = await service.create('lawyer-1', body);
     const second = await service.create('lawyer-1', body);
 
-    expect(first.link.token).not.toBe(second.link.token);
+    expect(first.link.url).not.toBe(second.link.url);
     expect(first.link.pin).not.toBe(second.link.pin);
     expect(written(0).links.create.tokenHash).not.toBe(
       written(1).links.create.tokenHash,

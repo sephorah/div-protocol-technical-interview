@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   generatePin,
   generatePublicToken,
@@ -7,13 +8,17 @@ import {
 } from '../crypto/secrets';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRequestDto } from './dto/create-request.dto';
+import { buildDepositUrl } from './public-url';
 import { CreatedRequestView, toCreatedRequest } from './request.types';
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class RequestsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   async create(
     lawyerId: string,
@@ -54,7 +59,19 @@ export class RequestsService {
       include: { items: { orderBy: { position: 'asc' } } },
     });
 
-    // The only place where the token and the PIN travel in clear.
-    return toCreatedRequest(created, { token, pin, expiresAt }, now);
+    // One of the only two places where the URL and the PIN travel in clear,
+    // the other being a regeneration.
+    return toCreatedRequest(
+      created,
+      {
+        url: buildDepositUrl(
+          this.config.getOrThrow<string>('PUBLIC_BASE_URL'),
+          token,
+        ),
+        pin,
+        expiresAt,
+      },
+      now,
+    );
   }
 }
