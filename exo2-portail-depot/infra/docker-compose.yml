@@ -161,6 +161,11 @@ services:
       # le conteneur — l'oubli ne se serait vu qu'a la premiere connexion.
       JWT_SECRET: ${JWT_SECRET:?definir JWT_SECRET dans .env}
       JWT_EXPIRES: ${JWT_EXPIRES:?definir JWT_EXPIRES dans .env}
+      # Duree de la session et inactivite toleree. La seconde doit rester
+      # inferieure a la premiere, sinon elle ne s'applique jamais : l'API le
+      # verifie au demarrage.
+      SESSION_EXPIRES: ${SESSION_EXPIRES:?definir SESSION_EXPIRES dans .env}
+      SESSION_IDLE_EXPIRES: ${SESSION_IDLE_EXPIRES:?definir SESSION_IDLE_EXPIRES dans .env}
       # Compte de demonstration, lu par `node dist/seed.js` — qu'install.sh
       # execute dans CE conteneur apres les healthchecks. C'est la raison pour
       # laquelle les trois variables sont passees au backend et pas ailleurs :

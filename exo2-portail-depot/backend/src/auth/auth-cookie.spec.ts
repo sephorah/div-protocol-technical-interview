@@ -7,35 +7,7 @@
  * No functional test catches that: both requests succeed.
  */
 
-import {
-  buildAuthCookie,
-  clearAuthCookie,
-  durationToMilliseconds,
-} from './auth-cookie';
-
-describe('durationToMilliseconds', () => {
-  it.each([
-    ['60s', 60_000],
-    ['15m', 900_000],
-    ['2h', 7_200_000],
-    ['7d', 604_800_000],
-  ])('converts %s', (duration, expected) => {
-    expect(durationToMilliseconds(duration)).toBe(expected);
-  });
-
-  // A bare number is precisely what validateEnv rejects for JWT_EXPIRES: it
-  // means seconds to jsonwebtoken and milliseconds as a numeric string. Here it
-  // must not silently become NaN, which would produce a cookie with no expiry.
-  // '0s' and '0h' parse arithmetically and are the dangerous ones: they would
-  // produce a token expired at signing time and a cookie the browser discards
-  // on arrival, so every login would answer 200 with no session behind it.
-  it.each(['900', '2 h', 'two hours', '', '2y', '0s', '0h'])(
-    'rejects %p',
-    (invalid) => {
-      expect(() => durationToMilliseconds(invalid)).toThrow(/JWT_EXPIRES/);
-    },
-  );
-});
+import { buildAuthCookie, clearAuthCookie } from './auth-cookie';
 
 describe('the session cookie', () => {
   it('is unreachable from JavaScript and never crosses sites', () => {

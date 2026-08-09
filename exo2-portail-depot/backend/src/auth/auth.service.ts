@@ -9,7 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { hashSecret, verifySecret } from '../crypto/secrets';
 import { LawyerProfile, toProfile } from '../lawyers/lawyer.types';
 import { LawyersService } from '../lawyers/lawyers.service';
-import { durationToMilliseconds } from './auth-cookie';
+import { durationToMilliseconds } from '../config/duration';
 import { JwtPayload } from './auth.types';
 
 /** One message for every failure: an unknown address must look like a wrong password. */

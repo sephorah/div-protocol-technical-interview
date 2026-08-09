@@ -20,6 +20,8 @@ describe('validateEnv', () => {
   const auth = {
     JWT_SECRET: 'a'.repeat(32),
     JWT_EXPIRES: '15m',
+    SESSION_EXPIRES: '7d',
+    SESSION_IDLE_EXPIRES: '3d',
   };
 
   const app = { ...appOnly, ...auth, ...storage };
@@ -268,8 +270,54 @@ describe('validateEnv', () => {
       },
     );
 
-    it.each(['60s', '15m', '2h', '7d'])('accepts %s', (expires) => {
+    it.each(['60s', '15m', '2h'])('accepts %s', (expires) => {
       expect(() => validateEnv({ ...db, JWT_EXPIRES: expires })).not.toThrow();
+    });
+
+    it.each(['SESSION_EXPIRES', 'SESSION_IDLE_EXPIRES'])(
+      'rejects a missing %s',
+      (key) => {
+        const without: Record<string, unknown> = { ...db };
+        delete without[key];
+        expect(() => validateEnv(without)).toThrow(new RegExp(key));
+      },
+    );
+
+    it.each(['900', '7 d', 'une semaine', '0d'])(
+      'rejects a SESSION_EXPIRES without a usable unit (%s)',
+      (expires) => {
+        expect(() => validateEnv({ ...db, SESSION_EXPIRES: expires })).toThrow(
+          /SESSION_EXPIRES is not a duration with its unit/,
+        );
+      },
+    );
+
+    /**
+     * The misconfiguration that does nothing and says nothing: an idle deadline
+     * further away than the ceiling can never be reached, so the protection is
+     * off while the variable looks configured.
+     */
+    it.each(['7d', '8d', '30d'])(
+      'rejects an idle deadline the ceiling makes unreachable (%s)',
+      (idle) => {
+        expect(() =>
+          validateEnv({
+            ...db,
+            SESSION_EXPIRES: '7d',
+            SESSION_IDLE_EXPIRES: idle,
+          }),
+        ).toThrow(/SESSION_IDLE_EXPIRES must be shorter than SESSION_EXPIRES/);
+      },
+    );
+
+    it('accepts an idle deadline shorter than the ceiling', () => {
+      expect(() =>
+        validateEnv({
+          ...db,
+          SESSION_EXPIRES: '7d',
+          SESSION_IDLE_EXPIRES: '3d',
+        }),
+      ).not.toThrow();
     });
 
     it('survives an explicitly supplied DATABASE_URL', () => {

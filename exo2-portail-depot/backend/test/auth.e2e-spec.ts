@@ -138,8 +138,8 @@ describe('Auth (e2e)', () => {
       expect(cookie).toContain('HttpOnly');
       expect(cookie).toContain('SameSite=Strict');
       expect(cookie).toContain('Path=/');
-      // 2h, from JWT_EXPIRES: the cookie dies with the token it carries.
-      expect(cookie).toContain('Max-Age=7200');
+      // 15 min, from JWT_EXPIRES: the cookie dies with the token it carries.
+      expect(cookie).toContain('Max-Age=900');
     });
 
     // The whole point of the httpOnly cookie: if the token were also in the
