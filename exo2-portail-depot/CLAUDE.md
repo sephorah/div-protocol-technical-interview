@@ -64,8 +64,10 @@ Layout:
 - `package.json` — root orchestration scripts (no app code)
 - `infra/` — **all infrastructure, no application code** (A5): `docker-compose.yml` (production
   stack: `db`, `minio`, `minio-init`, `backend`, `frontend`, `proxy` — **pulls, never builds**),
-  `docker-compose.build.yml` (the build layer, A6), `docker-compose.dev.yml` (**database and storage
-  only**, for local `pnpm dev` — there is no dev image), `nginx/nginx.conf`, `minio/`.
+  `docker-compose.build.yml` (the build layer, A6), `docker-compose.tls.yml` (the HTTPS layer, A7),
+  `docker-compose.dev.yml` (**database and storage
+  only**, for local `pnpm dev` — there is no dev image), `nginx/{nginx,nginx-tls,portal-locations}.conf`,
+  `minio/`.
   `prometheus/` (F1) and `grafana/` (F2) land here too. This directory plus `.env` is the whole of
   what lives on the staging machine. `infra/README.md` documents the compose flags, the registry and
   the deployment — see § Docker and § Images and registry.
@@ -308,7 +310,7 @@ like `/depot/<token>` resolve instead of 404ing. Both run as the image's `node` 
 
 `proxy` (stock `nginx:alpine` with `infra/nginx/nginx.conf` bind-mounted) is the **only published
 port**:
-`127.0.0.1:21600:80` for everything. Both halves of that are load-bearing — the staging machine is
+`127.0.0.1:21600:80` for everything (plus `21601:443` when the TLS layer is on — see § TLS). Both halves of that are load-bearing — the staging machine is
 **shared with other candidates**, so the bind address is explicit (a bare `21600:80` would listen
 on `0.0.0.0` and expose the whole portal, database included via `/api`), and 21600 is the assigned
 port the machine's own proxy relays HTTP to. It routes `/` to the frontend and `/api/` to the
@@ -374,6 +376,50 @@ production's deposited files.
 `127.0.0.1` and inside the assigned range: `21690` for the S3 API (what `STORAGE_ENDPOINT` targets
 during `pnpm dev`) and `21691` for the console. The machine is shared — an open MinIO console is
 every client's documents.
+
+## TLS (A7)
+
+HTTPS is **switched on by `DOMAIN` in `.env`, never by a flag** — a flag would have to be retyped at
+every redeploy, and forgetting it once would silently drop the portal back to cleartext. Empty
+(grader's machine, dev laptop) the stack is exactly what it was before A7. Set, `install.sh` adds
+`infra/docker-compose.tls.yml`, obtains the certificate and publishes `127.0.0.1:21601:443`. The
+three keys (`DOMAIN`, `ACME_EMAIL`, `ACME_STAGING`) are read by **`install.sh` alone** — not by
+compose, not by the app — so the three-file rule does not apply to them; that is stated in
+`.env.example` so the next reader does not "fix" the missing `${VAR:?}`.
+
+The nginx config is split in three: `portal-locations.conf` holds the `location` blocks and is
+`include`d by both servers, `nginx.conf` is the cleartext one, `nginx-tls.conf` the TLS one. The
+layer mounts the latter **over** `/etc/nginx/conf.d/default.conf` — compose merges `volumes` by
+**target path**, which is the whole mechanism; the two configs are never loaded together. The
+fragment must sit **outside `conf.d/`**: that directory is included at `http` level, where a bare
+`location` is a syntax error.
+
+Five things are non-obvious:
+
+- **Bootstrapping goes through the cleartext stack.** nginx refuses to start when `ssl_certificate`
+  names a missing file, so the first certificate cannot be obtained by the TLS stack itself.
+  `install.sh` brings up the plain stack, lets certbot use it (`--webroot`: certbot drops the token
+  in the shared volume, the already-running nginx serves it), then restarts with the layer. Hence
+  `certbot_www` is declared in the **base** compose too, and the ACME `location` exists in **both**
+  configs — in the TLS one it precedes the 301, or renewals would break, ACME always probing over
+  cleartext.
+- **The certificate lineage is named `portail`, not the domain** (`certbot --cert-name portail`).
+  That is what lets `nginx-tls.conf` never name the domain — necessary because nginx does not read
+  the environment, and the official image's template mechanism is unusable here: its
+  `/docker-entrypoint.d/` scripts only run when the command is `nginx`, and the layer replaces it
+  with `sh -c` for the reload loop.
+- **Reloading is periodic, not event-driven.** certbot runs in another container; `--deploy-hook`
+  cannot signal nginx without the docker socket, which is a disguised root on a shared machine.
+  nginx reloads every 6 h, certbot renews every 12 h. `certbot renew` is a **no-op above 30 days
+  remaining**, so it consumes no quota.
+- **The layer's certbot never issues, only renews.** Issuance is `install.sh`'s `run --rm`: a loop
+  that also issued would retry `certonly` forever on failure and burn the production quota (5
+  identical certificates per week) in hours. The same quota is why `letsencrypt` is a named volume.
+- **No OCSP stapling.** Let's Encrypt dropped OCSP URLs from its certificates in May 2025 and
+  switched its responders off in August 2025; `ssl_stapling on` would only log warnings now.
+
+`docker-compose.tls.yml` must never be renamed `docker-compose.override.yml`, for the same reason as
+the build layer: compose loads that name on its own.
 
 ## Images and registry (A6)
 

@@ -233,6 +233,15 @@ services:
       - '127.0.0.1:21600:80'
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Hors de conf.d/ deliberement : la conf principale de l'image charge
+      # conf.d/*.conf au niveau `http`, ou un `location` nu est une erreur de
+      # syntaxe. Ce fragment est inclus DANS le bloc server.
+      - ./nginx/portal-locations.conf:/etc/nginx/portal-locations.conf:ro
+      # Racine du challenge ACME. Presente meme sans TLS : c'est par cette pile
+      # en clair que passe l'AMORCAGE du certificat (nginx ne demarre pas si le
+      # fichier de certificat manque, cf. nginx.conf). Vide, le `location`
+      # repond simplement 404.
+      - certbot_www:/var/www/certbot:ro
     healthcheck:
       # busybox wget est present dans nginx:alpine. Le proxy en bonne sante est
       # la seule chose qui prouve que le portail repond a l'exterieur : c'est
@@ -254,6 +263,11 @@ services:
 
 volumes:
   pgdata:
+  # Partage entre nginx (lecture) et certbot (ecriture), declare ici et pas
+  # seulement dans le calque TLS : c'est ce compose-ci qui tourne pendant
+  # l'amorcage du certificat, et sans le volume la racine du challenge
+  # n'existerait pas.
+  certbot_www:
   # Volume distinct de minio_data_dev, comme pgdata l'est de pgdata_dev : un
   # nettoyage de developpement ne doit pas pouvoir atteindre les pieces reelles.
   minio_data:

@@ -4,6 +4,12 @@
 #   ./install.sh                monte toute la stack et affiche les URLs
 #   ./install.sh --from-source  construit les images au lieu de les tirer
 #
+# HTTPS (A7) ne s'active PAS par un drapeau mais par `DOMAIN` dans .env : la
+# configuration d'une machine appartient au fichier qui decrit cette machine,
+# pas a un argument qu'il faudrait se rappeler a chaque redeploiement — et un
+# oubli ferait retomber le portail en clair sans rien signaler. Vide, ce qui
+# est le cas chez l'evaluateur, rien de tout cela ne se produit.
+#
 # Contrat : quand ce script rend la main sans erreur, l'application repond.
 # Pas « les conteneurs sont lances » — le portail repond. Il n'y a aucune
 # commande a taper ensuite, et rien a lire dans le README pour y arriver.
@@ -22,6 +28,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 HTTP_PORT=21600           # port attribue, cible du proxy de la machine
+HTTPS_PORT=21601          # idem, cible du passthrough TLS (A7, si DOMAIN)
 HEALTH_TIMEOUT=300        # secondes d'attente maximale des healthchecks
 # minio-init en est deliberement ABSENT : la boucle d'attente plus bas n'accepte
 # que healthy|running, or ce conteneur provisionne puis sort en 0. L'y ajouter
@@ -49,6 +56,16 @@ COMPOSE="-f infra/docker-compose.yml --env-file .env"
 # (docker ne retelecharge pas ce qu'il a deja). Le fichier de base reste
 # PREMIER, c'est lui qui fixe le repertoire de projet.
 COMPOSE_BUILD="$COMPOSE -f infra/docker-compose.build.yml"
+
+# Calque TLS (A7), ajoute plus bas si DOMAIN est renseigne. Le fichier de base
+# reste PREMIER pour la meme raison que ci-dessus. Une fois le certificat
+# obtenu, $COMPOSE devient $COMPOSE_TLS : tout ce qui suit — up, ps, logs, la
+# banniere — parle alors de la pile reellement demarree.
+# Ecrit en entier plutot que derive de $COMPOSE : le calque doit venir juste
+# apres le fichier de base, et non apres `--env-file`, parce que cette chaine
+# finit telle quelle dans la banniere et dans les messages d'erreur, ou un
+# `-f` egare derriere l'option se recopie mal.
+COMPOSE_TLS="-f infra/docker-compose.yml -f infra/docker-compose.tls.yml --env-file .env"
 
 die() { printf '\nErreur : %s\n' "$*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
@@ -311,15 +328,59 @@ set_env_default MINIO_ROOT_PASSWORD "$(random_hex 32)"
 chmod 600 .env
 
 # --------------------------------------------------------------------------
+# TLS (A7)
+# --------------------------------------------------------------------------
+# Lit une valeur de .env. Ces trois cles ne passent NI par docker compose NI par
+# l'application : seul ce script les lit, pour les donner a certbot en ligne de
+# commande. Elles n'ont donc pas d'entree `${VAR:?}` dans le compose, et ce
+# n'est pas un oubli.
+env_get() {
+  # `cut` et non un decoupage sur `=` : un mot de passe ou un domaine ne
+  # contiennent pas de `=`, mais rien ne le garantit pour une valeur future.
+  # `tr -d '\r'` : un .env edite sous Windows glisserait un retour chariot dans
+  # le nom de domaine, et certbot echouerait sur un message incomprehensible.
+  grep -E "^$1=" .env 2>/dev/null | head -n 1 | cut -d= -f2- | tr -d '\r'
+}
+
+DOMAIN="$(env_get DOMAIN)"
+ACME_EMAIL="$(env_get ACME_EMAIL)"
+ACME_STAGING="$(env_get ACME_STAGING)"
+
+# DOMAIN est l'interrupteur : vide, la suite du script est celle d'avant A7.
+if [ -n "$DOMAIN" ]; then
+  TLS=1
+  [ -n "$ACME_EMAIL" ] || die "DOMAIN est renseigne dans .env mais pas ACME_EMAIL.
+       Let's Encrypt exige une adresse, et c'est le seul canal qui previendra
+       si le renouvellement automatique cesse de fonctionner."
+  step "HTTPS active pour $DOMAIN"
+  if [ "$ACME_STAGING" = 1 ]; then
+    info "Endpoint de TEST (ACME_STAGING=1) : le certificat obtenu ne sera"
+    info "reconnu par aucun navigateur. C'est le brouillon — la production"
+    info "plafonne a 5 certificats identiques par semaine."
+  else
+    info "Endpoint de production. Si c'est un premier essai sur ce domaine,"
+    info "passez d'abord par ACME_STAGING=1."
+  fi
+else
+  TLS=0
+fi
+
+# --------------------------------------------------------------------------
 # Port
 # --------------------------------------------------------------------------
 # Teste AVANT le pull : sinon l'echec arrive apres le telechargement (ou, en
 # --from-source, apres plusieurs minutes de build). Un port
 # tenu par notre propre proxy n'est pas un conflit — compose recree le
 # conteneur — sinon un second ./install.sh echouerait sur lui-meme.
+# Prend le port en argument, et verifie que notre proxy publie CE port-la : se
+# contenter de « le proxy tourne » declarerait libre un 21601 tenu par un
+# programme tiers pendant que notre proxy n'ecoute qu'en 21600, et l'echec
+# n'arriverait qu'au `up`, sans nommer le vrai coupable.
 port_is_ours() {
   local ids; ids="$($DOCKER compose $COMPOSE ps -q proxy 2>/dev/null || true)"
-  [ -n "$ids" ]
+  [ -n "$ids" ] || return 1
+  $DOCKER inspect --format '{{json .NetworkSettings.Ports}}' $ids 2>/dev/null \
+    | grep -q "\"HostPort\":\"$1\""
 }
 
 # Retourne 0 si le port est libre, 1 s'il est pris, 2 si on n'a pas su decider.
@@ -340,20 +401,29 @@ port_state() {
   return 0
 }
 
-step "Verification du port $HTTP_PORT"
-# `port_state ...; status=$?` ne convient pas : sous `set -e`, une commande
-# simple qui renvoie non-zero interrompt le script avant l'affectation, et
-# l'echec devient muet. Le `||` protege l'appel.
-port_status=0
-port_state "$HTTP_PORT" || port_status=$?
-if [ "$port_status" -eq 0 ] || port_is_ours; then
-  info "Disponible."
-else
-  info "Occupe par :"
-  (command -v ss >/dev/null && ss -ltnp "sport = :$HTTP_PORT" 2>/dev/null | tail -n +2) || true
-  die "le port $HTTP_PORT est deja utilise par un autre programme.
-       C'est le port attribue a ce projet (plage 21600-21699) : liberez-le, ou
+check_port() {
+  # `port_state ...; status=$?` ne convient pas : sous `set -e`, une commande
+  # simple qui renvoie non-zero interrompt le script avant l'affectation, et
+  # l'echec devient muet. Le `||` protege l'appel.
+  local port="$1" port_status=0
+  port_state "$port" || port_status=$?
+  if [ "$port_status" -eq 0 ] || port_is_ours "$port"; then
+    info "Port $port : disponible."
+  else
+    info "Port $port, occupe par :"
+    (command -v ss >/dev/null && ss -ltnp "sport = :$port" 2>/dev/null | tail -n +2) || true
+    die "le port $port est deja utilise par un autre programme.
+       C'est un port attribue a ce projet (plage 21600-21699) : liberez-le, ou
        arretez la pile qui l'occupe."
+  fi
+}
+
+step "Verification des ports"
+check_port "$HTTP_PORT"
+# 21601 seulement en TLS : sans lui, rien ne le publie et un autre programme a
+# parfaitement le droit de l'occuper.
+if [ "$TLS" = 1 ]; then
+  check_port "$HTTPS_PORT"
 fi
 
 # --------------------------------------------------------------------------
@@ -378,7 +448,14 @@ else
   # et rien d'autre), et il doit arriver avant que quoi que ce soit demarre.
   step "Recuperation des images"
   info "Portail depuis ghcr.io, base et stockage depuis docker hub."
-  $DOCKER compose $COMPOSE pull || die \
+  # Avec le calque en TLS : certbot est une image de plus a tirer, et la tirer
+  # maintenant evite une attente au milieu de l'obtention du certificat.
+  # `pull` ne demarre rien, le calque est donc sans effet sur la suite.
+  pull_compose="$COMPOSE"
+  if [ "$TLS" = 1 ]; then
+    pull_compose="$COMPOSE_TLS"
+  fi
+  $DOCKER compose $pull_compose pull || die \
     "impossible de recuperer les images. Le message de docker ci-dessus dit
        laquelle ; pour celles du portail (ghcr.io), les causes sont :
          - les paquets GHCR sont restes prives — un pull anonyme repond alors
@@ -387,6 +464,91 @@ else
          - la machine ne joint pas le registre.
        Ce script ne construit pas a la place : la machine de production n'a pas
        le code source. Depuis un checkout complet, ./install.sh --from-source."
+fi
+
+# --------------------------------------------------------------------------
+# Certificat (A7)
+# --------------------------------------------------------------------------
+# AVANT le demarrage, et l'ordre est load-bearing : si le certificat est deja
+# la — le cas de tout redeploiement — on demarre DIRECTEMENT avec le calque.
+# Passer systematiquement par la pile en clair recreerait le proxy deux fois et
+# supprimerait le 443 entre les deux, donc une coupure HTTPS a chaque relance.
+# La pile en clair n'est qu'un moyen d'AMORCAGE : nginx refuse de demarrer si
+# ssl_certificate designe un fichier absent, donc le tout premier certificat ne
+# peut etre obtenu qu'a travers elle.
+NEED_ISSUE=0
+if [ "$TLS" = 1 ]; then
+  # `run --rm` : un conteneur jetable qui sort. Le service `certbot` du calque,
+  # lui, est une boucle de RENOUVELLEMENT — il n'emet jamais, sans quoi un
+  # echec le ferait boucler sur `certonly` et griller les quotas.
+  certbot_run() {
+    $DOCKER compose $COMPOSE_TLS run --rm --entrypoint certbot certbot "$@"
+  }
+
+  # La lignee porte un nom fixe, `portail`, et non le domaine : c'est ce qui
+  # permet a nginx-tls.conf de ne jamais nommer le domaine (il ne lit pas
+  # l'environnement). Voir l'en-tete de ce fichier de conf.
+  cert_exists() {
+    certbot_run certificates --cert-name portail 2>/dev/null \
+      | grep -q 'Certificate Name: portail'
+  }
+
+  # certbot ecrit lui-meme le serveur ACME utilise dans le fichier de
+  # renouvellement : source plus fiable qu'un marqueur qu'on poserait de notre
+  # cote et qui pourrait desynchroniser.
+  cert_is_staging() {
+    $DOCKER compose $COMPOSE_TLS run --rm --entrypoint sh certbot -c \
+      'grep -q acme-staging /etc/letsencrypt/renewal/portail.conf 2>/dev/null'
+  }
+
+  issue_certificate() {
+    local staging_flag=""
+    if [ "$ACME_STAGING" = 1 ]; then
+      staging_flag="--test-cert"
+    fi
+    # --webroot : certbot depose le jeton dans le volume, c'est nginx — deja en
+    # marche — qui le sert. Aucune coupure, contrairement a --standalone qui
+    # voudrait le port 80 pour lui seul.
+    certbot_run certonly --webroot -w /var/www/certbot \
+      --cert-name portail -d "$DOMAIN" \
+      --email "$ACME_EMAIL" --agree-tos --no-eff-email --non-interactive \
+      $staging_flag \
+      || die "l'obtention du certificat a echoue. Les causes habituelles :
+         - $DOMAIN ne resout pas vers cette machine, ou son port 80 n'est pas
+           relaye jusqu'a 127.0.0.1:$HTTP_PORT ;
+         - un quota Let's Encrypt est atteint (5 certificats identiques par
+           semaine) — repassez par ACME_STAGING=1 ;
+         - le jeton n'est pas servi : verifier que
+           http://$DOMAIN/.well-known/acme-challenge/ ne repond pas 502.
+       La pile reste en clair sur le port $HTTP_PORT, elle n'est pas cassee."
+  }
+
+  step "Certificat TLS"
+  if cert_exists; then
+    if [ "$ACME_STAGING" != 1 ] && cert_is_staging; then
+      # Le piege classique : un certificat de test laisse en place fait echouer
+      # tous les navigateurs, avec un message qui n'evoque rien de tel.
+      info "Certificat de TEST en place et ACME_STAGING n'est plus a 1 :"
+      info "suppression, puis emission du vrai certificat."
+      certbot_run delete --cert-name portail --non-interactive
+      NEED_ISSUE=1
+    else
+      info "Certificat deja present : demarrage direct en HTTPS. Son"
+      info "renouvellement est le travail du conteneur certbot, pas de ce script."
+    fi
+  else
+    info "Aucun certificat pour ce portail : il sera demande a Let's Encrypt"
+    info "une fois la pile en clair demarree (elle seule peut servir le jeton)."
+    NEED_ISSUE=1
+  fi
+
+  # Rien a emettre : le calque est monte des le premier demarrage.
+  if [ "$NEED_ISSUE" = 0 ]; then
+    COMPOSE="$COMPOSE_TLS"
+    # certbot n'a pas de healthcheck : la boucle d'attente se contente de
+    # `running`, ce qui prouve que le conteneur de renouvellement tourne.
+    SERVICES="$SERVICES certbot"
+  fi
 fi
 
 step "Demarrage de la stack"
@@ -404,49 +566,124 @@ health_of() {
   $DOCKER inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$id" 2>/dev/null || echo absent
 }
 
-step "Attente des services (migrations comprises)"
-waited=0
-while :; do
-  pending=""
-  for service in $SERVICES; do
-    case "$(health_of "$service")" in
-      healthy|running) ;;
-      *) pending="$pending $service" ;;
-    esac
-  done
-  [ -z "$pending" ] && break
-
-  if [ "$waited" -ge "$HEALTH_TIMEOUT" ]; then
-    printf '\n'
-    $DOCKER compose $COMPOSE ps
-    for service in $pending; do
-      printf '\n--- %s ---\n' "$service"
-      $DOCKER compose $COMPOSE logs --tail=50 "$service"
+# Fonction et non code en ligne : en TLS, la pile est redemarree avec le calque
+# apres l'obtention du certificat, et il faut la reattendre.
+wait_for_services() {
+  local waited=0 pending service
+  while :; do
+    pending=""
+    for service in $SERVICES; do
+      case "$(health_of "$service")" in
+        healthy|running) ;;
+        *) pending="$pending $service" ;;
+      esac
     done
-    die "services toujours pas prets apres ${HEALTH_TIMEOUT}s :$pending"
-  fi
+    [ -z "$pending" ] && break
 
-  printf '.'
-  sleep 2
-  waited=$((waited + 2))
-done
-printf '\n'
-# Derive de $SERVICES et non ecrit en dur : la liste avait cesse de mentionner
-# minio alors que la boucle l'attendait deja.
-info "$(echo "$SERVICES" | tr ' ' ',' | sed 's/,/, /g') : healthy."
+    if [ "$waited" -ge "$HEALTH_TIMEOUT" ]; then
+      printf '\n'
+      $DOCKER compose $COMPOSE ps
+      for service in $pending; do
+        printf '\n--- %s ---\n' "$service"
+        $DOCKER compose $COMPOSE logs --tail=50 "$service"
+      done
+      die "services toujours pas prets apres ${HEALTH_TIMEOUT}s :$pending"
+    fi
+
+    printf '.'
+    sleep 2
+    waited=$((waited + 2))
+  done
+  printf '\n'
+  # Derive de $SERVICES et non ecrit en dur : la liste avait cesse de mentionner
+  # minio alors que la boucle l'attendait deja.
+  info "$(echo "$SERVICES" | tr ' ' ',' | sed 's/,/, /g') : healthy."
+}
+
+step "Attente des services (migrations comprises)"
+wait_for_services
 
 # Les healthchecks sondent depuis l'interieur des conteneurs. Ils prouvent que
 # nginx sert, pas que la publication du port fonctionne depuis la machine —
 # or c'est cela, le contrat. Verification cote hote, en bash pur : si curl est
 # la on va jusqu'au code HTTP, sinon on se contente d'ouvrir la connexion.
-if command -v curl >/dev/null; then
-  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:$HTTP_PORT/" || echo 000)"
-  [ "$code" = "200" ] || die "le portail ne repond pas depuis la machine (HTTP $code sur le port $HTTP_PORT)."
-  info "Le portail repond depuis la machine (HTTP 200)."
-elif timeout 5 bash -c "exec 3<>/dev/tcp/127.0.0.1/$HTTP_PORT" 2>/dev/null; then
-  info "Le portail accepte les connexions sur le port $HTTP_PORT."
+check_portal_http() {
+  if command -v curl >/dev/null; then
+    local code
+    # Pas de `|| echo 000` : curl a DEJA ecrit son code (000 quand il n'a pas
+    # abouti) avant de sortir en erreur, et le repli s'y concatenait — le
+    # message annoncait « HTTP 000000 ».
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:$HTTP_PORT/" || true)"
+    [ "${code:-000}" = "200" ] || die "le portail ne repond pas depuis la machine (HTTP ${code:-000} sur le port $HTTP_PORT)."
+    info "Le portail repond depuis la machine (HTTP 200)."
+  elif timeout 5 bash -c "exec 3<>/dev/tcp/127.0.0.1/$HTTP_PORT" 2>/dev/null; then
+    info "Le portail accepte les connexions sur le port $HTTP_PORT."
+  else
+    die "le port $HTTP_PORT n'accepte aucune connexion alors que les services sont sains."
+  fi
+}
+
+# La verification qui distingue « nginx ecoute en 443 » de « le HTTPS marche » :
+# --resolve fabrique la bonne indication de nom (SNI) sans dependre du DNS ni du
+# proxy de la machine, et curl echoue si le certificat ne vaut rien.
+check_portal_https() {
+  if command -v curl >/dev/null; then
+    local insecure="" code
+    if [ "$ACME_STAGING" = 1 ]; then
+      # Attendu : aucune autorite ne reconnait l'endpoint de test. On verifie
+      # alors le reste de la chaine, pas la confiance.
+      insecure="-k"
+    fi
+    code="$(curl -s $insecure -o /dev/null -w '%{http_code}' --max-time 10 \
+      --resolve "$DOMAIN:$HTTPS_PORT:127.0.0.1" "https://$DOMAIN:$HTTPS_PORT/" || true)"
+    # `000` signifie que la connexion n'a pas abouti, et la cause la plus
+    # frequente est un certificat que curl refuse — donc bien plus souvent le
+    # certificat que nginx.
+    [ "${code:-000}" = "200" ] || die "le portail ne repond pas en HTTPS (code ${code:-000} sur le port $HTTPS_PORT).
+       Un code 000 vient le plus souvent du certificat lui-meme :
+         curl -v --resolve $DOMAIN:$HTTPS_PORT:127.0.0.1 https://$DOMAIN:$HTTPS_PORT/
+       Journaux du proxy :
+         docker compose $COMPOSE logs proxy"
+    info "HTTPS repond depuis la machine (200)."
+  elif timeout 5 bash -c "exec 3<>/dev/tcp/127.0.0.1/$HTTPS_PORT" 2>/dev/null; then
+    # Sans curl on ne peut pas valider la terminaison TLS, seulement l'ecoute.
+    info "Le port $HTTPS_PORT accepte les connexions (curl absent : TLS non verifie)."
+  else
+    die "le port $HTTPS_PORT n'accepte aucune connexion alors que les services sont sains."
+  fi
+}
+
+# En demarrage direct HTTPS, le 21600 ne repond plus 200 mais 301 : c'est le
+# 21601 qui porte le contrat.
+if [ "$TLS" = 1 ] && [ "$NEED_ISSUE" = 0 ]; then
+  check_portal_https
 else
-  die "le port $HTTP_PORT n'accepte aucune connexion alors que les services sont sains."
+  check_portal_http
+fi
+
+# --------------------------------------------------------------------------
+# Amorcage du certificat, puis bascule en HTTPS (A7)
+# --------------------------------------------------------------------------
+# Ce bloc n'existe QUE pour le premier certificat, ou pour le passage du
+# certificat de test au vrai. Un redeploiement ordinaire est deja parti en
+# HTTPS plus haut et ne passe pas ici — sans quoi chaque relance couperait le
+# 443 le temps de deux recreations du proxy.
+#
+# On arrive ici avec la pile en clair, saine : c'est elle qui sert le jeton que
+# Let's Encrypt vient lire sur le port 80 de la machine, relaye sur 21600.
+if [ "$TLS" = 1 ] && [ "$NEED_ISSUE" = 1 ]; then
+  step "Obtention du certificat"
+  issue_certificate
+
+  # A partir d'ici, TOUT parle de la pile avec le calque : up, ps, logs, exec,
+  # et la banniere finale (le heredoc est interpole).
+  COMPOSE="$COMPOSE_TLS"
+  SERVICES="$SERVICES certbot"
+
+  step "Redemarrage en HTTPS"
+  $DOCKER compose $COMPOSE up -d
+  wait_for_services
+  check_portal_https
 fi
 
 # Seed du compte avocat de demonstration et d'une demande. Le script reste muet
@@ -457,18 +694,33 @@ if $DOCKER compose $COMPOSE exec -T backend sh -c '[ -f dist/seed.js ]' 2>/dev/n
   $DOCKER compose $COMPOSE exec -T backend node dist/seed.js
 fi
 
+# En TLS, l'URL utile est publique : le 127.0.0.1:21600 y repond encore, mais
+# par un 301 vers elle.
+if [ "$TLS" = 1 ]; then
+  URLS="   Portail   https://$DOMAIN
+     API       https://$DOMAIN/api
+     (le port $HTTP_PORT redirige desormais vers HTTPS)"
+  # Surtout pas de renvoi vers `pnpm stack:down` ici : ces scripts ne portent
+  # que le compose de base, donc ils laisseraient certbot en marche et
+  # remonteraient le proxy en clair. Les commandes ci-dessus sont completes.
+  HINT="   (depuis la racine du depot)"
+else
+  URLS="   Portail   http://127.0.0.1:$HTTP_PORT
+     API       http://127.0.0.1:$HTTP_PORT/api"
+  HINT="   (depuis la racine du depot ; ou pnpm stack:down / pnpm stack:logs)"
+fi
+
 cat <<BANNER
 
   ============================================================
    Le portail est demarre.
 
-     Portail   http://127.0.0.1:$HTTP_PORT
-     API       http://127.0.0.1:$HTTP_PORT/api
+  $URLS
 
    Arreter :   docker compose $COMPOSE down
    Journaux :  docker compose $COMPOSE logs -f
 
-   (depuis la racine du depot ; ou pnpm stack:down / pnpm stack:logs)
+$HINT
   ============================================================
 
 BANNER
