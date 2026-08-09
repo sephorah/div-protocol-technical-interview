@@ -219,6 +219,26 @@ consommateur résiduel du `token` nu ; `applyDecorators` ; la délégation du se
 assertion négative vérifiée sur la pile réelle, jeton absent des journaux du proxy **et** du
 frontend, `[redacted]` présent.
 
+## Livraison
+
+Fusion dans `main`, puis publication en **0.3.0** (tag `exo2-v0.3.0` — le déclencheur du workflow est
+`exo2-v*`, le dépôt hébergeant plusieurs exercices ; un `v0.3.0` ne publierait rien, en silence).
+
+**Le bump de version n'est pas une formalité, et l'oublier aurait annulé la livraison.**
+`docker-compose.yml` épinglait `0.2.0` : fusionner publie `edge` et `sha-<court>`, mais cette
+étiquette-là continue de désigner l'ancienne image. Un évaluateur lançant `./install.sh` aurait
+obtenu un portail **sans B3 du tout**. C'est la campagne machine vierge qui l'a révélé, en échouant
+sur la nouvelle assertion négative : les images publiées fuyaient encore le jeton.
+
+L'ordre suivi est celui que documente `infra/README.md` — vérifier l'**artefact réel** avant de figer
+une version, plutôt que de promouvoir une image qu'on n'a jamais vue tourner : pile de production
+lancée sur `IMAGE_TAG=sha-8b71841`, cinq services `running`, deux en-têtes présents, jeton absent des
+journaux du proxy et du frontend, puis connexion 200, création 201, **régénération 201 en 112 ms**,
+révocation 204. Le tag n'a été posé qu'après.
+
+Campagne machine vierge finale, épingle déplacée : **succès en 3 min 36 s**, six assertions vertes
+dont le masquage du jeton.
+
 ## Ce qui reste ouvert
 
 - **G1**, limitation de débit par jeton de lien : c'est ce qui manque pour que 4 chiffres soient
