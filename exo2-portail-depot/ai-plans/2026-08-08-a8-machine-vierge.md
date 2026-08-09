@@ -198,7 +198,7 @@ lot mais non rejoué.
   été testés et ajoutés au tableau ci-dessus. « Ça marche sur mon cas de test » n'est pas une
   relecture.
 
-## Deux erreurs de méthode, consignées
+## Trois erreurs de méthode, et la règle qui les relie
 
 **Un harnais de test faux vaut pire qu'aucun test.** Le harnais machine vierge préinstallait curl,
 donc trois campagnes de mesures ont certifié un parcours qui échouait. C'est la raison d'être de la
@@ -206,10 +206,38 @@ règle « n'installer rien dans le conteneur », écrite en majuscules dans l'en
 
 **Un diagnostic peut être innocenté à tort par un test trop permissif.** Pendant l'incident du
 volume Postgres, un `psql -h 127.0.0.1` lancé *dans* le conteneur `db` a répondu « mot de passe
-OK » — l'image postgres est en `trust` sur `127.0.0.1`, donc elle accepte **n'importe quel** mot de
-passe. La même connexion depuis un autre conteneur du réseau échouait bel et bien. Conclusion notée
-dans `CLAUDE.md` : pour tester une authentification Postgres, se connecter depuis le réseau, jamais
-depuis la boucle locale du serveur.
+OK ». J'en ai conclu que la configuration était bonne — à tort. Le `pg_hba.conf` de l'image postgres
+choisit la méthode d'authentification selon la **provenance** de la connexion :
+
+| D'où | Adresse vue par Postgres | Règle | Mot de passe faux |
+|---|---|---|---|
+| conteneur `backend` → `db` | `172.19.0.5` | `scram-sha-256` | refusé |
+| la machine (`pnpm dev`) → port publié `21632` | `172.17.0.1` | `scram-sha-256` | refusé |
+| `docker compose exec db psql` | *(vide, socket locale)* | `trust` | **accepté** |
+| `docker compose exec db psql -h 127.0.0.1` | `127.0.0.1` | `trust` | **accepté** |
+
+Deux choses non évidentes, toutes deux mesurées sur cette pile. D'abord la zone `trust` se réduit à
+l'intérieur du conteneur `db` — c'est-à-dire exactement là où l'on va quand on débugue, `docker
+compose exec db psql` étant la commande la plus courte à taper. Ensuite la publication de port de
+Docker fait de la **traduction d'adresse** : une connexion venue de la machine vers
+`127.0.0.1:21632` se présente avec l'adresse de la passerelle du pont, pas avec la boucle locale.
+`pnpm dev` s'authentifie donc pour de vrai, ce qui n'allait pas de soi.
+
+**Une garde peut être justifiée sur une supposition.** La garde macOS (§ 2) a été écrite en
+supposant ce que ferait `get.docker.com`, sans ouvrir le script. Il gère déjà le cas, et mieux.
+
+**La règle qui relie les trois : tester par le même chemin que le vrai client.** Un chemin de test
+plus permissif que le chemin réel ne prouve rien, et il ment dans le sens le plus dangereux — il
+rassure. Le projet en applique déjà un autre cas sans l'avoir nommé : `test-bare-machine.sh` sonde
+`/api/v1/health` **à travers nginx** en attendant un **403**. Le backend, lui, répond **200** sur
+cette route — vérifié depuis l'intérieur de son conteneur, ce que fait précisément son healthcheck
+docker. Seul le chemin proxifié peut donc dire si c'est **notre** `nginx.conf` qui est monté : un
+nginx par défaut servirait sa page d'accueil et ne refuserait jamais rien. Le chemin fait partie de
+ce qu'on teste.
+
+*(Cette phrase a d'abord été écrite « interroger `127.0.0.1:21610` directement répondrait 200 » —
+faux : aucun port n'est publié pour le backend, la machine reçoit `000`. Corrigé en relisant le
+diff, ce qui est précisément l'objet de la règle ci-dessus.)*
 
 ## Incident rencontré (sans lien avec ce lot)
 

@@ -588,9 +588,26 @@ Four details that are easy to undo by accident:
   the backend restart-loops on `P1000`, the script waits out its 300 s and prints raw logs. It cannot
   happen on a fresh machine (`.env` and the volume are born together), only on a dev machine whose
   `.env` was regenerated while the volumes survived. The fix is `down -v`, documented in
-  `.env.example`. Beware when diagnosing: the postgres image trusts `127.0.0.1` inside its own
-  container, so `psql -h 127.0.0.1` accepts **any** password and appears to exonerate the config —
-  test from another container on the network instead.
+  `.env.example`. **Diagnosing it has a trap**: the postgres image's `pg_hba.conf` is `trust` for the
+  local socket and for `127.0.0.1` *inside its own container*, and `scram-sha-256` for everything
+  else. So `docker compose exec db psql` — the shortest command to type, hence the one a human
+  reaches for — accepts **any** password and appears to exonerate the configuration. Measured on this
+  stack:
+
+  | From | Address Postgres sees | Rule | Wrong password |
+  |---|---|---|---|
+  | `backend` container → `db` | `172.19.0.5` | `scram-sha-256` | rejected |
+  | the host (`pnpm dev`) → published `21632` | `172.17.0.1` | `scram-sha-256` | rejected |
+  | `docker compose exec db psql` | *(none, local socket)* | `trust` | **accepted** |
+  | `docker compose exec db psql -h 127.0.0.1` | `127.0.0.1` | `trust` | **accepted** |
+
+  Note row 2: docker's port publishing **NATs**, so a connection from the host to `127.0.0.1:21632`
+  reaches Postgres as the bridge gateway, not as loopback — `pnpm dev` really does authenticate. The
+  rule to apply: **test through the same path the real client uses.** The same principle is why
+  `test-bare-machine.sh` probes `/api/v1/health` *through nginx* expecting **403**: the backend
+  itself answers **200** on that route (verified from inside its container, which is exactly what its
+  docker healthcheck does), so only the proxied path can tell whether **our** `nginx.conf` is
+  mounted — a default nginx would serve its welcome page and never deny anything.
 - **The final banner must stay in raw docker commands.** It prints
   `docker compose -f infra/docker-compose.yml --env-file .env down`, not `pnpm stack:down`: the
   script no longer installs Node or pnpm, so the banner cannot tell the grader to run a pnpm script
