@@ -15,8 +15,9 @@ lire ici pour y arriver.
 
 Le portail est alors sur **http://127.0.0.1:21600**.
 
-Comptez **~2 min 30 s sur une machine vierge**, installation de Docker comprise, **~35 s** si Docker
-est déjà là, et une quinzaine de secondes ensuite. Ce parcours est rejouable en une commande :
+Comptez **~2 min sur une machine vierge** (1 min 52 s et 2 min 28 s mesurées sur deux passages),
+installation de Docker comprise, **~35 s** si Docker est déjà là, et une quinzaine de secondes
+ensuite. Ce parcours est rejouable en une commande :
 `pnpm test:bare-machine` le refait dans un conteneur `ubuntu:24.04` où rien n'est préinstallé, et
 vérifie que le portail répond vraiment à la fin.
 

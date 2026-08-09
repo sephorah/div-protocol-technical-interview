@@ -159,7 +159,7 @@ vérifié.
 | Ce qui est prouvé | Résultat |
 |---|---|
 | Le trou existait | `ubuntu:24.04` : ni curl ni wget ni git ; `install.sh` sort en **1** sur « curl est requis » |
-| Le trou est refermé | `./scripts/test-bare-machine.sh` → **exit 0 en 2 min 28 s**, curl installé par le script, `/` **200**, `/api/v1/health` **403**, `.env` **600** |
+| Le trou est refermé | `./scripts/test-bare-machine.sh` → **exit 0 en 1 min 52 s et 2 min 28 s** sur deux passages, curl installé par le script, `/` **200**, `/api/v1/health` **403**, `.env` **600** |
 | Repli wget | conteneur avec wget seul : `ensure_fetcher` n'installe rien, Docker s'installe via wget |
 | `ensure_fetcher`, palier **root** | `id -u` 0 : curl installé via `apt-get`, script poursuivi |
 | `ensure_fetcher`, palier **sudo** | utilisateur non privilégié (uid 1001) avec sudo : curl installé via `sudo apt-get`, script poursuivi |

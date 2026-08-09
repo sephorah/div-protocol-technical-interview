@@ -177,9 +177,9 @@ installer Node ferait attendre l'évaluateur pour rien.
       `ubuntu:24.04` n'a ni `curl` ni `wget`, et le script mourait en réclamant `apt install curl` ;
       les trois campagnes de mesures (A8, A5, A6) ne l'avaient pas vu parce que le harnais installait
       curl **avant** de lancer le script. `ensure_fetcher` obtient désormais curl au lieu de l'exiger.
-      Mesuré **2 min 28 s** dans un `ubuntu:24.04` où rien n'est préinstallé, installation de Docker
-      comprise, à partir de `git archive HEAD` ; **15 s** avec les images en cache. Rejouable par
-      `pnpm test:bare-machine`
+      Mesuré **1 min 52 s et 2 min 28 s** sur deux passages, dans un `ubuntu:24.04` où rien n'est
+      préinstallé, installation de Docker comprise, à partir de `git archive HEAD` ; **15 s** avec
+      les images en cache. Rejouable par `pnpm test:bare-machine`
 
 Dépendances : A1, A3, D1, F2.
 

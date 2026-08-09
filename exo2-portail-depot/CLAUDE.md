@@ -633,7 +633,8 @@ pnpm test:bare-machine                      # the same
 ```
 
 It asserts exit 0, `/` → 200, `/api/v1/health` → **403**, `.env` at **600**, and prints the duration.
-Measured with `ensure_fetcher` in place: **2 min 28 s** (was 2 min 02 s before — the difference is
+Measured with `ensure_fetcher` in place: **1 min 52 s and 2 min 28 s** on two runs (was 2 min 02 s
+before — the gap between runs is network variance, the delta against A6 is
 `apt-get install curl`, which the script now does instead of refusing to continue). Three things in
 it are load-bearing:
 
