@@ -353,14 +353,56 @@ aucune demande de la base avec deux liens actifs. Campagne machine vierge en 2 m
 
 Dépendances : B2.
 
-### B4. Dashboard des demandes — P0
+### B4. Dashboard des demandes — P0 — **fait**
 
-- [ ] `GET /requests` : liste paginée avec statut `en attente` / `complète` / `expirée`
-- [ ] Détail d'une demande : pièces attendues, pièces reçues, horodatages
-- [ ] Statut dérivé, pas saisi : `expirée` si date dépassée, `complète` si toutes les pièces reçues
-- [ ] Téléchargement des pièces déposées
+- [x] `GET /requests` : liste paginée avec statut `en attente` / `complète` / `expirée`, la plus
+      récente d'abord. `page` et `pageSize` sont bornés (100 au plus) : sans plafond, un seul appel
+      authentifié tire la table entière et toutes ses pièces
+- [x] Détail d'une demande : pièces attendues, pièces reçues, horodatages — `GET /requests/:id`,
+      les pièces rendues dans l'ordre `position` que B2 a introduit, chaque pièce reçue portant nom
+      d'origine, type, taille et date de réception
+- [x] Statut dérivé, pas saisi — `deriveStatus` de B2 est réutilisée **sans une ligne de
+      modification**. Une colonne ne serait pas seulement pénible à tenir à jour, elle serait
+      fausse : entre l'instant d'expiration et le passage d'un job, elle affirmerait « en attente »
+      sur une demande que plus personne ne peut ouvrir
+- [ ] ~~Téléchargement des pièces déposées~~ → **déplacé en B4b**
 
-Dépendances : B2, C2.
+**Le statut garde les trois valeurs de l'énoncé, et l'état du lien est un champ à part.** B3 permet
+de révoquer un lien ; la ligne `PublicLink` survit à sa révocation, `revokedAt` étant daté et rien
+supprimé. Le statut se calcule donc sur le dernier lien émis, actif ou non, et `link.state` dit
+`active` ou `revoked` à côté. Les deux faits sont indépendants — une demande peut être **complète et
+coupée** — et un statut unique en écraserait un.
+
+**Pas de filtre par statut**, et c'est délibéré : le statut étant dérivé, le filtrer en SQL en ferait
+une seconde définition, qui peut diverger de la première sans qu'aucun test ne le voie.
+
+**Une demande sans aucun lien lève une erreur au lieu d'être servie.** Le cas est impossible par
+construction (création, révocation et régénération laissent toujours une ligne) ; le rendre nullable
+aurait fait traiter à tout appelant une corruption de la base — et l'aurait masquée derrière un 200.
+
+Vérifié : 257 tests unitaires, 83 e2e, lint sans avertissement des deux côtés ; à travers nginx,
+liste en **28 ms** et détail en **13 ms**, 404 sur un identifiant inconnu, 401 anonyme, 400 sur un
+paramètre de requête inconnu. Détail dans `ai-plans/2026-08-09-b4-dashboard.md`.
+
+Dépendances : B2.
+
+### B4b. Téléchargement des pièces déposées — P0
+
+- [ ] L'avocat récupère un fichier déposé — URL présignée MinIO ou flux à travers l'API, à trancher
+- [ ] Le lien de téléchargement est borné dans le temps et ne fuit pas hors de la session avocat
+- [ ] Nom de fichier restitué proprement (`Content-Disposition`), sans faire du nom fourni par le
+      client un chemin
+
+Sorti de B4 plutôt que livré avec : **C2 n'existe pas**, donc aucune ligne `UploadedFile` ne peut
+naître autrement qu'insérée à la main, et la route serait livrée sans qu'aucun chemin réel ne
+l'ait exercée. Les décisions qu'elle demande appartiennent d'ailleurs à C2 — présigné ou proxifié,
+durée de validité, en-têtes de restitution.
+
+Ce n'est pas dans la liste de routes de l'énoncé, qui s'arrête à `POST /public/:token/files`. Ce qui
+la justifie est le but même du produit : l'avocat « doit **récupérer** des pièces chez son client ».
+Un portail qui collecte sans jamais rendre fait moins bien que le courriel qu'il remplace.
+
+Dépendances : C2.
 
 ### B5. Écrans avocat (Chakra UI v3, charte DIV) — P0
 

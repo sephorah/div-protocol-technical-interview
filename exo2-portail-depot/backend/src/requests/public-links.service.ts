@@ -1,8 +1,4 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   generatePin,
@@ -13,6 +9,7 @@ import {
 import { DepositRequest, PublicLink } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildDepositUrl } from './public-url';
+import { requestNotFound } from './request-ownership';
 import { isExpired } from './request-status';
 import { IssuedLink } from './request.types';
 
@@ -123,10 +120,8 @@ export class PublicLinksService {
       select: { id: true },
     });
 
-    // 404 and not 403: telling a lawyer that an id exists but is not theirs is
-    // enough to enumerate another practice's caseload.
     if (found === null) {
-      throw new NotFoundException("Cette demande de dépôt n'existe pas.");
+      throw requestNotFound();
     }
     return found.id;
   }

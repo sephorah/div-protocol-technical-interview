@@ -256,6 +256,43 @@ une fenêtre neuve, et de garder la révocation comme mécanisme distinct de l'e
 **Une demande qui n'appartient pas à l'appelant répond 404, pas 403.** Un 403 confirmerait qu'un
 identifiant existe chez un autre avocat, ce qui suffit à énumérer ses dossiers.
 
+## Le tableau de bord
+
+`GET /requests` rend une page de demandes, la plus récente d'abord ; `GET /requests/:id` rend une
+demande avec ses pièces. Les deux sont fermées par le garde global : aucune ne porte `@Public()`.
+
+**Le statut n'est pas une colonne, il est calculé à la lecture.** « Expirée » dépend de l'horloge :
+une colonne resterait à « en attente » depuis l'instant d'expiration jusqu'au passage d'un job qui la
+bascule — et sans job, pour toujours. Le tableau de bord mentirait, sur le seul point qu'on lui
+demande. Le calcul ne coûte rien de plus ici : l'échéance et les pièces sont déjà chargées par la
+même requête.
+
+**Le statut garde les trois valeurs de l'énoncé ; l'état du lien est un champ voisin.** Révoquer un
+lien (`DELETE /requests/:id/link`) date `revokedAt` sans rien supprimer, donc l'échéance survit. Une
+demande révoquée conserve son statut — `en attente`, `complète` ou `expirée` — et `link.state` dit
+`revoked` à côté. Les deux faits sont indépendants : une demande peut être **complète et coupée**,
+et un champ unique en perdrait un. C'est aussi ce qui dit à l'avocat s'il doit régénérer.
+
+```json
+{
+  "items": [
+    { "id": "…", "title": "Dossier Martin, pièces 2026", "status": "pending",
+      "expectedCount": 3, "receivedCount": 1,
+      "link": { "state": "active", "expiresAt": "2026-08-23T19:49:38.626Z" } }
+  ],
+  "page": 1, "pageSize": 20, "total": 47, "totalPages": 3
+}
+```
+
+**`pageSize` est plafonné à 100.** Sans borne, un seul appel authentifié tire la table entière et
+toutes ses pièces. Le plafond est une constante du code, pas une variable d'environnement : il
+protège l'API, il ne dépend pas du déploiement.
+
+**Une demande qui n'appartient pas à l'appelant répond 404, pas 403** — la même règle que sur les
+routes de lien, pour la même raison. L'appartenance est un critère de la clause `where`, jamais une
+comparaison faite après la lecture : il n'existe donc aucune branche où le contrôle puisse être
+oublié.
+
 ### Le jeton voyage dans l'URL, et ce que ça coûte
 
 L'énoncé fige `POST /public/:token/unlock` : le jeton est dans le **chemin**. C'est un laissez-passer
@@ -327,6 +364,20 @@ de validation. L'allowlist et la taille maximale (20 Mo) vivent dans la configur
 
 - **Pas de journal d'audit** (`AccessLog`) : classé en bonus dans l'énoncé. `PublicLink` en prépare
   le rattachement.
+- **L'avocat ne peut pas encore télécharger les pièces reçues.** Le tableau de bord dit qu'une pièce
+  est arrivée, avec son nom, son type, sa taille et sa date ; il ne rend pas le fichier. C'est
+  l'issue **B4b**, qui attend C2 — tant que rien ne dépose, une route de téléchargement serait
+  livrée sans qu'aucun parcours réel ne l'ait exercée.
+- **La pagination du tableau de bord est par décalage** (`page` / `pageSize`). Si une demande est
+  créée pendant qu'on feuillette, une autre peut apparaître deux fois ou être sautée d'une page à la
+  suivante. Un curseur supprimerait le défaut, mais aussi le numéro de page et le total — donc le
+  « 3 sur 47 » de l'interface. À la volumétrie d'un cabinet, le compromis penche de ce côté.
+- **Pas de filtre ni de tri par statut.** Le statut étant calculé à la lecture, le filtrer en SQL en
+  ferait une seconde définition de la règle, susceptible de diverger de la première sans qu'aucun
+  test ne le voie. Ni l'énoncé ni le backlog ne le demandent.
+- **Le nom de fichier d'origine est restitué tel que le client l'a envoyé.** Il n'est jamais utilisé
+  comme chemin — la clé de stockage est composée à partir des identifiants — mais l'interface qui
+  l'affichera (B5) devra l'échapper comme n'importe quelle donnée venue de l'extérieur.
 - **Le PIN à 4 chiffres n'est protégé par aucune limitation de débit.** 10 000 combinaisons, et seul
   le coût d'argon2id (~67 ms mesurés) borne un attaquant. C'est **G1**, par jeton de lien, et B3 ne
   le règle pas — le dire vaut mieux que le laisser croire réglé. Quatre chiffres viennent de
