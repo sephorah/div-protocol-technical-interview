@@ -402,12 +402,25 @@ Ce n'est pas dans la liste de routes de l'énoncé, qui s'arrête à `POST /publ
 la justifie est le but même du produit : l'avocat « doit **récupérer** des pièces chez son client ».
 Un portail qui collecte sans jamais rendre fait moins bien que le courriel qu'il remplace.
 
-Dépendances : C2.
+À trancher ici une fois C2 fait : **un fichier au statut `failed` ne doit pas être servi**, quelle
+que soit la réponse donnée à la question ouverte de C2 sur le sens de « reçue ».
+
+Dépendances : C2 — donc, l'ordre réel étant C1 → C2 → B4b, cette issue vient après le déverrouillage
+et le dépôt. La dépendance est dure : sans C2 rien ne dépose, donc il n'y a aucun fichier à
+télécharger, aucun type réel à servir, et la route ne pourrait être exercée que sur des lignes
+insérées à la main.
 
 ### B5. Écrans avocat (Chakra UI v3, charte DIV) — P0
 
 - [ ] Login, liste des demandes, création de demande, détail
 - [ ] Remise du lien + PIN à la création, avec copie en un clic
+- [ ] **Échapper `originalName` à l'affichage** — point ouvert laissé par B4. Le nom de fichier est
+      fourni par le client et restitué tel quel par `GET /requests/:id`. Il n'est jamais utilisé
+      comme chemin (la clé de stockage se compose à partir des identifiants), mais c'est une donnée
+      venue de l'extérieur, à traiter comme telle par l'interface qui l'affiche
+- [ ] **Afficher `link.state` à côté du statut, pas à sa place** — la liste rend les deux séparément
+      (voir B4) : une demande peut être `complète` **et** son lien `revoked`. Une colonne unique en
+      perdrait un, et l'avocat ne saurait pas s'il doit régénérer
 
 Dépendances : B1–B4, E1.
 
@@ -440,6 +453,13 @@ Dépendances : A2, B3.
 - [ ] Type réel vérifié par les *magic bytes*, jamais sur le `Content-Type` déclaré ni l'extension :
       sans ça l'allowlist se contourne en mentant sur un en-tête (remonté de C4, qui est un bonus)
 - [ ] Re-dépôt d'une pièce déjà envoyée (remplacement ou versionnage — à trancher)
+- [ ] **Trancher ce que « reçue » veut dire face à un `UploadStatus.failed`** — question ouverte
+      laissée par B4. Aujourd'hui `received` signifie « un fichier est attaché », ce qui est exact
+      tant que rien ne peut échouer. Dès que C2 écrit un fichier, la colonne `status` peut valoir
+      `failed` (elle existe pour C4), et compter un fichier refusé comme reçu ferait afficher au
+      tableau de bord une demande **complète** alors qu'il manque une pièce. Le choix se répercute
+      sur `countReceived` et `toRequestSummary` (`src/requests/request.types.ts`) et sur C3, qui
+      montre la même progression au client
 
 Dépendances : A3, C1.
 
@@ -506,6 +526,25 @@ Dépendances : D1, A6.
 À savoir avant d'écrire le workflow : `pnpm test:e2e` **exige désormais un démon Docker**, comme
 `pnpm test:integration`. Ce n'est pas un obstacle — les exécuteurs GitHub hébergés en embarquent un
 par défaut — mais un exécuteur auto-hébergé sans Docker ne pourrait lancer que `pnpm test`.
+
+### D4. Messages de validation homogènes — P2
+
+Point ouvert laissé par B4. Chaque décorateur `class-validator` porte son message en français, et un
+test l'impose. Mais deux refus échappent à cette règle parce qu'ils ne viennent d'aucun décorateur :
+ils sont produits par le `ValidationPipe` lui-même.
+
+- [ ] `forbidNonWhitelisted` répond `property status should not exist`, en anglais, au milieu de
+      messages français. C'est le cas depuis B2 sur les corps de requête ; B4 l'étend à la chaîne de
+      requête, où il est plus visible — un avocat qui bricole une URL le voit
+- [ ] Même question pour le refus d'un corps qui n'est pas du JSON valide, produit en amont par
+      Express
+
+Ce qui bloque : le franciser demande une `exceptionFactory` sur le pipe global
+(`src/app.setup.ts`), donc de reformuler des erreurs dont le texte n'est pas conçu pour être lu par
+un utilisateur final. La décision — traduire, ou remplacer par un message générique unique —
+dépasse le périmètre d'une issue métier, d'où le P2.
+
+Dépendances : aucune.
 
 ---
 
