@@ -17,13 +17,23 @@ export interface StatusInput {
 }
 
 /**
+ * The single definition of "past its deadline", shared by the dashboard's
+ * status and by the resolution of a public link.
+ *
+ * Strictly greater: at the exact expiry instant the link still works.
+ * Duplicated, the two callers could drift by a millisecond -- a link refused
+ * while the request still reads "pending" -- and nothing would report it.
+ */
+export const isExpired = (expiresAt: Date, now: Date): boolean =>
+  now.getTime() > expiresAt.getTime();
+
+/**
  * `now` is an argument, not a reading taken inside: the expiry tests then need
  * no frozen clock, and a dashboard listing twenty requests classifies them all
  * against a single instant instead of twenty slightly different ones.
  */
 export const deriveStatus = (input: StatusInput, now: Date): RequestStatus => {
-  // Strictly greater: at the exact expiry instant the link still works.
-  if (now.getTime() > input.expiresAt.getTime()) {
+  if (isExpired(input.expiresAt, now)) {
     return RequestStatus.Expired;
   }
 
