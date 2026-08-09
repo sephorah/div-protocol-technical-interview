@@ -117,6 +117,17 @@ code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://127.0.0.1:@@
 if [ "$code" = 403 ]; then echo "  [OK] sonde /api/v1/health -> 403 (deny voulu)"
 else echo "  [KO] sonde /api/v1/health -> $code (attendu 403 : notre nginx.conf n est peut-etre pas monte)"; fail=1; fi
 
+# Le jeton de depot voyage dans l URL : sans cet en-tete, il part dans le
+# Referer vers tout domaine tiers que chargerait la page client. Il vient de
+# portal-locations.conf, donc c est aussi un second temoin que notre conf est
+# montee — une nginx par defaut ne le porte pas.
+if curl -sI --max-time 10 "http://127.0.0.1:@@PORT@@/" | grep -qi "^Referrer-Policy: no-referrer"; then
+  echo "  [OK] Referrer-Policy      -> no-referrer"
+else
+  echo "  [KO] Referrer-Policy      -> absent (portal-locations.conf n est peut-etre pas monte)"
+  fail=1
+fi
+
 perms=$(stat -c %a .env)
 if [ "$perms" = 600 ]; then echo "  [OK] .env                 -> 600"
 else echo "  [KO] .env                 -> $perms (attendu 600)"; fail=1; fi

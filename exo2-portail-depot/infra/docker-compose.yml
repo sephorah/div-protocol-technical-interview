@@ -255,6 +255,12 @@ services:
       # conf.d/*.conf au niveau `http`, ou un `location` nu est une erreur de
       # syntaxe. Ce fragment est inclus DANS le bloc server.
       - ./nginx/portal-locations.conf:/etc/nginx/portal-locations.conf:ro
+      # DANS conf.d/, a l'inverse : `map` et `log_format` ne sont valides qu'au
+      # niveau `http`, ou ce repertoire est justement inclus. Le prefixe 00-
+      # garantit le chargement avant default.conf, donc avant l'usage du format.
+      # Le calque TLS n'a rien a ajouter : compose fusionne les `volumes` par
+      # chemin CIBLE, ce montage lui parvient donc tel quel.
+      - ./nginx/log-redact.conf:/etc/nginx/conf.d/00-log-redact.conf:ro
       # Racine du challenge ACME. Presente meme sans TLS : c'est par cette pile
       # en clair que passe l'AMORCAGE du certificat (nginx ne demarre pas si le
       # fichier de certificat manque, cf. nginx.conf). Vide, le `location`
