@@ -243,6 +243,37 @@ services:
       start_interval: 1s
     restart: unless-stopped
 
+  prometheus:
+    # Tag fige : `latest` ferait changer de version majeure sans qu'une ligne de
+    # ce depot ne bouge, et v3 a deja retire des drapeaux de v2.
+    image: prom/prometheus:v3.5.0
+    init: true
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Volume nomme : sans lui, l'historique repart de zero a chaque
+      # `docker compose up`, et un graphe sans passe ne sert a rien.
+      - prometheus_data:/prometheus
+    # Aucune cle `command` : celle de l'image porte deja --config.file et
+    # --storage.tsdb.path. La redefinir ici obligerait a recopier ces deux
+    # drapeaux, et en oublier un fait demarrer Prometheus sur une configuration
+    # vide, sans erreur visible.
+    healthcheck:
+      # busybox wget, present dans l'image. Meme start_interval que les cinq
+      # autres services : pendant start_period, docker sonde a ce rythme au lieu
+      # d'attendre un `interval` entier, ce qui est exactement ce sur quoi la
+      # boucle d'attente d'install.sh bloque.
+      test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:9090/-/healthy']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 1s
+    restart: unless-stopped
+    # Aucun port publie, et c'est la meme raison que pour MinIO : la machine est
+    # partagee avec d'autres candidats, et l'interface de Prometheus dit combien
+    # de demandes existent, quand les depots ont lieu et quelle dependance est
+    # en panne. F2 y accedera par nginx, derriere Grafana.
+
   proxy:
     image: nginx:alpine
     ports:
@@ -305,3 +336,4 @@ volumes:
   # Volume distinct de minio_data_dev, comme pgdata l'est de pgdata_dev : un
   # nettoyage de developpement ne doit pas pouvoir atteindre les pieces reelles.
   minio_data:
+  prometheus_data:

@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { LawyersModule } from './lawyers/lawyers.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RequestsModule } from './requests/requests.module';
 import { StorageModule } from './storage/storage.module';
@@ -37,6 +38,9 @@ import { StorageModule } from './storage/storage.module';
     // only way out. A new controller is therefore born closed.
     AuthModule,
     RequestsModule,
+    // Last line on purpose: three tracks touch this file during the sprint, and
+    // an addition at the end is the conflict a merge resolves on its own.
+    MetricsModule,
   ],
 })
 export class AppModule {}

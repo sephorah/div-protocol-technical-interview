@@ -1,0 +1,28 @@
+# Configuration de Prometheus pour le portail (F1).
+#
+# Le chemin de scrape est ecrit en dur : Prometheus ne lit pas le .env, pas
+# plus que nginx. `/api/v1/metrics` doit donc suivre API_PREFIX en meme temps
+# que nginx.conf, portal-locations.conf, le healthcheck du compose et
+# frontend/src/api/client.ts — voir § Ports and API prefix de CLAUDE.md.
+#
+# Le port 21610 est celui du backend a l'interieur du reseau interne : ce
+# n'est PAS le port publie (seul le proxy en publie un, 21600).
+
+global:
+  # 15 s : assez fin pour qu'une alerte « API injoignable » sur 1 min repose
+  # sur plusieurs echantillons et non sur un seul point manque, assez large
+  # pour que le cout de stockage reste negligeable a cette echelle.
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Prometheus se surveille lui-meme : sans cette cible, un Prometheus tombe
+  # ressemble a un portail parfaitement silencieux.
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: portail-backend
+    metrics_path: /api/v1/metrics
+    static_configs:
+      - targets: ['backend:21610']
