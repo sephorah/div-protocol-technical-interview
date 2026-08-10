@@ -9,8 +9,49 @@ Légende priorité :
 - **P1 — attendu** : critère de différenciation explicite de l'énoncé.
 - **P2 — bonus** : listé comme bonus.
 
-État : `todo` sauf mention contraire. Le socle actuel (scaffold NestJS + Vite/Chakra, `install.sh`,
-docker compose + proxy nginx, lint bloquant des deux côtés) est déjà en place et sert de base.
+État : `todo` sauf mention contraire.
+
+---
+
+## Où en est le rendu — 10 août 2026
+
+**Tout le P0 et tout le P1 sont livrés, sauf le README (H1) et l'export des sessions (H3).**
+
+Le sprint du 10/08 a fermé dix issues en trois pistes parallèles isolées par `git worktree` :
+**D6, C1, C2, B4b, B5, C3, G4, F1, F2** et le dernier critère d'**A8**. Plan et déroulé dans
+`ai-plans/2026-08-10-sprint-final-parallele.md` et `ai-plans/2026-08-10-b5-ecrans-avocat.md`.
+
+Vérification : **512 tests** — 341 backend (26 suites) et 171 frontend (25 suites) — dont 114 e2e
+contre un vrai Postgres et 10 contre un vrai MinIO. Les deux lints bloquants sont propres. Et le
+**parcours complet joué à la main à travers nginx**, qu'aucune suite ne couvre : login → création →
+déverrouillage → dépôt d'un vrai PDF → refus 415 d'un exécutable déguisé → tableau de bord →
+téléchargement **octet pour octet identique** → 401 en anonyme, jeton absent des journaux.
+
+### Ce qui reste
+
+| Reste | Nature |
+|---|---|
+| **H1** | README à compléter — observabilité, justification des métriques, limites |
+| **H3** | Export des sessions IA et **caviardage**, à faire ligne à ligne |
+| **Passe navigateur** | Charte, densité, points de rupture, survol, violations CSP. jsdom ne calcule aucun style : 512 tests verts n'en disent **rien** — voir D5 |
+| **D1** | La suite d'intégration du seed, seule case encore ouverte |
+
+### Ce qui a été coupé, et pourquoi
+
+Le budget était de 7 h ; les 22 issues ouvertes en représentaient environ 22. Le périmètre a donc été
+arrêté au **P0 + P1**, et les huit issues P2 restantes sont écartées — **toutes classées *bonus* par
+l'énoncé**, donc leur absence ne retire aucun point éliminatoire ni aucun critère de différenciation.
+
+- **G1** (limite de débit sur le PIN) — le seul regret. Compensé par la métrique
+  `portail_unlock_attempts_total` et son alerte, qui **détectent** un brute force sans l'**empêcher**.
+  À nommer explicitement dans les limites du README.
+- **C4** (antivirus), **G2** (audit), **G3** (URLs pré-signées), **B1b** (sessions avocat) — bonus.
+- **D3** (CI), **D4** (messages homogènes), **D5** (tests de rendu), **E2** (densité mobile) —
+  qualité et outillage. **D4 est devenue plus visible** : le client API cite désormais le corps d'un
+  400, donc les messages anglais du `ValidationPipe` peuvent atteindre l'écran.
+
+Le socle (scaffold NestJS + Vite/Chakra, `install.sh`, docker compose + proxy nginx, lint bloquant
+des deux côtés) était déjà en place avant tout ça et sert de base.
 
 ---
 
@@ -162,10 +203,12 @@ génération du `.env`, `pull` des images publiées, attente de chaque healthche
 Le bootstrap Node/nvm/corepack a été **retiré** — la compilation se fait dans les images, donc
 installer Node ferait attendre l'évaluateur pour rien.
 
-- [ ] Un seul appel monte API + front + DB + MinIO + monitoring — les quatre premiers sont montés et
-      attendus (`SERVICES="db minio backend frontend proxy"`, plus `certbot` quand `DOMAIN` est
-      rempli) ; **le monitoring reste à ajouter à cette liste et à la boucle d'attente quand F1/F2
-      livreront Prometheus et Grafana**
+- [x] Un seul appel monte API + front + DB + MinIO + monitoring — **fermé le 10/08**.
+      `SERVICES="db minio backend frontend proxy prometheus grafana"`, plus `certbot` quand `DOMAIN`
+      est rempli. `minio-init` en reste délibérément absent : il provisionne puis sort en 0, et la
+      boucle n'accepte que `healthy|running` — l'y mettre bloquerait le script les 300 s du
+      `HEALTH_TIMEOUT` sur un conteneur qui a parfaitement fait son travail. Mesuré après F2 :
+      `./install.sh --from-source` rend la main en **40,8 s**, les sept services attendus
 - [x] Seed exécuté (compte avocat démo + une demande) — **fait en B1**. Le branchement n'a pas bougé :
       le script teste `dist/seed.js` dans le conteneur `backend` et l'exécute après les healthchecks,
       en affichant sa sortie telle quelle. Le seed imprime l'adresse, le mot de passe, le lien de
@@ -365,7 +408,7 @@ Dépendances : B2.
       modification**. Une colonne ne serait pas seulement pénible à tenir à jour, elle serait
       fausse : entre l'instant d'expiration et le passage d'un job, elle affirmerait « en attente »
       sur une demande que plus personne ne peut ouvrir
-- [ ] ~~Téléchargement des pièces déposées~~ → **déplacé en B4b**
+- [x] ~~Téléchargement des pièces déposées~~ → **déplacé en B4b, et livré là** le 10/08
 
 **Le statut garde les trois valeurs de l'énoncé, et l'état du lien est un champ à part.** B3 permet
 de révoquer un lien ; la ligne `PublicLink` survit à sa révocation, `revokedAt` étant daté et rien
@@ -386,12 +429,35 @@ paramètre de requête inconnu. Détail dans `ai-plans/2026-08-09-b4-dashboard.m
 
 Dépendances : B2.
 
-### B4b. Téléchargement des pièces déposées — P0
+### B4b. Téléchargement des pièces déposées — P0 — **fait**
 
-- [ ] L'avocat récupère un fichier déposé — URL présignée MinIO ou flux à travers l'API, à trancher
-- [ ] Le lien de téléchargement est borné dans le temps et ne fuit pas hors de la session avocat
-- [ ] Nom de fichier restitué proprement (`Content-Disposition`), sans faire du nom fourni par le
-      client un chemin
+- [x] L'avocat récupère un fichier déposé — **flux à travers l'API**, `GET
+      /requests/:id/items/:itemId/file`, servi en `StreamableFile` sur `getObjectStream`
+- [x] Le lien ne fuit pas hors de la session avocat — il n'y a **pas de lien** : la route passe par
+      le garde global, donc aucun porteur ne circule dans une URL. C'est ce qui a fait écarter l'URL
+      pré-signée (voir ci-dessous)
+- [x] Nom de fichier restitué proprement — `Content-Disposition: attachment;
+      filename*=UTF-8''<encodeURIComponent(originalName)>`, forme RFC 5987. `originalName` vient du
+      client, donc il peut contenir un guillemet ou un retour à la ligne, de quoi injecter un second
+      en-tête ; `encodeURIComponent` ferme les deux, et un test e2e le vérifie
+
+**L'URL pré-signée a été écartée sur arbitrage, pas sur impossibilité** — une version antérieure du
+plan la disait « techniquement impossible » et c'était faux. Une `location` nginx vers `minio:9000`
+marcherait ; sa contrainte est que **SigV4 signe le `Host` ET le chemin**, et que l'API S3 de MinIO
+ne se monte pas sous un préfixe, donc il faudrait exposer le bucket à la racine de l'origine.
+45 min contre 30. Ce qui tranche : elle remettrait un porteur dans une URL, donc une entrée de plus
+dans `log-redact.conf` — la seule protection du projet dont l'échec est **muet** ; elle ajoute un
+chemin de signature qu'aucune suite ne traverse, qui marche en développement et casse derrière
+nginx ; son bénéfice est un débit dont personne n'a mesuré le coût ; et G3 est P2 et porte sur
+l'upload. Le mécanisme est à documenter au README comme voie de montée en charge.
+
+**Tranché ici comme prévu : un fichier `failed` n'est jamais servi** (404), sinon le portail livrerait
+à l'avocat exactement le fichier qu'il venait de refuser.
+
+Vérifié : 8 cas e2e, dont **une pièce appartenant à une autre demande du même avocat → 404** — cas
+qu'un contrôle de propriété en deux temps aurait laissé passer. Chaque refus vérifie aussi que
+`getObjectStream` n'a **pas** été appelé. Bout en bout à travers nginx : fichier déposé puis
+retéléchargé **octet pour octet identique**.
 
 Sorti de B4 plutôt que livré avec : **C2 n'existe pas**, donc aucune ligne `UploadedFile` ne peut
 naître autrement qu'insérée à la main, et la route serait livrée sans qu'aucun chemin réel ne
@@ -410,19 +476,32 @@ et le dépôt. La dépendance est dure : sans C2 rien ne dépose, donc il n'y a 
 télécharger, aucun type réel à servir, et la route ne pourrait être exercée que sur des lignes
 insérées à la main.
 
-### B5. Écrans avocat (Chakra UI v3, charte DIV) — P0
+### B5. Écrans avocat (Chakra UI v3, charte DIV) — P0 — **fait**
 
-- [ ] Liste des demandes, création de demande, détail — **le login est livré par E1**
-- [ ] **Reveal au scroll** (opacity + translation), reporté depuis E1 : la liste est le premier
-      écran qui défile
-- [ ] Remise du lien + PIN à la création, avec copie en un clic
-- [ ] **Échapper `originalName` à l'affichage** — point ouvert laissé par B4. Le nom de fichier est
-      fourni par le client et restitué tel quel par `GET /requests/:id`. Il n'est jamais utilisé
-      comme chemin (la clé de stockage se compose à partir des identifiants), mais c'est une donnée
-      venue de l'extérieur, à traiter comme telle par l'interface qui l'affiche
-- [ ] **Afficher `link.state` à côté du statut, pas à sa place** — la liste rend les deux séparément
-      (voir B4) : une demande peut être `complète` **et** son lien `revoked`. Une colonne unique en
-      perdrait un, et l'avocat ne saurait pas s'il doit régénérer
+- [x] Liste des demandes, création de demande, détail — `/dashboard`, `/requests/new`,
+      `/requests/:id`, sous `RequireSession`. Le login venait d'E1
+- [x] **Reveal au scroll**, reporté depuis E1 — sur la liste seule, `delay={index * 60}`,
+      `prefers-reduced-motion` respecté
+- [x] Remise du lien + PIN à la création, avec copie en un clic — **deux boutons « Copier »
+      séparés** et **aucun `mailto:` prérempli** : réunir les deux secrets d'un geste encouragerait
+      exactement la fuite que le README décrit. Le formulaire est remplacé après envoi, et l'écran
+      dit que le PIN ne s'affiche qu'une fois
+- [x] **`originalName` échappé à l'affichage** — deux tests : un nom contenant `<img …>` ne produit
+      aucun élément, et le retrait des caractères bidirectionnels U+202E, qui inversent l'affichage
+      d'un nom de fichier dans l'éditeur comme dans la page
+- [x] **`link.state` affiché à côté du statut** — `StatusBadge` + `LinkStateBadge` côte à côte sur la
+      carte et sur l'en-tête du détail, testés sur le cas `complete` + `revoked`
+
+Trois choses non prévues au plan. L'action de la carte s'appelle **« Gérer le lien »** et non
+« Copier le lien » : le jeton n'existe en clair qu'à l'émission, et « Copier » conduirait l'avocat à
+casser un lien en service. La **régénération demande confirmation en nommant la conséquence** —
+l'ancien lien cesse de fonctionner. Et la variante de pastille `neutral`, livrée sans consommateur
+par E1, en a enfin un : `[ 3 pieces ]` sur l'en-tête du détail.
+
+**Un défaut de charte trouvé et corrigé en chemin** : le `paddingInline` de la pastille valait
+**6 px au lieu des 12 px** de la charte, écrasé par une variante `size` de Chakra. C'est le piège que
+`CLAUDE.md` § E1 documente, et il était invisible parce que les tests de recette lisaient la config
+déclarée et non la valeur effective. Ils lisent désormais la sortie de `getRecipeFn`.
 
 Dépendances : B1–B4, E1.
 
@@ -430,14 +509,29 @@ Dépendances : B1–B4, E1.
 
 ## Épique C — Côté client (anonyme)
 
-### C1. Déverrouillage par PIN — P0
+### C1. Déverrouillage par PIN — P0 — **fait**
 
-- [ ] `POST /public/:token/unlock` : renvoie une session courte scopée à la demande
-- [ ] Token inconnu, expiré et PIN faux renvoient des réponses indistinguables (pas d'oracle)
-- [ ] Aucune donnée de la demande exposée avant déverrouillage
-- [ ] **La session client porte le `linkId`, pas seulement le `requestId`.** Contrainte posée par B3
-      et à honorer ici : sans elle, un client déjà déverrouillé garde son accès après une révocation
-      ou une régénération, et les deux actions que B3 vient de livrer ne coupent alors plus rien
+- [x] `POST /public/:token/unlock` : session de 30 min en cookie httpOnly, `SameSite=Strict`, scopée
+      à `${API_PREFIX}/public`. Plus `GET /public/session`, dont le SPA a besoin au rechargement
+- [x] Token inconnu, révoqué, expiré et PIN faux renvoient des réponses indistinguables — **une
+      constante unique**, et l'e2e compare le **corps entier** (`message`, `error`, `statusCode`)
+      plus l'absence de `Set-Cookie` : comparer le seul `message` serait passé alors que `error`
+      différait. Vérifié à travers nginx, les corps sont identiques octet pour octet
+- [x] Aucune donnée de la demande exposée avant déverrouillage
+- [x] **La session porte le `linkId`** — `ClientSessionGuard` **relit le lien** à chaque requête et
+      refuse sur `revokedAt` ou expiration, et le `requestId` est pris dans la **ligne**, pas dans la
+      charge utile. e2e : déverrouiller → `DELETE /requests/:id/link` → `GET /public/session` → 401
+
+**Le chronomètre est aussi un oracle**, et le plan ne l'avait pas dit : trois réponses identiques ne
+suffisent pas si un jeton inconnu répond en 1 ms quand un PIN faux coûte 67 ms. Le PIN est donc
+vérifié contre un **hachage factice** même quand `resolve` échoue — le dispositif que `AuthService`
+utilise déjà pour un e-mail inconnu.
+
+**La session client a son propre secret, `CLIENT_JWT_SECRET`.** Signée avec celui de l'avocat, un
+jeton client présenté au garde avocat franchirait la vérification de signature et la frontière ne
+tiendrait plus qu'à un contrôle applicatif. RFC 8725 (BCP 225) § 3.8. Un `JwtService` dédié dans
+`PublicModule`, et `validateEnv` **refuse les deux secrets égaux** — sinon ils paraissent configurés
+et ne séparent rien. Tests dans les deux sens, au niveau unitaire et par HTTP.
 
 B3 fournit `PublicLinksService.resolve(token, now)`, qui applique déjà révocation et expiration et
 distingue `unknown` / `revoked` / `expired`. **Cette distinction ne doit pas ressortir** : elle
@@ -446,30 +540,72 @@ sans quoi elle devient l'oracle que la deuxième case interdit.
 
 Dépendances : A2, B3.
 
-### C2. Dépôt de pièces — P0
+### C2. Dépôt de pièces — P0 — **fait**
 
-- [ ] `POST /public/:token/files` : upload vers MinIO, métadonnées en base
-- [ ] Rattachement à une pièce attendue
-- [ ] Taille max et types autorisés **appliqués**, erreurs lisibles. L'énoncé les fige — 20 Mo par
-      fichier, PDF/JPG/PNG — donc des constantes typées et testées, pas des variables d'environnement
-- [ ] Type réel vérifié par les *magic bytes*, jamais sur le `Content-Type` déclaré ni l'extension :
-      sans ça l'allowlist se contourne en mentant sur un en-tête (remonté de C4, qui est un bonus)
-- [ ] Re-dépôt d'une pièce déjà envoyée (remplacement ou versionnage — à trancher)
-- [ ] **Trancher ce que « reçue » veut dire face à un `UploadStatus.failed`** — question ouverte
-      laissée par B4. Aujourd'hui `received` signifie « un fichier est attaché », ce qui est exact
-      tant que rien ne peut échouer. Dès que C2 écrit un fichier, la colonne `status` peut valoir
-      `failed` (elle existe pour C4), et compter un fichier refusé comme reçu ferait afficher au
-      tableau de bord une demande **complète** alors qu'il manque une pièce. Le choix se répercute
-      sur `countReceived` et `toRequestSummary` (`src/requests/request.types.ts`) et sur C3, qui
-      montre la même progression au client
+- [x] `POST /public/files` : upload vers MinIO, métadonnées en base. Le jeton n'est plus dans le
+      chemin — la session cliente de C1 le porte, donc un secret de moins dans une URL journalisée
+- [x] Rattachement à une pièce attendue — l'`itemId` doit appartenir à la demande de la session
+      (`findFirst` sur les **deux** critères), sinon **404** et jamais 403 : un 403 confirmerait que
+      la pièce existe ailleurs
+- [x] Taille max et types autorisés appliqués — constantes typées (`MAX_FILE_BYTES`,
+      `ALLOWED_MIME_TYPES`), **413** et **415** avec messages français. Le 413 vient d'un filtre
+      d'exception : multer avorte avant que le service soit atteint, et sans lui Nest répondait 500
+      sur un cas parfaitement normal
+- [x] Type réel vérifié par les *magic bytes* — signatures écrites à la main (PDF/JPEG/PNG), pas le
+      paquet `file-type`, ESM pur qui imposerait une liste `transformIgnorePatterns` au Jest
+      CommonJS du backend. **Vérifié en conditions réelles** : un exécutable renommé `.pdf` avec un
+      `Content-Type: application/pdf` menteur est refusé en 415 à travers nginx
+- [x] Re-dépôt d'une pièce déjà envoyée — **remplacement, pas versionnage**. C'était déjà tranché par
+      le schéma (`requestedItemId @unique`). L'objet précédent est supprimé **après** l'écriture
+      réussie : dans l'autre ordre, un `putObject` en échec laisserait la pièce sans aucun fichier
+      alors qu'elle en avait un
+- [x] **« Reçue » = fichier attaché ET `status === 'complete'`** — la question ouverte de B4 est
+      tranchée. Un fichier refusé compté comme reçu afficherait **complète** une demande à laquelle
+      il manque une pièce, au tableau de bord comme dans la progression du client. Un helper
+      `isReceived()` unique sert les trois chemins de lecture, avec tests de non-régression aux deux
+      niveaux. La bascule a immédiatement fait rougir trois tests de `dashboard.e2e-spec.ts` dont la
+      fixture écrivait des `UploadedFile` sans `status` — exactement la régression visée
+
+Deux chemins d'échec que le plan n'avait pas nommés : si l'écriture en base échoue après
+`putObject`, l'objet tout juste écrit est effacé — c'est le dernier instant où sa clé est connue ; si
+c'est la suppression de l'**ancien** objet qui échoue, le dépôt répond quand même 201 et journalise
+l'orphelin, parce qu'un 500 ferait renvoyer au client un fichier que le portail détient déjà.
+
+**Le dépôt concurrent d'une même pièce est traité** : deux envois simultanés entraient en collision
+sur l'index unique, l'API répondait 500 et l'objet du perdant restait orphelin. Ce n'est pas
+exotique — c'est un double-clic. Le `P2002` devient un **409**, et l'objet du perdant est supprimé
+**avant** la branche, sinon la correction créerait l'orphelin qu'elle prétend éviter.
+`isUniqueViolation` a été extrait en une définition unique plutôt que dupliqué.
 
 Dépendances : A3, C1.
 
-### C3. Suivi de progression client — P0
+### C3. Suivi de progression client — P0 — **fait**
 
-- [ ] Vue « n/m pièces déposées » avec état par pièce
-- [ ] Écran dédié pour lien expiré / demande complète
-- [ ] Aucune information sur d'autres dossiers de l'avocat
+- [x] Vue « n/m pièces déposées » avec état par pièce — `ItemRow` porte quatre états. Le discriminant
+      n'est **pas** un champ `status`, que l'API n'expose pas délibérément : `pas de fichier` →
+      *pending*, `reçu` → *received*, `fichier décrit mais non compté` → *failed*, et *uploading* est
+      un état **client**, pendant le POST
+- [x] Écran dédié pour lien expiré / demande complète — **un seul écran d'impasse**, quelle que soit
+      la cause. Le backend rend une réponse unique pour les quatre refus ; un message différent côté
+      client réinstaurerait l'oracle que C1 ferme. Le corps d'un 401 n'est **jamais** cité
+      (`QUOTED_STATUSES = [400, 409, 413, 415]`), et un test rend deux 401 de contenus différents en
+      asseyant que les deux textes affichés sont identiques
+- [x] Aucune information sur d'autres dossiers — en-tête propre, sans lien ni déconnexion ; un test
+      assert l'absence de toute adresse e-mail et des identifiants techniques
+
+**Le dépôt est indicatif jusqu'au 201**, parce que les magic bytes peuvent refuser le fichier après
+que la barre a atteint 100 % : « envoi en cours », puis « vérification », jamais « terminé » avant la
+réponse. L'upload passe par XHR et non `fetch`, qui ne rapporte aucune progression d'envoi.
+
+Deux gardes non prévus au plan. **L'onglet mémorise quel jeton il a déverrouillé** (`sessionStorage`)
+avant de restaurer la session : sans ça, le cookie du lien A montrerait le dossier de A à quelqu'un
+qui ouvre le lien B. Et **`/deposit/:token` est sorti du `SessionProvider` de l'avocat**, sinon le
+navigateur d'un visiteur anonyme déclenchait `/auth/me` puis `/auth/refresh` — deux appels
+authentifiés sur un parcours qui doit rester strictement anonyme.
+
+Reste ouvert : deux envois en vol sur la **même** pièce laisseraient le premier achèvement effacer la
+ligne du second. Non atteignable par l'interface (le contrôle est masqué pendant l'envoi), donc laissé
+plutôt que gardé par un identifiant que personne ne peut produire.
 
 Dépendances : C1, C2, E1.
 
@@ -491,10 +627,17 @@ Dépendances : C2.
 
 Cible explicite de l'énoncé : expiration, PIN, transitions de statut.
 
-- [ ] Expiration : avant / à la limite / après, gel du temps dans les tests
-- [ ] PIN : bon, mauvais, hachage, comportement après lockout
-- [ ] Transitions : `en attente` → `complète`, `en attente` → `expirée`, transitions interdites
-- [ ] Tests e2e du parcours complet (création → unlock → dépôt → dashboard)
+- [x] Expiration : avant / à la limite / après — `request-status.spec.ts`, dont
+      `is false at the exact expiry instant`. Pas de gel d'horloge : `deriveStatus` et `isExpired`
+      prennent `now` en **argument**, ce qui rend la borne testable sans figer le temps
+- [~] PIN : bon, mauvais, hachage — couverts par C1 (dont l'égalité des quatre refus et le hachage
+      factice). **« Comportement après lockout » est sans objet** : il n'y a pas de lockout, G1 étant
+      coupée du périmètre. Case laissée ouverte à dessein plutôt que cochée à tort
+- [x] Transitions : `en attente` → `complète`, `en attente` → `expirée`, et l'ordre entre les deux
+      (`expired` l'emporte sur `complete`)
+- [x] Tests e2e du parcours complet — `deposit.e2e-spec.ts` enchaîne création → déverrouillage →
+      dépôt → coche côté client **et** côté avocat → demande `complete`. Rejoué à la main à travers
+      nginx après le sprint, téléchargement compris
 - [x] **Harnais Postgres réel pour les suites e2e** : `test/global-setup.ts` monte un
       `postgres:17-alpine` par testcontainers et applique les vraies migrations ; les trois suites de
       `test/` ont perdu leur doublure de Prisma. C'est ce qui rend testables les contraintes, les
@@ -583,16 +726,32 @@ Dépendances : D2. Articulation avec D3 : le choix décide du temps de CI.
 
 ---
 
-### D6. Chemin du lien client en anglais (`/depot` → `/deposit`) — P2
+### D6. Chemin du lien client en anglais (`/depot` → `/deposit`) — P2 — **fait**
 
 Les routes de l'espace avocat sont passées en anglais avec E1 (`/login`, `/dashboard`). Le chemin
 client est resté `/depot`, et **ce n'est pas une omission** : il n'appartient pas au frontend.
 
-- [ ] `DEPOSIT_PATH` dans `backend/src/requests/public-url.ts`, et les specs qui reconstruisent
+- [x] `DEPOSIT_PATH` dans `backend/src/requests/public-url.ts`, et les specs qui reconstruisent
       l'URL à partir de ce préfixe
-- [ ] La carte de masquage `infra/nginx/log-redact.conf`, qui reconnaît **`/depot/`** en toutes
-      lettres pour retirer le jeton des journaux
-- [ ] La route du SPA que C1 ajoutera
+- [x] La carte de masquage `infra/nginx/log-redact.conf` — **dans le même commit**, ce qui était tout
+      l'enjeu
+- [x] La route du SPA, ajoutée par C3
+
+Fait **avant C1**, comme prévu : après, la route client existe et le coût monte.
+
+**Vérifié en montant un nginx jetable et en lisant ses vrais journaux**, parce qu'aucune suite
+automatisée ne traverse le proxy — `/deposit/[redacted]` masqué, `/api/v1/public/[redacted]` toujours
+couvert. Reconfirmé sur la pile complète après le sprint : **0 occurrence** du jeton dans les
+journaux du proxy et du frontend.
+
+**Le second effet a été accepté** : les liens déjà émis cessent de fonctionner. Rien n'est en
+production, aucun client réel n'en détient. Une redirection `/depot/` → `/deposit/` aurait obligé la
+carte de masquage à couvrir les **deux** préfixes, donc à doubler la surface du seul mécanisme dont
+l'échec est invisible.
+
+**Un reliquat nommé plutôt que masqué** : nginx journalise l'URI avant tout routage, donc un lien
+émis avant le renommage laisserait son jeton en clair. La fenêtre est vide en pratique — les URL ne
+sont jamais stockées, elles sont composées à la lecture depuis `DEPOSIT_PATH`.
 
 Les trois doivent bouger **ensemble**. Le piège est le journal : un préfixe désaligné ne casse rien
 de visible, le portail répond normalement — mais le jeton de dépôt réapparaît **en clair** dans
@@ -619,9 +778,11 @@ Le rendu Chakra v3 est obligatoire (P0) ; le respect fin de la charte est en dif
 - [x] **Bouton primaire signature** : fond primary, texte blanc, 600, padding 24×14, radius full ;
       au hover, **inversion** — fond `#F7F6FF`, texte primary, contour inset 1px
 - [x] Cartes sans ombre, bordure 1px `#E9E9E9`
-- [ ] Reveal au scroll (opacity + translation) — **déplacé en B5**. L'écran de connexion tient dans
-      une hauteur de fenêtre : il n'y a rien à révéler au défilement, donc rien à vérifier. La
-      première page qui défile est la liste des demandes
+- [x] Reveal au scroll (opacity + translation) — **déplacé en B5, et livré là** (10/08), sur la
+      liste des demandes, qui est la première page qui défile. `prefers-reduced-motion` respecté.
+      Un défaut du plan a été corrigé au passage : le composant masquait dès l'`observe()`, donc un
+      `IntersectionObserver` qui ne se déclenche jamais laissait le contenu invisible **pour
+      toujours** ; il ne masque désormais qu'après que l'observateur a signalé l'élément hors écran
 - [x] **Light only** : pas de mode sombre — `color-mode.tsx` et `next-themes` **supprimés**, pas
       neutralisés : garder le mécanisme pour n'en interdire que la moitié laissait un bouton
       lune/soleil que personne n'a le droit d'utiliser
@@ -647,19 +808,65 @@ Dépendances : E1.
 
 ## Épique F — Observabilité
 
-### F1. Métriques Prometheus — P1
+### F1. Métriques Prometheus — P1 — **fait**
 
-- [ ] Endpoint `/metrics` sur l'API
-- [ ] Métriques métier, pas seulement techniques : dépôts réussis/échoués, tentatives de PIN,
-      accès à des liens expirés, latence et volume d'upload
-- [ ] Scrape configuré dans `infra/prometheus.yml`
+- [x] Endpoint `/metrics` sur l'API — et **fermé de l'extérieur** : `@Public()` sur la route (le
+      garde global fermerait tout sinon) plus un `location = /api/v1/metrics { deny all; }`, même
+      forme que la sonde de santé. Publié, il dirait à un scanner combien de demandes existent, quand
+      les dépôts ont lieu et quelle dépendance est en panne. **Vérifié en conditions réelles : 403**
+- [x] Métriques métier — `portail_deposits_total{outcome}`,
+      `portail_unlock_attempts_total{outcome}`, `portail_expired_link_hits_total`,
+      `portail_upload_bytes`, `portail_http_request_duration_seconds{method,route,status}`
+- [x] Scrape configuré dans `infra/prometheus/prometheus.yml`, service sur le réseau interne,
+      **aucun port publié**
 
-### F2. Dashboards Grafana + alertes — P1
+`prom-client` directement plutôt qu'un enrobage NestJS tiers : la bibliothèque est déjà simple, et
+c'est une version de moins à suivre. Trois points non devinables : un **`Registry` dédié** et non le
+global, avec un test qui le prouve ; l'étiquetage par **motif de route** et non par chemin brut,
+sans quoi un scanner parcourant `/aaa`, `/aab`… ferait exploser la cardinalité des séries ; et sur le
+chemin d'erreur le statut vient de l'`HttpException`, pas de `response.statusCode` — le filtre n'a
+pas encore tourné, la réponse porte encore 200, et tout refus serait compté comme un succès.
 
-- [ ] Grafana conteneurisé, dashboard provisionné (pas cliqué à la main)
-- [ ] Alertes : API down, taux d'échec d'upload, pic de PIN erronés (signal de brute force),
-      MinIO injoignable
-- [ ] README : périmètre d'observabilité et **justification de chaque métrique**
+**Les compteurs de refus au déverrouillage comptent les quatre causes**, pas seulement le PIN faux :
+sinon un attaquant balaierait les jetons sans jamais apparaître. C'est le seul endroit où la
+distinction entre les quatre refus a le droit d'exister — elle sert la métrique et n'atteint jamais
+la réponse HTTP, qui reste indistinguable.
+
+`rejected_size` est compté dans le **filtre d'exception**, pas dans le service : multer refuse avant
+qu'on l'atteigne. Point fragile signalé en commentaire — `@UseFilters(UploadLimitFilter)` passe la
+*classe*, ce qui laisse Nest l'injecter ; un `new UploadLimitFilter()` compilerait et laisserait le
+compteur muet pour toujours. L'e2e du 413 traverse une vraie application Nest, donc l'injection est
+prouvée.
+
+### F2. Dashboards Grafana + alertes — P1 — **fait**
+
+- [x] Grafana conteneurisé, **dashboard provisionné** — `infra/grafana/provisioning/`, neuf panneaux,
+      `allowUiUpdates: false`. Un dashboard cliqué disparaît avec le volume et rien ne le dit
+- [x] Quatre alertes : API injoignable ; taux d'échec de dépôt > 10 % sur 5 min, **avec un plancher
+      de 5 dépôts** sans lequel un seul fichier refusé sur trois donnerait 33 % et alerterait pour
+      rien ; plus de 20 PIN erronés sur 5 min ; dépendance injoignable, lue sur les 503 de la sonde
+- [ ] README : périmètre d'observabilité et justification de chaque métrique — **reste à écrire, H1**
+
+**L'alerte force brute est ce qui remplace G1**, coupée du périmètre : 20 échecs / 5 min est hors de
+portée d'un client qui se trompe et très en dessous de ce qu'un attaquant doit tenir pour balayer les
+10 000 combinaisons. Elle **détecte**, elle n'**empêche** pas — à dire dans les limites.
+
+Accès : **aucun port publié**, `location /grafana/` derrière un mot de passe généré par `install.sh`.
+Vérifié sur la pile : Grafana répond bien sous le sous-chemin.
+
+**Deux défauts qu'aucune lecture n'aurait vus**, trouvés en démarrant un Grafana jetable : un
+`interval: 15s` fait échouer **tout** le provisionnement (Grafana exige un multiple de 10 s) et le
+conteneur sort en 1 ; et monter `/etc/grafana/provisioning` entier masque les répertoires de l'image.
+
+**La CSP du portail aurait laissé Grafana en page blanche** — il amorce son interface par un script
+inline. La `location /grafana/` porte donc sa propre politique, ce qui annule tous les `add_header`
+hérités, d'où `Referrer-Policy` et `X-Robots-Tag` **répétés à l'identique** : c'est exactement le
+piège que G4 documente, rencontré pour de vrai.
+
+**Aucun point de contact n'est configuré** (pas de SMTP sur la machine) : les alertes sont
+**visibles** dans Grafana, elles ne sont pas **poussées**. À porter dans les limites du README. De
+même, l'alerte « dépendance injoignable » **ne distingue pas Postgres de MinIO**, puisqu'elle lit le
+503 de la sonde.
 
 Dépendances : F1.
 
@@ -703,18 +910,36 @@ dégâts d'une dépendance frontend compromise** — le SPA embarque React, Chak
 paquet vérolé pourrait aujourd'hui exfiltrer ce que l'avocat a sous les yeux, jeton de dépôt
 compris, vers n'importe quel domaine.
 
-- [ ] Politique posée dans `infra/nginx/server-hardening.conf`, donc appliquée aux **trois** blocs
-      `server` — clair, TLS, et le bloc port 80 du calque TLS. C'est déjà l'endroit de
-      `Referrer-Policy` et `X-Robots-Tag`
-- [ ] Vérifier que `default-src 'self'` passe : la police est auto-hébergée et aucune ressource
-      distante n'est chargée (mesuré en E1 — 40 requêtes au chargement, toutes sur l'origine), donc
-      la politique stricte ne devrait rien casser
-- [ ] Le point dur est **`style-src`** : Chakra v3 injecte ses styles à l'exécution, ce qui demande
-      `'unsafe-inline'` sur les styles, ou un nonce — et un nonce suppose une page rendue par un
-      serveur, ce que le SPA statique n'est pas. Mesurer avant de promettre `'unsafe-inline'` ne
-      couvre pas ; le dire dans le README plutôt que laisser croire à une CSP stricte
-- [ ] **Piège nginx, le même que pour les autres en-têtes** : un `add_header` ajouté plus tard dans
-      un `location` annule tous ceux hérités, sans erreur au démarrage
+- [x] Politique posée dans `infra/nginx/server-hardening.conf`, appliquée aux **trois** blocs
+      `server`. Vérifiée sur la pile : présente sur `/`, à côté de `Referrer-Policy` et
+      `X-Robots-Tag`
+
+```
+default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;
+object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+```
+
+- [x] `default-src 'self'` passe — la police est auto-hébergée. Chaque écart porte sa raison :
+      `img-src data:` parce que vite intègre en dur les assets de moins de 4 ko, sans quoi ajouter
+      une icône casserait la page **après** le build ; `object-src 'none'` parce que les pièces sont
+      servies sur la même origine et pourraient sinon être embarquées en document de greffon ;
+      `base-uri` contre une balise `<base>` injectée, qui détournerait toutes les URL relatives sans
+      jamais violer `script-src` ; `form-action` pour qu'un formulaire injecté ne poste pas le PIN
+      ailleurs. Pas d'`upgrade-insecure-requests` : la pile de l'évaluateur répond en clair
+- [x] **`style-src` garde `'unsafe-inline'`**, et c'est écrit dans le fichier : Chakra v3 injecte ses
+      règles à l'exécution, un nonce supposerait une page rendue par un serveur. **La politique n'est
+      donc PAS stricte côté styles** — elle borne l'exfiltration, pas la manipulation visuelle (une
+      surcouche qui déguise un bouton, un faux formulaire de PIN). À reprendre dans les limites du
+      README
+- [x] **Piège nginx** : documenté dans le fichier, et **rencontré pour de vrai** par la
+      `location /grafana/`, qui doit poser sa propre politique et donc répéter les deux autres
+      en-têtes, sous peine de les voir disparaître sans erreur
+- [ ] **Compter les violations dans une vraie console de navigateur** — la politique est servie et
+      les écrans s'affichent, mais rien ne prouve qu'aucune ressource n'est silencieusement bloquée.
+      Seule case restante, à faire à la main
+
+Une assertion a été ajoutée à `scripts/test-bare-machine.sh` : `Content-Security-Policy` présente
+sur `/`.
 
 Dépendances : aucune. À faire avant H1, la politique retenue étant à documenter.
 
@@ -731,10 +956,20 @@ Dépendances : aucune. À faire avant H1, la politique retenue étant à documen
 - [ ] **Identifiants de démo avocat + demande seedée**
 - [ ] Limites connues
 
-### H2. Seed de démonstration — P0
+### H2. Seed de démonstration — P0 — **fait (par B1)**
 
-- [ ] Compte avocat démo + une demande de dépôt avec son lien et son PIN
-- [ ] Rejouable et idempotent, exécuté par `install.sh`
+- [x] Compte avocat démo + une demande de dépôt avec son lien et son PIN — `src/seed.ts`, compilé en
+      `dist/seed.js` qu'`install.sh` détecte et exécute après les healthchecks
+- [x] Rejouable et idempotent — mesuré sur deux exécutions consécutives : 1 avocat, 1 demande,
+      3 pièces attendues, 2 liens dont **1 seul actif**. Le lien est **révoqué et recréé** à chaque
+      passage, dans une transaction : le PIN étant haché, un lien préservé ne pourrait pas voir son
+      code réaffiché, et un lien de démonstration dont personne ne connaît le PIN ne vaut rien
+- [ ] **Reste** : la suite d'intégration qui rejouerait cette idempotence à chaque commit plutôt que
+      de la mesurer à la main (voir D1)
+
+Le compte de démonstration est identifié par **la demande qu'il possède**, jamais par son adresse :
+changer `SEED_LAWYER_EMAIL` créerait un second compte en laissant le premier joignable avec son
+ancien mot de passe.
 
 Dépendances : A1, A2, B2.
 
