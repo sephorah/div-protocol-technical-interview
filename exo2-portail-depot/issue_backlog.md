@@ -15,14 +15,18 @@ Légende priorité :
 
 ## Où en est le rendu — 10 août 2026
 
-**Tout le P0 et tout le P1 sont livrés, sauf le README (H1) et l'export des sessions (H3).**
+**Tout le P0 et tout le P1 sont livrés, sauf l'export des sessions (H3).** Le README (H1) est
+écrit ; un nettoyage du 10/08 l'a réduit à 233 lignes et sorti la prose d'architecture du code vers
+`docs/` — voir `ai-plans/2026-08-10-nettoyage-tests-commentaires.md`.
 
 Le sprint du 10/08 a fermé dix issues en trois pistes parallèles isolées par `git worktree` :
 **D6, C1, C2, B4b, B5, C3, G4, F1, F2** et le dernier critère d'**A8**. Plan et déroulé dans
 `ai-plans/2026-08-10-sprint-final-parallele.md` et `ai-plans/2026-08-10-b5-ecrans-avocat.md`.
 
-Vérification : **512 tests** — 341 backend (26 suites) et 171 frontend (25 suites) — dont 114 e2e
-contre un vrai Postgres et 10 contre un vrai MinIO. Les deux lints bloquants sont propres. Et le
+Vérification : **460 cas** — 240 unitaires backend, 98 e2e contre un vrai Postgres, 10 contre un
+vrai MinIO, 112 frontend. C'était 630 avant l'élagage du 10/08, qui n'a gardé que les tests qu'un
+changement plausible de *notre* code peut faire échouer, et qui a vérifié la conservation en cassant
+volontairement trois invariants de sécurité. Les deux lints bloquants sont propres. Et le
 **parcours complet joué à la main à travers nginx**, qu'aucune suite ne couvre : login → création →
 déverrouillage → dépôt d'un vrai PDF → refus 415 d'un exécutable déguisé → tableau de bord →
 téléchargement **octet pour octet identique** → 401 en anonyme, jeton absent des journaux.
@@ -31,11 +35,26 @@ téléchargement **octet pour octet identique** → 401 en anonyme, jeton absent
 
 | Reste | Nature |
 |---|---|
-| **H1** | README à compléter — observabilité, justification des métriques, limites |
 | **H3** | Export des sessions IA et **caviardage**, à faire ligne à ligne |
 | **B4b**, écran | **Nouveau, 10/08.** L'API de téléchargement répond, **aucun écran n'y mène** : l'avocat ne peut pas récupérer les pièces déposées. Le plus grave de ce qu'a trouvé la passe navigateur |
 | ~~**E2** + passe navigateur~~ | **Passe faite le 10/08** — survol mesuré, CSP à zéro violation, aucun débordement à 375 ni 1440, parcours client rejoué sur mobile. Reste la densité du bouton de dépôt (190×40 contre 156×36) et les cibles tactiles à 18–21 px. Voir `ai-plans/2026-08-10-passe-navigateur-playwright.md` |
 | **D1** | La suite d'intégration du seed, seule case encore ouverte |
+
+### Nettoyage du 10/08, et ce qu'il change au rendu
+
+Une passe distincte du sprint, consignée dans
+`ai-plans/2026-08-10-nettoyage-tests-commentaires.md` :
+
+- **Un défaut corrigé** : une demande complète basculait en *expirée* au passage de l'échéance, donc
+  un dossier abouti ressemblait à un dossier abandonné. La complétude l'emporte désormais sur
+  l'expiration ; le lien, lui, reste fermé.
+- **Les métriques passent de `portail_` à `portal_`**, et deux questions sans réponse sont couvertes :
+  combien de **demandes** aboutissent, et de **combien** les fichiers refusés dépassent. Le job
+  Prometheus suit, et Prometheus doit être redémarré pour le prendre en compte.
+- **630 cas de test ramenés à 460**, sur un critère écrit et vérifié par sabotage.
+- **4 722 lignes de commentaires ramenées à 3 742**, la prose d'architecture partant dans `docs/`.
+  Les configurations réécrites ont été comparées **directive à directive** avec leur version
+  précédente : identiques.
 
 ### Ce qui a été coupé, et pourquoi
 
@@ -896,7 +915,8 @@ prouvée.
 - [x] Quatre alertes : API injoignable ; taux d'échec de dépôt > 10 % sur 5 min, **avec un plancher
       de 5 dépôts** sans lequel un seul fichier refusé sur trois donnerait 33 % et alerterait pour
       rien ; plus de 20 PIN erronés sur 5 min ; dépendance injoignable, lue sur les 503 de la sonde
-- [ ] README : périmètre d'observabilité et justification de chaque métrique — **reste à écrire, H1**
+- [x] README : périmètre d'observabilité et justification de chaque métrique — fait, et le détail
+      des seuils avec le runbook est dans `docs/observabilite.md`
 
 **L'alerte force brute est ce qui remplace G1**, coupée du périmètre : 20 échecs / 5 min est hors de
 portée d'un client qui se trompe et très en dessous de ce qu'un attaquant doit tenir pour balayer les
@@ -998,14 +1018,19 @@ Dépendances : aucune. À faire avant H1, la politique retenue étant à documen
 
 ## Épique H — Livrables
 
-### H1. README complet — P0
+### H1. README complet — P0 — **fait (10/08)**
 
-- [ ] URL HTTPS du sous-domaine
-- [ ] Setup, architecture, choix justifiés (dont le « pas de Next.js »)
-- [ ] Modèle de données, stratégie de tests
-- [ ] Périmètre d'observabilité et justification des métriques
-- [ ] **Identifiants de démo avocat + demande seedée**
-- [ ] Limites connues
+- [x] URL HTTPS du sous-domaine
+- [x] Setup, architecture, choix justifiés (dont le « pas de Next.js »)
+- [x] Modèle de données, stratégie de tests — y compris ce qui n'est vérifié qu'au navigateur
+- [x] Périmètre d'observabilité et justification de chaque métrique
+- [x] **Identifiants de démo** — imprimés par `install.sh` à la fin de son déroulé, jamais écrits
+      dans le dépôt : ils sont générés par machine
+- [x] Limites connues, sans euphémisme
+
+233 lignes. Le raisonnement long est dans `docs/` — `architecture.md`, `exploitation.md`,
+`observabilite.md`, `tests-manuels.md` — et chaque section du README y renvoie. `infra/README.md` a
+été absorbé par `docs/exploitation.md` puis supprimé : deux documents d'exploitation divergent.
 
 ### H2. Seed de démonstration — P0 — **fait (par B1)**
 

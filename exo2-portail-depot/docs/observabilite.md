@@ -48,6 +48,15 @@ question que pose toute alerte de latence, et coûtent une ligne.
 lorsqu'un dépôt fait passer la demande d'incomplète à complète. Sans cela, un client qui remplace un
 fichier déjà déposé ferait monter le compteur et le taux d'aboutissement dépasserait 100 %.
 
+« Complète » y veut dire exactement ce qu'il veut dire ailleurs : **aucune pièce sans fichier
+`complete`**. Compter la simple présence d'un fichier ferait déclarer aboutie une demande dont une
+pièce a été refusée, pendant que le tableau de bord l'affiche toujours *en attente*.
+
+Sa limite connue : **deux dépôts concurrents sur les deux dernières pièces peuvent tous deux
+constater « rien ne manque »** et incrémenter, donc sur-compter d'une unité. Le fermer demanderait une
+colonne marqueur ou une sérialisation de la transaction — un coût réel sur le chemin du dépôt, pour
+un écart de comptage sur une métrique de tendance. Assumé.
+
 **`portal_rejected_upload_bytes` observe une valeur déclarée par le client**, son `Content-Length` :
 Multer interrompt la lecture au plafond, donc la taille réelle est inconnue à ce moment. Elle sert à
 **dimensionner**, jamais à décider quoi que ce soit de sécurité.

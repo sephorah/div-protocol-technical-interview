@@ -139,8 +139,10 @@ export class DepositsService {
   }
 
   /**
-   * One query, asking how many pieces are still empty rather than comparing two
-   * counts: a request with nothing left waiting is a complete one.
+   * One query, asking how many pieces are still waiting rather than comparing
+   * two counts. "Waiting" must mean the SAME thing as isReceived: no file, or a
+   * file that is not `complete` -- counting a `failed` one would report a
+   * request as completed while the dashboard still shows it pending.
    *
    * Swallowed on failure -- a metric must never turn an accepted deposit into
    * a 500 the client would answer by re-sending the file.
@@ -148,7 +150,7 @@ export class DepositsService {
   private async countIfCompleted(requestId: string): Promise<void> {
     try {
       const stillMissing = await this.prisma.requestedItem.count({
-        where: { requestId, file: { is: null } },
+        where: { requestId, NOT: { file: { is: { status: 'complete' } } } },
       });
 
       if (stillMissing === 0) {

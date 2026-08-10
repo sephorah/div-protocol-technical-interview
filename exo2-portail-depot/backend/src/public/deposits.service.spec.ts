@@ -402,6 +402,22 @@ describe('DepositsService', () => {
 
     // Without this, a client replacing a file would push the completed-request
     // counter past the number of requests, and the completion rate past 100 %.
+    // A `failed` file is not a received piece: counting it would report the
+    // request as completed while the dashboard still shows it pending.
+    it('asks for pieces with no COMPLETE file, not merely with no file', async () => {
+      withItem(null);
+      missingPieces(0);
+
+      await service.deposit(REQUEST_ID, ITEM_ID, PDF);
+
+      expect(firstCall(prisma.requestedItem.count)[0]).toEqual({
+        where: {
+          requestId: REQUEST_ID,
+          NOT: { file: { is: { status: 'complete' } } },
+        },
+      });
+    });
+
     it('does not count it again on a replacement deposit', async () => {
       withItem({ storageKey: 'requests/x/items/y/old.pdf' });
       missingPieces(0);
