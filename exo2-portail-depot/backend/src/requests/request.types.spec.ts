@@ -1,3 +1,4 @@
+import { UploadStatus } from '../generated/prisma/client';
 import { RequestStatus } from './request-status';
 import { toRequestDetail, toRequestSummary } from './request.types';
 
@@ -9,7 +10,7 @@ const summaryRow = {
   id: 'req-1',
   title: 'Dossier Martin',
   createdAt: EARLIER,
-  items: [{ file: { id: 'file-1' } }, { file: null }],
+  items: [{ file: { status: UploadStatus.complete } }, { file: null }],
   links: [{ expiresAt: LATER, revokedAt: null }],
 };
 
@@ -53,6 +54,34 @@ describe('toRequestSummary', () => {
     );
   });
 
+  // C2's decision, and the reason `received` stopped meaning "a file hangs off
+  // the piece": counted as received, a rejected file shows the request as
+  // COMPLETE while the lawyer is still missing that piece.
+  it('leaves a request pending when its only file failed', () => {
+    const view = toRequestSummary(
+      {
+        ...summaryRow,
+        items: [{ file: { status: UploadStatus.failed } }],
+      },
+      NOW,
+    );
+
+    expect(view.receivedCount).toBe(0);
+    expect(view.status).toBe(RequestStatus.Pending);
+  });
+
+  it('does not count a file still pending either', () => {
+    const view = toRequestSummary(
+      {
+        ...summaryRow,
+        items: [{ file: { status: UploadStatus.pending } }],
+      },
+      NOW,
+    );
+
+    expect(view.receivedCount).toBe(0);
+  });
+
   it('exposes those fields and no others', () => {
     expect(Object.keys(toRequestSummary(summaryRow, NOW))).toEqual([
       'id',
@@ -79,6 +108,7 @@ describe('toRequestDetail', () => {
               originalName: 'bail.pdf',
               mimeType: 'application/pdf',
               sizeBytes: 184320,
+              status: UploadStatus.complete,
               createdAt: NOW,
             },
           },
@@ -103,5 +133,34 @@ describe('toRequestDetail', () => {
       { id: 'item-2', label: "Piece d'identite", received: false, file: null },
     ]);
     expect(view.receivedCount).toBe(1);
+  });
+
+  // The file stays described so the lawyer can see WHAT was refused, but the
+  // piece is not ticked. Dropping the description would leave an empty line
+  // with no explanation.
+  it('still describes a failed file, without calling the piece received', () => {
+    const view = toRequestDetail(
+      {
+        ...summaryRow,
+        items: [
+          {
+            id: 'item-1',
+            label: 'Bail',
+            file: {
+              originalName: 'bail.pdf',
+              mimeType: 'application/pdf',
+              sizeBytes: 184320,
+              status: UploadStatus.failed,
+              createdAt: NOW,
+            },
+          },
+        ],
+      },
+      NOW,
+    );
+
+    expect(view.items[0].received).toBe(false);
+    expect(view.items[0].file?.originalName).toBe('bail.pdf');
+    expect(view.receivedCount).toBe(0);
   });
 });

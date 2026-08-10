@@ -7,6 +7,7 @@ import {
 import { hashSecret, verifySecret } from '../crypto/secrets';
 import { PrismaService } from '../prisma/prisma.service';
 import { PublicLinksService } from '../requests/public-links.service';
+import { isReceived } from '../requests/request.types';
 import { PublicRequestView } from './public.types';
 
 /**
@@ -80,14 +81,14 @@ export class PublicService implements OnModuleInit {
   async viewOf(requestId: string, expiresAt: Date): Promise<PublicRequestView> {
     const request = await this.prisma.depositRequest.findUnique({
       where: { id: requestId },
-      // Explicit down to the file, which is selected only to answer "is it
-      // there": selecting the row would put the storage key one spread away
+      // Explicit down to the file, which is selected only to answer "does it
+      // count": selecting the row would put the storage key one spread away
       // from an anonymous response.
       select: {
         id: true,
         title: true,
         items: {
-          select: { id: true, label: true, file: { select: { id: true } } },
+          select: { id: true, label: true, file: { select: { status: true } } },
           // B2: the items of one request share a creation timestamp to the
           // millisecond, so only `position` keeps the checklist stable between
           // two page loads.
@@ -110,7 +111,9 @@ export class PublicService implements OnModuleInit {
       items: request.items.map((item) => ({
         id: item.id,
         label: item.label,
-        received: item.file !== null,
+        // The same rule as the lawyer's side: a `failed` file is not a received
+        // piece, or the client would tick a line the lawyer never gets.
+        received: isReceived(item.file),
       })),
     };
   }

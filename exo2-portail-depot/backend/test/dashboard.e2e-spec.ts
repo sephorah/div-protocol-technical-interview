@@ -90,12 +90,18 @@ describe('Dashboard (e2e)', () => {
     return response.body as CreatedRequest;
   };
 
-  // C2 does not exist yet, so there is no HTTP way to deposit. Writing the row
-  // directly is what lets the counters and the timestamps be exercised at all.
+  /**
+   * Writes the row directly rather than going through C2's route: this suite is
+   * about the dashboard, and a real multipart deposit would drag the client
+   * session into every fixture. `status` is explicit because the column
+   * defaults to `pending` and a piece only counts as received when its file is
+   * `complete` -- the default would leave every counter at zero here.
+   */
   const attachFile = (requestedItemId: string) =>
     prisma.uploadedFile.create({
       data: {
         ...FILE,
+        status: 'complete',
         requestedItemId,
         storageKey: `requests/test/items/${requestedItemId}/bail.pdf`,
       },

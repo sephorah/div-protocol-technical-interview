@@ -135,7 +135,9 @@ export class RequestsService {
           id: true,
           title: true,
           createdAt: true,
-          items: { select: { file: { select: { id: true } } } },
+          // `status` and not `id`: since C2 a file can be `failed`, and only a
+          // `complete` one counts as received.
+          items: { select: { file: { select: { status: true } } } },
           links: LAST_LINK,
         },
       }),
@@ -184,6 +186,7 @@ export class RequestsService {
                 originalName: true,
                 mimeType: true,
                 sizeBytes: true,
+                status: true,
                 createdAt: true,
               },
             },
