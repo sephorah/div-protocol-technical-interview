@@ -12,6 +12,14 @@ const REFRESH_PATH = '/auth/refresh'
 // browser: a refused sign-in fired /auth/login then /auth/refresh.
 const NEVER_RENEWED: readonly string[] = [REFRESH_PATH, '/auth/login']
 
+// The client side of the portal (C1/C3) has no lawyer session at all: its 401
+// means the link is closed or the PIN is wrong. Renewing there would make an
+// anonymous visitor's browser call the lawyer's refresh route on every refusal.
+const CLIENT_PREFIX = '/public/'
+
+const isNeverRenewed = (path: string): boolean =>
+  NEVER_RENEWED.includes(path) || path.startsWith(CLIENT_PREFIX)
+
 export type ApiErrorKind =
   | 'unauthorized'
   | 'notFound'
@@ -55,18 +63,28 @@ const withAccept = (headers: HeadersInit | undefined): Record<string, string> =>
 }
 
 /**
+ * The statuses whose body OUR code writes, in French, for the person reading
+ * the screen. Everything else keeps our own wording: a 401/404/500 body is
+ * Nest's English default ("Unauthorized", "Internal server error"), which would
+ * replace a deliberately neutral French message with a technical one.
+ *
+ * 413 and 415 are the deposit's two refusals (C2, upload.constants.ts) --
+ * "Fichier trop volumineux (20 Mo maximum)." and "Format refuse. PDF, JPG ou
+ * PNG uniquement." Rewriting them here would be a second copy of a limit the
+ * server owns, free to drift the day it changes.
+ */
+const QUOTED_STATUSES: readonly number[] = [400, 409, 413, 415]
+
+/**
  * What the API said about a refused body, or null when it said nothing usable.
  *
  * class-validator answers `message` as a string OR an array of strings, one per
- * broken rule; rendering the array raw prints "a,b", so it is joined. Every
- * other status keeps our own wording: a 401/404/500 body is Nest's English
- * default ("Unauthorized", "Internal server error"), which would replace a
- * deliberately neutral French message with a technical one.
+ * broken rule; rendering the array raw prints "a,b", so it is joined.
  */
-const validationMessage = async (response: Response): Promise<string | null> => {
-  if (!(response.headers.get('content-type') ?? '').includes('json')) return null
+const quotedMessage = (contentType: string, raw: string): string | null => {
+  if (!contentType.includes('json')) return null
   try {
-    const body: unknown = await response.json()
+    const body: unknown = JSON.parse(raw)
     if (typeof body !== 'object' || body === null) return null
     const { message } = body as { message?: unknown }
     if (typeof message === 'string' && message !== '') return message
@@ -81,6 +99,19 @@ const validationMessage = async (response: Response): Promise<string | null> => 
   }
 }
 
+/**
+ * The error a refused answer becomes, from its raw parts rather than from a
+ * Response: the deposit goes through XMLHttpRequest (see api/upload.ts), which
+ * has no Response object, and two mappings of the same statuses would drift.
+ */
+export const apiErrorFor = (status: number, contentType: string, raw: string): ApiError => {
+  const kind = kindForStatus(status)
+  const quoted = QUOTED_STATUSES.includes(status) ? quotedMessage(contentType, raw) : null
+  return new ApiError(kind, quoted ?? messageForKind(kind))
+}
+
+export const networkError = (): ApiError => new ApiError('network', messageForKind('network'))
+
 const send = async (path: string, init: RequestInit): Promise<Response> => {
   try {
     return await fetch(`${API_PREFIX}${path}`, {
@@ -91,7 +122,7 @@ const send = async (path: string, init: RequestInit): Promise<Response> => {
       headers: withAccept(init.headers),
     })
   } catch {
-    throw new ApiError('network', messageForKind('network'))
+    throw networkError()
   }
 }
 
@@ -115,7 +146,7 @@ export const apiRequest = async <T>(path: string, init: RequestInit = {}): Promi
 
   // The access token lives 15 minutes. One renewal, one replay: without that
   // bound, a refused renewal would loop.
-  if (response.status === 401 && !NEVER_RENEWED.includes(path)) {
+  if (response.status === 401 && !isNeverRenewed(path)) {
     const renewed = await send(REFRESH_PATH, { method: 'POST' })
     if (renewed.ok) {
       response = await send(path, init)
@@ -123,13 +154,13 @@ export const apiRequest = async <T>(path: string, init: RequestInit = {}): Promi
   }
 
   if (!response.ok) {
-    const kind = kindForStatus(response.status)
-    // Only a 400 is quoted, and the reading happens here because this is the
-    // last place that still holds the response. A screen showing "Une erreur
-    // est survenue" over "Deux pieces portent le meme libelle" would hide the
-    // one sentence that says what to change.
-    const quoted = kind === 'badRequest' ? await validationMessage(response) : null
-    throw new ApiError(kind, quoted ?? messageForKind(kind))
+    // The body is read here because this is the last place that still holds the
+    // response. A screen showing "Une erreur est survenue" over "Deux pieces
+    // portent le meme libelle" would hide the one sentence that says what to
+    // change. `.text()` and not `.json()`: a body that is not JSON must not
+    // throw over the error it is describing.
+    const raw = await response.text().catch(() => '')
+    throw apiErrorFor(response.status, response.headers.get('content-type') ?? '', raw)
   }
 
   return parse<T>(response)
