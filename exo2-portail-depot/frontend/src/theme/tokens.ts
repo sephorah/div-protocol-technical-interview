@@ -22,5 +22,9 @@ export const tokens = defineTokens({
   fonts: {
     body: { value: "'Inter Variable', Inter, system-ui, sans-serif" },
     heading: { value: "'Inter Variable', Inter, system-ui, sans-serif" },
+    // No monospace font is bundled: the list falls back on the system's. A
+    // second @fontsource would cost weight for one link field, and E1 measured
+    // the load at 40 requests all on our own origin.
+    mono: { value: "'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace" },
   },
 })
