@@ -510,13 +510,21 @@ Cible explicite de l'énoncé : expiration, PIN, transitions de statut.
 
 Dépendances : B1–B4, C1–C3.
 
-### D2. Choix d'un runner de tests frontend — P1
+### D2. Choix d'un runner de tests frontend — P1 — **fait (par E1)**
 
-Aucun runner n'est installé côté frontend (point ouvert dans `CLAUDE.md`). À noter : l'énoncé ne
-demande du Jest que sur la logique métier, donc ce P1 est le nôtre, pas le sien.
+L'énoncé ne demande du Jest que sur la logique métier : ce P1 était le nôtre, pas le sien.
 
-- [ ] Runner choisi et justifié, un test qui prouve la chaîne
-- [ ] Branché sur `pnpm test` à la racine
+- [x] Runner choisi et justifié — **Vitest 4 + Testing Library + jsdom**. Vitest relit
+      `vite.config.ts`, donc greffons, alias et TypeScript sont déjà réglés ; Jest ne le lit pas, et
+      Chakra v3 comme Ark UI ne sont livrés qu'en modules ES, ce qui imposerait une liste
+      d'exceptions de transformation à maintenir. La cohérence avec le Jest du backend est une
+      préférence, la compatibilité ES est une contrainte : c'est elle qui tranche
+- [x] Un test qui prouve la chaîne — `src/test/setup.test.tsx`, qui échoue si `setupFiles` n'est pas
+      pris en compte
+- [x] Branché sur `pnpm test` à la racine, qui lance les deux suites
+
+**Ce que ce runner ne peut pas prouver, et qu'il faut savoir avant de s'y fier :** jsdom ne calcule
+aucun style. Trois dérives de la charte sont passées sous 55 tests verts en E1. Voir **D5**.
 
 ### D3. CI sur chaque push — P2
 
@@ -547,6 +555,55 @@ un utilisateur final. La décision — traduire, ou remplacer par un message gé
 dépasse le périmètre d'une issue métier, d'où le P2.
 
 Dépendances : aucune.
+
+---
+
+### D5. Vérifier le rendu, pas seulement le DOM — P2
+
+Point ouvert laissé par E1. jsdom dit qu'un bouton existe, jamais qu'il est violet. Trois défauts de
+charte sont passés sous une suite verte et n'ont été vus qu'au navigateur : titre de carte rendu à
+18 px contre 11 px écrits dans la recette, fond de carte et fond de champ pris à Chakra plutôt qu'à
+la charte. Cause commune : **les variantes livrées avec Chakra l'emportent sur le `base` d'une
+recette**.
+
+Ce qui est déjà fait : les tests de recette lisent la valeur **effective** — `base` plus les
+variantes par défaut — et non `base` seul. Cela aurait attrapé les trois.
+
+Ce qui reste hors de portée :
+
+- [ ] **L'inversion au survol du bouton primaire** — la signature d'interaction de la charte. Elle
+      est vérifiée à la main (mesuré : `#F7F6FF`, texte violet, contour intérieur, même gabarit
+      153×40 à la même position, donc aucun décalage d'un pixel)
+- [ ] Décider du moyen : **Vitest en mode navigateur** (donc un Chromium téléchargé en CI, ce qui
+      alourdit D3) ou un test de bout en bout piloté par navigateur, qui couvrirait aussi le
+      parcours à travers nginx — aujourd'hui la seule chose qu'aucun étage de tests ne traverse
+- [ ] Trancher **avant** B5 et C3 : plus il y a d'écrans, plus la vérification à la main coûte
+
+Dépendances : D2. Articulation avec D3 : le choix décide du temps de CI.
+
+---
+
+### D6. Chemin du lien client en anglais (`/depot` → `/deposit`) — P2
+
+Les routes de l'espace avocat sont passées en anglais avec E1 (`/login`, `/dashboard`). Le chemin
+client est resté `/depot`, et **ce n'est pas une omission** : il n'appartient pas au frontend.
+
+- [ ] `DEPOSIT_PATH` dans `backend/src/requests/public-url.ts`, et les specs qui reconstruisent
+      l'URL à partir de ce préfixe
+- [ ] La carte de masquage `infra/nginx/log-redact.conf`, qui reconnaît **`/depot/`** en toutes
+      lettres pour retirer le jeton des journaux
+- [ ] La route du SPA que C1 ajoutera
+
+Les trois doivent bouger **ensemble**. Le piège est le journal : un préfixe désaligné ne casse rien
+de visible, le portail répond normalement — mais le jeton de dépôt réapparaît **en clair** dans
+`access.log`, sur une machine partagée avec d'autres candidats. L'assertion qui l'attrape est celle,
+négative, de `scripts/test-bare-machine.sh`.
+
+Second effet, à trancher dans l'issue : **les liens déjà envoyés à des clients cesseraient de
+fonctionner**. Soit on accepte (rien n'est en production), soit nginx garde une redirection de
+`/depot/` vers `/deposit/` — auquel cas la carte de masquage doit couvrir les deux.
+
+Dépendances : aucune, mais à faire **avant C1** — après, la route client existe et le coût monte.
 
 ---
 
@@ -633,6 +690,33 @@ Dépendances : A2, C1.
 - [ ] Articulation avec C4 (scan antivirus) à trancher : le scan devient post-upload
 
 Dépendances : A3, C2.
+
+---
+
+### G4. En-tête `Content-Security-Policy` — P2
+
+Point ouvert laissé par E1. Le portail sert des scripts et n'annonce aucune politique de contenu :
+rien ne restreint ce que la page a le droit de charger ou d'exécuter.
+
+L'application n'en a pas besoin pour fonctionner. Ce que l'en-tête achète, c'est de **borner les
+dégâts d'une dépendance frontend compromise** — le SPA embarque React, Chakra et react-router, et un
+paquet vérolé pourrait aujourd'hui exfiltrer ce que l'avocat a sous les yeux, jeton de dépôt
+compris, vers n'importe quel domaine.
+
+- [ ] Politique posée dans `infra/nginx/server-hardening.conf`, donc appliquée aux **trois** blocs
+      `server` — clair, TLS, et le bloc port 80 du calque TLS. C'est déjà l'endroit de
+      `Referrer-Policy` et `X-Robots-Tag`
+- [ ] Vérifier que `default-src 'self'` passe : la police est auto-hébergée et aucune ressource
+      distante n'est chargée (mesuré en E1 — 40 requêtes au chargement, toutes sur l'origine), donc
+      la politique stricte ne devrait rien casser
+- [ ] Le point dur est **`style-src`** : Chakra v3 injecte ses styles à l'exécution, ce qui demande
+      `'unsafe-inline'` sur les styles, ou un nonce — et un nonce suppose une page rendue par un
+      serveur, ce que le SPA statique n'est pas. Mesurer avant de promettre `'unsafe-inline'` ne
+      couvre pas ; le dire dans le README plutôt que laisser croire à une CSP stricte
+- [ ] **Piège nginx, le même que pour les autres en-têtes** : un `add_header` ajouté plus tard dans
+      un `location` annule tous ceux hérités, sans erreur au démarrage
+
+Dépendances : aucune. À faire avant H1, la politique retenue étant à documenter.
 
 ---
 

@@ -383,11 +383,14 @@ de validation. L'allowlist et la taille maximale (20 Mo) vivent dans la configur
   rien et rendrait la traduction mécanique : les textes de chaque écran sont regroupés dans un objet
   `TEXT` en tête de fichier, et `<html lang="fr">` est posé.
 - **Aucun en-tête `Content-Security-Policy`.** L'application n'en a pas besoin pour fonctionner, mais
-  c'est la défense qui limiterait les dégâts d'une dépendance frontend compromise. À régler dans
-  `infra/nginx/server-hardening.conf`.
+  c'est la défense qui limiterait les dégâts d'une dépendance frontend compromise. Issue **G4** : le
+  point dur y est nommé, Chakra injectant ses styles à l'exécution.
 - **Le survol du bouton n'est couvert par aucun test.** jsdom ne calcule pas les styles ; c'est une
   vérification au navigateur (mesurée : fond `#F7F6FF`, texte violet, contour intérieur, et le même
-  gabarit de 153×40 px à la même position — donc aucun décalage d'un pixel).
+  gabarit de 153×40 px à la même position — donc aucun décalage d'un pixel). Issue **D5**.
+- **Le chemin du lien client est `/depot`**, alors que les routes de l'espace avocat sont en anglais.
+  Il n'appartient pas au frontend : le backend le compose et nginx masque ce préfixe exact dans ses
+  journaux, donc les trois doivent bouger ensemble. Issue **D6**.
 - **Le nom de fichier d'origine est restitué tel que le client l'a envoyé.** Il n'est jamais utilisé
   comme chemin — la clé de stockage est composée à partir des identifiants — mais l'interface qui
   l'affichera (B5) devra l'échapper comme n'importe quelle donnée venue de l'extérieur.
