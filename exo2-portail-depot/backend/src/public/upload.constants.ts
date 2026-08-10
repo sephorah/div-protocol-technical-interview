@@ -39,3 +39,11 @@ export const NO_FILE = 'Aucun fichier reçu.';
  * exists somewhere else.
  */
 export const ITEM_NOT_FOUND = 'Pièce introuvable.';
+
+/**
+ * Two deposits landing on the same piece at once -- a double click on the send
+ * button, or a client re-sending because the progress bar looked frozen. The
+ * message says what to do, because retrying really does work here.
+ */
+export const DEPOSIT_RACED =
+  'Un envoi est déjà en cours pour cette pièce. Réessayez.';

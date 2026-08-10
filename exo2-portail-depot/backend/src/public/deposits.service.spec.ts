@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Logger,
   NotFoundException,
   UnsupportedMediaTypeException,
@@ -240,6 +241,55 @@ describe('DepositsService', () => {
       await expect(
         service.deposit(REQUEST_ID, ITEM_ID, PDF),
       ).resolves.toMatchObject({ itemId: ITEM_ID });
+    });
+  });
+
+  describe('two deposits racing on the same piece', () => {
+    /** What Prisma raises when the unique index on requestedItemId fires. */
+    const uniqueViolation = Object.assign(
+      new Error('Unique constraint failed on the fields: (`requestedItemId`)'),
+      { code: 'P2002' },
+    );
+
+    it('answers 409 rather than 500 to the loser', async () => {
+      // A double click on the send button: the upsert reads no row twice, both
+      // insert, and the second hits the index. A 500 tells the client the
+      // portal is broken when retrying is all it takes.
+      withItem(null);
+      prisma.uploadedFile.upsert.mockRejectedValue(uniqueViolation);
+
+      await expect(
+        service.deposit(REQUEST_ID, ITEM_ID, PDF),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('erases the object the loser just wrote', async () => {
+      // Otherwise fixing the 500 creates the orphan it claims to avoid: the
+      // winner's row names another key, so nothing points at this object ever
+      // again.
+      withItem(null);
+      prisma.uploadedFile.upsert.mockRejectedValue(uniqueViolation);
+
+      await expect(service.deposit(REQUEST_ID, ITEM_ID, PDF)).rejects.toThrow();
+
+      const writtenKey = firstCall(storage.putObject)[0] as string;
+      expect(storage.deleteObject).toHaveBeenCalledWith(writtenKey);
+    });
+
+    it('leaves any other database error untouched', async () => {
+      // Swallowing every failure into a 409 would invite the client to retry a
+      // call that can never succeed.
+      withItem(null);
+      prisma.uploadedFile.upsert.mockRejectedValue(
+        Object.assign(new Error('column does not exist'), { code: 'P2022' }),
+      );
+
+      await expect(service.deposit(REQUEST_ID, ITEM_ID, PDF)).rejects.toThrow(
+        'column does not exist',
+      );
+      await expect(
+        service.deposit(REQUEST_ID, ITEM_ID, PDF),
+      ).rejects.not.toBeInstanceOf(ConflictException);
     });
   });
 

@@ -7,6 +7,7 @@ import {
   hashSecret,
 } from '../crypto/secrets';
 import { DepositRequest, PublicLink } from '../generated/prisma/client';
+import { isUniqueViolation } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildDepositUrl } from './public-url';
 import { requestNotFound } from './request-ownership';
@@ -14,14 +15,6 @@ import { isExpired } from './request-status';
 import { IssuedLink } from './request.types';
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
-
-/** Prisma's code for a unique constraint violation. */
-const UNIQUE_VIOLATION = 'P2002';
-
-const isUniqueViolation = (error: unknown): boolean =>
-  typeof error === 'object' &&
-  error !== null &&
-  (error as { code?: unknown }).code === UNIQUE_VIOLATION;
 
 /**
  * The outcome of presenting a token.

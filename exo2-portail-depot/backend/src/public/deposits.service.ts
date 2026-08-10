@@ -1,17 +1,20 @@
 import { Readable } from 'node:stream';
 import {
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { buildStorageKey } from '../crypto/secrets';
+import { isUniqueViolation } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { detectFileType } from './file-type';
 import { DepositedFileView } from './public.types';
 import {
   AllowedMimeType,
+  DEPOSIT_RACED,
   FILE_TYPE_REJECTED,
   ITEM_NOT_FOUND,
   isAllowedMimeType,
@@ -107,6 +110,10 @@ export class DepositsService {
   /**
    * Upsert on requestedItemId, unique in the schema: a second deposit REPLACES,
    * it does not version.
+   *
+   * The upsert is a read then a write, so it is NOT atomic against a concurrent
+   * one: two deposits arriving together on an empty piece both find no row and
+   * both insert. The unique index stops the second with a P2002.
    */
   private async record(
     itemId: string,
@@ -140,8 +147,17 @@ export class DepositsService {
       });
     } catch (error) {
       // The object is in the bucket and no row will ever name it. This is the
-      // last moment its key is known.
+      // last moment its key is known -- and it runs before the branch below, so
+      // turning the race into a 409 cannot create the orphan it exists to
+      // avoid.
       await this.forget(storageKey);
+
+      // The loser of a double click deserves a retryable answer rather than an
+      // opaque 500. Only P2002: any other database error is rethrown, or we
+      // would be telling the client to retry a call that can never succeed.
+      if (isUniqueViolation(error)) {
+        throw new ConflictException(DEPOSIT_RACED);
+      }
       throw error;
     }
   }
