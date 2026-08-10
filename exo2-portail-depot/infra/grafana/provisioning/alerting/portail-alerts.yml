@@ -69,7 +69,7 @@ groups:
             datasourceUid: portail-prometheus
             model:
               refId: A
-              expr: up{job="portail-backend"}
+              expr: up{job="portal-backend"}
               instant: true
               intervalMs: 15000
               maxDataPoints: 43200
@@ -131,12 +131,12 @@ groups:
               refId: A
               expr: >-
                 (
-                  sum(rate(portail_deposits_total{outcome!="success"}[5m]))
+                  sum(rate(portal_deposits_total{outcome!="success"}[5m]))
                   /
-                  sum(rate(portail_deposits_total[5m]))
+                  sum(rate(portal_deposits_total[5m]))
                 )
                 and
-                (sum(increase(portail_deposits_total[5m])) >= 5)
+                (sum(increase(portal_deposits_total[5m])) >= 5)
               instant: true
               intervalMs: 15000
               maxDataPoints: 43200
@@ -196,7 +196,7 @@ groups:
             datasourceUid: portail-prometheus
             model:
               refId: A
-              expr: sum(increase(portail_unlock_attempts_total{outcome="failure"}[5m]))
+              expr: sum(increase(portal_unlock_attempts_total{outcome="failure"}[5m]))
               instant: true
               intervalMs: 15000
               maxDataPoints: 43200
@@ -265,7 +265,7 @@ groups:
             model:
               refId: A
               expr: >-
-                sum(increase(portail_http_request_duration_seconds_count{route=~"(/api/v1)?/health",status="503"}[5m]))
+                sum(increase(portal_http_request_duration_seconds_count{route=~"(/api/v1)?/health",status="503"}[5m]))
               instant: true
               intervalMs: 15000
               maxDataPoints: 43200

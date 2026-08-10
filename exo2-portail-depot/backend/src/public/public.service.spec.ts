@@ -161,7 +161,7 @@ describe('PublicService', () => {
 
   /**
    * What this block protects: the brute-force alert reads
-   * portail_unlock_attempts_total{outcome="failure"}, and it is the ONLY thing
+   * portal_unlock_attempts_total{outcome="failure"}, and it is the ONLY thing
    * standing in for the rate limiting of G1. A refusal that forgets to count
    * itself makes an attacker walking the 10 000 PINs of a revoked link
    * invisible, while the dashboard stays green.

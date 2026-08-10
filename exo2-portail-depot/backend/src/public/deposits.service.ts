@@ -127,6 +127,13 @@ export class DepositsService {
 
     const stored = await this.record(itemId, storageKey, file, detected);
 
+    // Only a piece that had nothing can complete the request. Counted on the
+    // transition and not on the state after, or a replacement deposit on an
+    // already-complete request would count it a second time.
+    if (previousKey === null) {
+      await this.countIfCompleted(requestId);
+    }
+
     if (previousKey !== null && previousKey !== storageKey) {
       await this.forget(previousKey);
     }
@@ -138,6 +145,30 @@ export class DepositsService {
       sizeBytes: stored.sizeBytes,
       receivedAt: stored.createdAt,
     };
+  }
+
+  /**
+   * One query, asking how many pieces are still empty rather than comparing two
+   * counts: a request with nothing left waiting is a complete one.
+   *
+   * Swallowed on failure -- a metric must never turn an accepted deposit into
+   * a 500 the client would answer by re-sending the file.
+   */
+  private async countIfCompleted(requestId: string): Promise<void> {
+    try {
+      const stillMissing = await this.prisma.requestedItem.count({
+        where: { requestId, file: { is: null } },
+      });
+
+      if (stillMissing === 0) {
+        this.metrics.recordRequestCompleted();
+      }
+    } catch (error) {
+      this.logger.error(
+        `Could not tell whether request ${requestId} is complete`,
+        error,
+      );
+    }
   }
 
   /**

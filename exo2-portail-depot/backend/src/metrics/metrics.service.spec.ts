@@ -10,9 +10,9 @@ describe('MetricsService', () => {
 
     const scrape = await metrics.scrape();
     expect(scrape).toContain(
-      'portail_deposits_total{outcome="rejected_type"} 2',
+      'portal_deposits_total{outcome="rejected_type"} 2',
     );
-    expect(scrape).toContain('portail_deposits_total{outcome="success"} 1');
+    expect(scrape).toContain('portal_deposits_total{outcome="success"} 1');
   });
 
   // The failure scenario this protects: a brute force over the 10 000 PIN
@@ -26,10 +26,10 @@ describe('MetricsService', () => {
 
     const scrape = await metrics.scrape();
     expect(scrape).toContain(
-      'portail_unlock_attempts_total{outcome="failure"} 1',
+      'portal_unlock_attempts_total{outcome="failure"} 1',
     );
     expect(scrape).toContain(
-      'portail_unlock_attempts_total{outcome="success"} 1',
+      'portal_unlock_attempts_total{outcome="success"} 1',
     );
   });
 
@@ -38,7 +38,7 @@ describe('MetricsService', () => {
     metrics.recordExpiredLinkHit();
 
     expect(await metrics.scrape()).toContain(
-      'portail_expired_link_hits_total 1',
+      'portal_expired_link_hits_total 1',
     );
   });
 
@@ -48,8 +48,8 @@ describe('MetricsService', () => {
     metrics.observeUploadBytes(2048);
 
     const scrape = await metrics.scrape();
-    expect(scrape).toContain('portail_upload_bytes_sum 3072');
-    expect(scrape).toContain('portail_upload_bytes_count 2');
+    expect(scrape).toContain('portal_upload_bytes_sum 3072');
+    expect(scrape).toContain('portal_upload_bytes_count 2');
   });
 
   it('labels an http observation with method, route and status', async () => {
@@ -57,7 +57,7 @@ describe('MetricsService', () => {
     metrics.observeHttpRequest('GET', '/api/v1/requests/:id', 200, 0.012);
 
     expect(await metrics.scrape()).toContain(
-      'portail_http_request_duration_seconds_count{method="GET",route="/api/v1/requests/:id",status="200"} 1',
+      'portal_http_request_duration_seconds_count{method="GET",route="/api/v1/requests/:id",status="200"} 1',
     );
   });
 

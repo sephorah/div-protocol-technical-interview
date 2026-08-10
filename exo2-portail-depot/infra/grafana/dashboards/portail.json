@@ -14,14 +14,14 @@
       "id": 1,
       "type": "stat",
       "title": "API",
-      "description": "up du job portail-backend. C'est la meme serie que l'alerte « API injoignable ».",
+      "description": "up du job portal-backend. C'est la meme serie que l'alerte « API injoignable ».",
       "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
       "gridPos": { "h": 4, "w": 5, "x": 0, "y": 0 },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
-          "expr": "up{job=\"portail-backend\"}",
+          "expr": "up{job=\"portal-backend\"}",
           "instant": true
         }
       ],
@@ -58,7 +58,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
-          "expr": "sum(increase(portail_deposits_total{outcome=\"success\"}[1h]))",
+          "expr": "sum(increase(portal_deposits_total{outcome=\"success\"}[1h]))",
           "instant": true
         }
       ],
@@ -84,7 +84,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
-          "expr": "sum(rate(portail_deposits_total{outcome!=\"success\"}[5m])) / sum(rate(portail_deposits_total[5m]))",
+          "expr": "sum(rate(portal_deposits_total{outcome!=\"success\"}[5m])) / sum(rate(portal_deposits_total[5m]))",
           "instant": true
         }
       ],
@@ -120,7 +120,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
-          "expr": "sum(increase(portail_unlock_attempts_total{outcome=\"failure\"}[5m]))",
+          "expr": "sum(increase(portal_unlock_attempts_total{outcome=\"failure\"}[5m]))",
           "instant": true
         }
       ],
@@ -155,7 +155,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
-          "expr": "sum(increase(portail_expired_link_hits_total[24h]))",
+          "expr": "sum(increase(portal_expired_link_hits_total[24h]))",
           "instant": true
         }
       ],
@@ -178,7 +178,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
-          "expr": "sum by (outcome) (rate(portail_deposits_total[5m]))",
+          "expr": "sum by (outcome) (rate(portal_deposits_total[5m]))",
           "legendFormat": "{{outcome}}"
         }
       ],
@@ -202,7 +202,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
-          "expr": "sum by (outcome) (rate(portail_unlock_attempts_total[5m]))",
+          "expr": "sum by (outcome) (rate(portal_unlock_attempts_total[5m]))",
           "legendFormat": "{{outcome}}"
         }
       ],
@@ -226,7 +226,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(portail_http_request_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(portal_http_request_duration_seconds_bucket[5m])))",
           "legendFormat": "{{route}}"
         }
       ],
@@ -250,13 +250,69 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(portail_upload_bytes_bucket[30m])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(portal_upload_bytes_bucket[30m])))",
           "legendFormat": "mediane"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(portail_upload_bytes_bucket[30m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(portal_upload_bytes_bucket[30m])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "fillOpacity": 0, "showPoints": "never" } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Demandes abouties (24 h)",
+      "description": "Combien de dossiers sont reellement assembles. deposits_total compte des fichiers, pas des demandes.",
+      "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+      "gridPos": { "h": 4, "w": 5, "x": 0, "y": 20 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+          "expr": "sum(increase(portal_requests_completed_total[24h]))",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": { "decimals": 0, "unit": "short" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Taille declaree des fichiers refuses",
+      "description": "De combien les fichiers refuses depassent le plafond de 20 Mio. Valeur declaree par le client (Content-Length) : elle dimensionne la limite, elle ne decide rien. Fenetre visible 20-26 Mio seulement : au-dela nginx refuse avant le backend.",
+      "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(portal_rejected_upload_bytes_bucket[6h])))",
+          "legendFormat": "mediane"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(portal_rejected_upload_bytes_bucket[6h])))",
           "legendFormat": "p95"
         }
       ],

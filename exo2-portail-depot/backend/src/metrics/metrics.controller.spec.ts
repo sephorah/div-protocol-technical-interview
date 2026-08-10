@@ -27,6 +27,6 @@ describe('MetricsController', () => {
     );
 
     expect(headers['Content-Type']).toContain('text/plain');
-    expect(body).toContain('portail_deposits_total');
+    expect(body).toContain('portal_deposits_total');
   });
 });

@@ -52,7 +52,7 @@ Les sept autres coupées sont bien des bonus (ou de l'outillage hors énoncé), 
 retire aucun point éliminatoire.
 
 - **G1** (limite de débit sur le PIN) — le seul regret. Compensé par la métrique
-  `portail_unlock_attempts_total` et son alerte, qui **détectent** un brute force sans l'**empêcher**.
+  `portal_unlock_attempts_total` et son alerte, qui **détectent** un brute force sans l'**empêcher**.
   À nommer explicitement dans les limites du README.
 - **C4** (antivirus), **G2** (audit), **G3** (URLs pré-signées), **B1b** (sessions avocat) — bonus.
 - **D3** (CI), **D4** (messages homogènes), **D5** (tests de rendu) — qualité et outillage.
@@ -831,9 +831,9 @@ Dépendances : E1.
       garde global fermerait tout sinon) plus un `location = /api/v1/metrics { deny all; }`, même
       forme que la sonde de santé. Publié, il dirait à un scanner combien de demandes existent, quand
       les dépôts ont lieu et quelle dépendance est en panne. **Vérifié en conditions réelles : 403**
-- [x] Métriques métier — `portail_deposits_total{outcome}`,
-      `portail_unlock_attempts_total{outcome}`, `portail_expired_link_hits_total`,
-      `portail_upload_bytes`, `portail_http_request_duration_seconds{method,route,status}`
+- [x] Métriques métier — `portal_deposits_total{outcome}`,
+      `portal_unlock_attempts_total{outcome}`, `portal_expired_link_hits_total`,
+      `portal_upload_bytes`, `portal_http_request_duration_seconds{method,route,status}`
 - [x] Scrape configuré dans `infra/prometheus/prometheus.yml`, service sur le réseau interne,
       **aucun port publié**
 
