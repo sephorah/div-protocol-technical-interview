@@ -1,84 +1,52 @@
-# Production. En dev, on lance `pnpm dev` a la racine, avec la base seule
-# montee par docker-compose.dev.yml.
+# La pile de production. Elle TIRE, elle ne construit pas — voir
+# docs/exploitation.md § Les images et le registre.
 #
 #   docker compose -f infra/docker-compose.yml --env-file .env up -d
 #
-# Depuis la RACINE du depot, et les deux drapeaux sont necessaires :
+# Les deux drapeaux sont necessaires, depuis la RACINE du depot : compose deduit
+# son repertoire de projet du dossier du premier `-f`, donc infra/ ici, alors que
+# .env vit a la racine. Les chemins relatifs de ce fichier sont donc relatifs a
+# infra/. Detail dans docs/exploitation.md § Les commandes compose.
 #
-# - `--env-file .env` : compose cherche son .env dans le repertoire de projet,
-#   qu'il deduit du dossier du premier `-f` — donc infra/ ici. Or le .env vit a
-#   la racine, parce que `pnpm dev` fait tourner l'API sur la machine et que
-#   app.module.ts l'y resout depuis __dirname. Sans ce drapeau, toutes les
-#   variables sont manquantes et `${VAR:?}` fait echouer le demarrage.
-# - `name:` ci-dessous : sans lui, le nom du projet serait « infra » (le dossier
-#   du fichier), et tous les volumes existants deviendraient orphelins.
-#
-# Les chemins relatifs de ce fichier sont donc relatifs a infra/, pas a la
-# racine. `pnpm stack:up` / `stack:down` / `stack:logs` evitent de la retaper.
-#
-# Depuis A6, ce fichier ne CONSTRUIT plus rien : backend et frontend sont tires
-# de GHCR, ou le workflow .github/workflows/exo2-publish-images.yml les publie.
-# Il ne reste ici que de la configuration (nginx.conf, minio/), donc infra/ et
-# .env suffisent a faire tourner le portail — c'est le critere « aucun code
-# source sur la machine ». Pour construire en local, il y a le calque
-# docker-compose.build.yml, jamais charge sans un `-f` explicite.
-#
-# PORT et API_PREFIX viennent du .env et valent la meme chose ici que sur la
-# machine : 21610 est dans la plage attribuee (21600-21699), donc rien
-# n'oblige a une valeur differente en conteneur, et une valeur unique supprime
-# une source d'erreur. Ils sont aussi ecrits en dur dans nginx.conf (qui ne lit
-# pas l'environnement) et dans le healthcheck ci-dessous : les changer suppose
-# de changer ces trois endroits ensemble.
-#
-# Nom fige, et non deduit du dossier : il l'etait, et changer de dossier de
-# checkout — ce que fera la machine de production en A6 — aurait suffi a rendre
-# invisibles les volumes de la stack precedente. Distinct de celui de
-# docker-compose.dev.yml : les deux fichiers partageaient le meme, si bien qu'un
-# `pnpm db:up` pendant que la production tourne recreait db et minio avec la
-# configuration de dev (volumes vides, ports publies) sous le nez du backend.
+# `name:` fige : sans lui le projet s'appellerait « infra » et tous les volumes
+# existants deviendraient orphelins. Distinct de celui du fichier dev, sans quoi
+# `pnpm db:up` recreerait les services de production avec la config de dev.
 name: exo2-portail-depot
 
 services:
   db:
     image: postgres:17-alpine
     init: true
-    # La forme `:?` fait echouer `docker compose up` en nommant la variable
-    # manquante. Sans elle, une variable vide demarrerait un Postgres avec un
-    # mot de passe vide, ce qui « marche » et est exactement le probleme.
+    # La forme `:?` fait echouer `up` en nommant la variable manquante. Sans
+    # elle, une variable vide demarrerait un Postgres sans mot de passe.
     environment:
       POSTGRES_USER: ${DB_USER:?definir DB_USER dans .env}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?definir DB_PASSWORD dans .env}
       POSTGRES_DB: ${DB_NAME:?definir DB_NAME dans .env}
     volumes:
-      # Volume nomme : `docker compose down` sans -v preserve les donnees.
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       # `$$` echappe l'interpolation compose : c'est le shell du conteneur qui
-      # doit lire la variable, pas docker au moment du parsing.
+      # doit lire la variable.
       test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 30s
       timeout: 5s
       retries: 5
       # start_interval : pendant start_period, docker sonde a cette cadence au
-      # lieu d'attendre `interval`. C'est ce qui fait passer le service a
-      # "healthy" des qu'il l'est, au lieu de faire patienter install.sh
-      # jusqu'au prochain intervalle. Docker >= 25.
+      # lieu d'attendre `interval`. C'est ce sur quoi install.sh bloque.
       start_period: 30s
       start_interval: 1s
     restart: unless-stopped
-    # Aucun port publie : la base n'est joignable que par le reseau interne.
 
   minio:
-    # Tag fige, et fige a cette release precisement : les images communautaires
-    # posterieures a mai 2025 ont retire la console web. Un `latest` ferait
-    # disparaitre l'interface d'administration du jour au lendemain, sans qu'une
-    # seule ligne du depot ait change.
+    # Tag fige a cette release precisement : les images posterieures a mai 2025
+    # ont retire la console web.
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     init: true
     command: server /data --console-address ":9001"
     environment:
-      # Identifiants d'administration du serveur. Le prefixe dit qui les lit :
-      # MINIO_* n'est passe qu'a minio et minio-init, jamais au backend.
+      # Le prefixe dit qui lit la variable : MINIO_* n'est passe qu'a minio et
+      # minio-init, jamais au backend.
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?definir MINIO_ROOT_USER dans .env}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?definir MINIO_ROOT_PASSWORD dans .env}
     volumes:
@@ -91,15 +59,9 @@ services:
       start_period: 30s
       start_interval: 1s
     restart: unless-stopped
-    # Aucun port publie : la machine est PARTAGEE. Une console MinIO ouverte,
-    # ce sont toutes les pieces des clients de l'avocat. Seul
-    # docker-compose.dev.yml publie, sur 127.0.0.1.
 
-  # Provisionne le stockage (bucket, policy, utilisateur restreint) puis sort.
-  # Le detail et sa justification sont dans minio/provision.sh.
-  #
-  # `restart: "no"` est indispensable : la valeur par defaut relancerait en
-  # boucle un conteneur qui a reussi.
+  # Provisionne le stockage puis sort. `restart: "no"` est indispensable : le
+  # defaut relancerait en boucle un conteneur qui a reussi.
   minio-init:
     image: minio/mc:RELEASE.2025-04-16T18-13-26Z
     depends_on:
@@ -118,89 +80,56 @@ services:
     restart: 'no'
 
   backend:
-    # Aucune section `build` : ce fichier ne sait que TIRER. C'est ce qui rend
-    # infra/ deployable seul, sans une ligne de code source sur la machine.
-    # Pour construire en local (verifier ce fichier avant de publier), il y a
-    # le calque docker-compose.build.yml — `./install.sh --from-source`.
-    #
     # IMAGE_TAG a son defaut ICI et pas dans .env : la version appartient au
-    # code, pas a la machine. Dans .env, install.sh ne la reecrirait jamais
-    # (set_env_default ne remplit que le vide) et une machine resterait epinglee
-    # a une version perimee sans que rien ne le signale. La surcharger reste
-    # possible, et c'est le rollback : IMAGE_TAG=0.2.0 docker compose ... up -d
-    # — mais lire ce que l'on perd avant de le faire. 0.2.0 n'a ni URL client
-    # complete, ni expiration appliquee, ni regeneration de lien, et elle ecrit
-    # le jeton de depot EN CLAIR dans les journaux du proxy et du frontend.
-    # 0.1.0, plus loin encore, est la derniere version sans authentification.
+    # code. Lire docs/exploitation.md avant tout retour arriere — chaque version
+    # anterieure retire quelque chose en silence.
     image: ghcr.io/sephorah/exo2-portail-depot-backend:${IMAGE_TAG:-0.3.0}
     init: true
     environment:
       NODE_ENV: production
       PORT: ${PORT:?definir PORT dans .env}
       API_PREFIX: ${API_PREFIX:?definir API_PREFIX dans .env}
-      # Surcharge deliberee du 127.0.0.1 de .env : ici le reseau du conteneur
-      # est isole et aucun port n'est publie, donc 0.0.0.0 n'expose rien — mais
-      # c'est necessaire pour que nginx joigne le service par le reseau interne.
+      # Surcharge deliberee du 127.0.0.1 de .env : le reseau du conteneur est
+      # isole et aucun port n'est publie, mais nginx doit joindre le service.
       BIND_ADDRESS: 0.0.0.0
-      # Origine a partir de laquelle l'API compose le lien client
-      # (<origine>/depot/<jeton>). Elle vient de .env telle quelle, et NON d'un
-      # en-tete de la requete : l'en-tete Host est fourni par le client, donc un
-      # appel forge ferait renvoyer un lien vers le domaine d'un attaquant — que
-      # l'avocat collerait ensuite dans un courriel a son client.
+      # Origine du lien client, prise dans .env et JAMAIS d'un en-tete de la
+      # requete : Host est fourni par le client, donc un appel forge ferait
+      # renvoyer un lien vers le domaine d'un attaquant.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?definir PUBLIC_BASE_URL dans .env}
-      # Seuls l'hote et le port different entre la machine et le conteneur :
-      # .env vise 127.0.0.1:21632 pour `pnpm dev`, ici c'est le nom du service
-      # sur le reseau interne. Le reste (utilisateur, mot de passe, base) vient
-      # de .env tel quel, et l'URL est assemblee par l'application avec
-      # encodeURIComponent — plus aucune concatenation ici, donc plus aucun mot
-      # de passe capable de produire une URL invalide.
+      # Seuls l'hote et le port different entre la machine et le conteneur ; le
+      # reste vient de .env tel quel et l'URL est assemblee par l'application.
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: ${DB_USER:?definir DB_USER dans .env}
       DB_PASSWORD: ${DB_PASSWORD:?definir DB_PASSWORD dans .env}
       DB_NAME: ${DB_NAME:?definir DB_NAME dans .env}
-      # Meme logique que DB_HOST : .env vise le MinIO de `pnpm dev` sur
-      # 127.0.0.1:21690, ici c'est le nom du service sur le reseau interne.
       STORAGE_ENDPOINT: http://minio:9000
       STORAGE_REGION: ${STORAGE_REGION:?definir STORAGE_REGION dans .env}
       STORAGE_BUCKET: ${STORAGE_BUCKET:?definir STORAGE_BUCKET dans .env}
       STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:?definir STORAGE_ACCESS_KEY dans .env}
       STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:?definir STORAGE_SECRET_KEY dans .env}
-      # Lues par l'authentification avocat (B1). Passees des maintenant : elles
-      # etaient documentees et generees par install.sh, mais n'atteignaient pas
-      # le conteneur — l'oubli ne se serait vu qu'a la premiere connexion.
       JWT_SECRET: ${JWT_SECRET:?definir JWT_SECRET dans .env}
-      # Cle de la session client anonyme (C1), distincte de la precedente.
+      # Cle de la session client anonyme, distincte de celle de l'avocat.
       CLIENT_JWT_SECRET: ${CLIENT_JWT_SECRET:?definir CLIENT_JWT_SECRET dans .env}
       JWT_EXPIRES: ${JWT_EXPIRES:?definir JWT_EXPIRES dans .env}
-      # Duree de la session et inactivite toleree. La seconde doit rester
-      # inferieure a la premiere, sinon elle ne s'applique jamais : l'API le
-      # verifie au demarrage.
       SESSION_EXPIRES: ${SESSION_EXPIRES:?definir SESSION_EXPIRES dans .env}
       SESSION_IDLE_EXPIRES: ${SESSION_IDLE_EXPIRES:?definir SESSION_IDLE_EXPIRES dans .env}
-      # Compte de demonstration, lu par `node dist/seed.js` — qu'install.sh
-      # execute dans CE conteneur apres les healthchecks. C'est la raison pour
-      # laquelle les trois variables sont passees au backend et pas ailleurs :
+      # Lues par `node dist/seed.js`, qu'install.sh execute dans CE conteneur :
       # le seed n'a pas de conteneur a lui.
       SEED_LAWYER_EMAIL: ${SEED_LAWYER_EMAIL:?definir SEED_LAWYER_EMAIL dans .env}
       SEED_LAWYER_NAME: ${SEED_LAWYER_NAME:?definir SEED_LAWYER_NAME dans .env}
       SEED_LAWYER_PASSWORD: ${SEED_LAWYER_PASSWORD:?definir SEED_LAWYER_PASSWORD dans .env}
     depends_on:
       db:
-        # Postgres accepte les connexions plusieurs secondes apres que son
-        # conteneur est « demarre ». Sans cette condition, `migrate deploy`
-        # echoue au premier boot et l'API redemarre en boucle jusqu'a ce que
-        # ca passe — un demarrage qui finit par marcher n'est pas un
-        # demarrage qui marche.
+        # Postgres accepte les connexions plusieurs secondes apres le demarrage
+        # de son conteneur : sans cette condition, `migrate deploy` echoue au
+        # premier boot et l'API redemarre en boucle.
         condition: service_healthy
       minio:
-        # assertBucketExists() tourne dans onModuleInit : un MinIO pas encore
-        # pret ferait echouer le demarrage de l'API, pas seulement le premier
-        # upload.
+        # assertBucketExists() tourne dans onModuleInit : un MinIO pas pret fait
+        # echouer le DEMARRAGE de l'API, pas seulement le premier upload.
         condition: service_healthy
       minio-init:
-        # Le bucket et l'utilisateur restreint doivent exister AVANT que l'API
-        # tente de s'authentifier avec ce dernier.
         condition: service_completed_successfully
     healthcheck:
       # L'image n'a ni curl ni wget ; node 22 fournit fetch nativement.
@@ -217,18 +146,13 @@ services:
       start_period: 60s
       start_interval: 1s
     restart: unless-stopped
-    # Aucun port publie : seul le proxy joint les services, par le reseau interne.
 
   frontend:
-    # Meme tag que le backend, et c'est voulu : les deux images sont publiees
-    # par le meme run, depuis le meme commit. Un tag par image permettrait de
-    # deployer un front et une API issus de commits differents.
+    # Meme tag que le backend, et c'est voulu : les deux images sont publiees par
+    # le meme run, depuis le meme commit.
     image: ghcr.io/sephorah/exo2-portail-depot-frontend:${IMAGE_TAG:-0.3.0}
     init: true
     healthcheck:
-      # Meme technique que le backend : l'image n'a ni curl ni wget, node 22
-      # fournit fetch. Sans ce healthcheck, install.sh ne pourrait pas attendre
-      # autre chose que « le conteneur est lance », ce qui ne prouve rien.
       test:
         [
           'CMD',
@@ -244,24 +168,15 @@ services:
     restart: unless-stopped
 
   prometheus:
-    # Tag fige : `latest` ferait changer de version majeure sans qu'une ligne de
-    # ce depot ne bouge, et v3 a deja retire des drapeaux de v2.
     image: prom/prometheus:v3.5.0
     init: true
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      # Volume nomme : sans lui, l'historique repart de zero a chaque
-      # `docker compose up`, et un graphe sans passe ne sert a rien.
       - prometheus_data:/prometheus
     # Aucune cle `command` : celle de l'image porte deja --config.file et
-    # --storage.tsdb.path. La redefinir ici obligerait a recopier ces deux
-    # drapeaux, et en oublier un fait demarrer Prometheus sur une configuration
-    # vide, sans erreur visible.
+    # --storage.tsdb.path, et en oublier un ferait demarrer Prometheus sur une
+    # configuration vide, sans erreur visible.
     healthcheck:
-      # busybox wget, present dans l'image. Meme start_interval que les cinq
-      # autres services : pendant start_period, docker sonde a ce rythme au lieu
-      # d'attendre un `interval` entier, ce qui est exactement ce sur quoi la
-      # boucle d'attente d'install.sh bloque.
       test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:9090/-/healthy']
       interval: 30s
       timeout: 5s
@@ -269,65 +184,35 @@ services:
       start_period: 30s
       start_interval: 1s
     restart: unless-stopped
-    # Aucun port publie, et c'est la meme raison que pour MinIO : la machine est
-    # partagee avec d'autres candidats, et l'interface de Prometheus dit combien
-    # de demandes existent, quand les depots ont lieu et quelle dependance est
-    # en panne. F2 y accedera par nginx, derriere Grafana.
 
   grafana:
-    # Tag fige, et l'image OSS explicitement : `grafana/grafana` embarque les
-    # fonctions Enterprise non licenciees, `grafana-oss` est la distribution
-    # Apache. Un `latest` ferait changer de version majeure sans qu'une ligne de
-    # ce depot ne bouge, alors que le format de provisionnement des alertes est
-    # justement ce qui a le plus bouge d'une majeure a l'autre.
+    # L'image OSS explicitement : `grafana/grafana` embarque des fonctions
+    # Enterprise non licenciees. Tag fige — le format de provisionnement des
+    # alertes est ce qui bouge le plus d'une majeure a l'autre.
     image: grafana/grafana-oss:13.0.2
     init: true
     environment:
-      # Grafana est servi SOUS UN SOUS-CHEMIN, /grafana/. Les deux variables
-      # vont ensemble : sans serve_from_sub_path, Grafana continue de generer
-      # ses redirections et les URL de ses assets a la racine, l'interface
-      # repond 200 et reste blanche — il n'y a aucune erreur a lire.
-      #
-      # L'origine vient de PUBLIC_BASE_URL, la meme que celle des liens client :
-      # elle vaut http://127.0.0.1:21600 sur la machine de l'evaluateur et
-      # https://$DOMAIN des qu'install.sh active HTTPS. Ecrite en dur ici, elle
-      # serait fausse dans l'un des deux cas.
+      # Les deux variables vont ensemble : sans serve_from_sub_path, Grafana
+      # genere ses URL a la racine, repond 200 et reste blanc — aucune erreur a
+      # lire. L'origine vient de PUBLIC_BASE_URL, qui suit HTTPS.
       GF_SERVER_ROOT_URL: ${PUBLIC_BASE_URL:?definir PUBLIC_BASE_URL dans .env}/grafana/
       GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
       GF_SECURITY_ADMIN_USER: admin
-      # Genere par install.sh a la premiere installation, jamais regenere.
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?definir GRAFANA_ADMIN_PASSWORD dans .env}
-      # La machine est PARTAGEE : personne ne doit pouvoir se creer un compte ni
-      # entrer sans en avoir un. L'anonyme est desactive par defaut, il est
-      # ecrit ici pour que le rouvrir soit une decision et non un oubli.
+      # Ecrits alors qu'ils sont deja le defaut : les rouvrir doit etre une
+      # decision, pas un oubli. La machine est partagee.
       GF_USERS_ALLOW_SIGN_UP: 'false'
       GF_AUTH_ANONYMOUS_ENABLED: 'false'
-      # Aucun appel sortant : Grafana verifie sinon les mises a jour et remonte
-      # des statistiques d'usage. Sur une machine partagee qui heberge les
-      # pieces des clients d'un avocat, la position du projet est qu'aucun
-      # composant ne contacte de tiers — c'est deja ce qui a fait auto-heberger
-      # la police du frontend.
+      # Aucun appel sortant, et Grafana 13 en fait trois sortes par defaut :
+      # verification de version, statistiques d'usage, et cinq greffons
+      # telecharges au demarrage. Voir docs/observabilite.md.
       GF_ANALYTICS_REPORTING_ENABLED: 'false'
       GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
-      # Meme motif, et un effet mesure : par defaut Grafana 13 telecharge cinq
-      # greffons au demarrage (exploretraces, metricsdrilldown, elasticsearch,
-      # lokiexplore, pyroscope). Aucun ne sert ici, ils supposent un acces
-      # internet, et l'un d'eux echouait de toute facon en level=error sur
-      # « permission denied » a chaque demarrage — un bruit permanent qui
-      # apprend a ignorer les erreurs de ce conteneur.
       GF_PLUGINS_PREINSTALL_DISABLED: 'true'
     volumes:
-      # Tout est PROVISIONNE : sources de donnees, tableau de bord et alertes
-      # sont des fichiers du depot. Ce qui serait clique dans l'interface vivrait
-      # dans grafana_data seul, et disparaitrait avec le volume sans que rien ne
-      # le signale.
-      # Les trois sous-repertoires sont montes UN PAR UN, et non le
-      # /etc/grafana/provisioning entier : l'image en fournit d'autres
-      # (plugins/, access-control/, notifiers/), et les recouvrir d'un seul
-      # montage les fait disparaitre. Grafana journalise alors
-      # « Failed to read plugin provisioning files from directory » en level=error
-      # a chaque demarrage — un bruit permanent qui apprend a ignorer les erreurs
-      # de provisionnement, celles-la memes qui comptent ici.
+      # Les trois sous-repertoires sont montes UN PAR UN : recouvrir
+      # /etc/grafana/provisioning entier ferait disparaitre ceux de l'image, et
+      # Grafana journaliserait une erreur de provisionnement a chaque demarrage.
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
@@ -337,73 +222,40 @@ services:
       - grafana_data:/var/lib/grafana
     depends_on:
       prometheus:
-        # La source de donnees provisionnee pointe sur ce service. Grafana
-        # demarrerait quand meme, mais le premier coup d'oeil au tableau de bord
-        # afficherait des panneaux en erreur.
         condition: service_healthy
     healthcheck:
-      # curl est present dans l'image alpine de Grafana (contrairement aux
-      # images node du portail, qui passent par `node -e fetch`).
-      #
-      # Le chemin porte /grafana/, et c'est ce qui rend la sonde utile : mesure
-      # sur l'image, un Grafana SANS serve_from_sub_path repond 302 sur
-      # /grafana/api/health, que `curl -fsS` (sans -L) traite en echec. Le
-      # conteneur devient donc unhealthy si le sous-chemin est mal configure,
-      # au lieu de laisser decouvrir une interface blanche par le navigateur.
-      # (Les deux chemins repondent 200 quand la configuration est bonne : c'est
-      # bien le cas d'erreur qui departage, pas le cas nominal.)
+      # Le chemin porte /grafana/, et c'est ce qui rend la sonde utile : sans
+      # serve_from_sub_path, Grafana repond 302 et `curl -fsS` echoue, donc le
+      # conteneur devient unhealthy au lieu de servir une page blanche.
       test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:3000/grafana/api/health']
       interval: 30s
       timeout: 5s
       retries: 3
-      # Grafana applique tout son provisionnement au demarrage : 30 s comme les
-      # autres, avec le meme start_interval de 1 s, faute de quoi la boucle
-      # d'attente d'install.sh perd un intervalle entier sur ce seul service.
       start_period: 30s
       start_interval: 1s
     restart: unless-stopped
-    # Aucun port publie, et ici c'est plus qu'une habitude : Grafana est une
-    # interface d'ADMINISTRATION, sur une machine partagee avec d'autres
-    # candidats. Le seul chemin d'acces est la `location /grafana/` du proxy,
-    # derriere le mot de passe admin genere par install.sh.
 
   proxy:
     image: nginx:alpine
     ports:
-      # 127.0.0.1 explicitement : la machine de staging est PARTAGEE avec
-      # d'autres candidats, et un bind sur 0.0.0.0 exposerait tout le portail
-      # — base comprise, via /api — a qui scanne la machine. 21600 est le port
-      # attribue vers lequel le proxy de la machine relaie le trafic HTTP
-      # (443 arrive en passthrough TLS sur 21601, cf. A7).
-      #
-      # Consequence en local : le portail est sur http://127.0.0.1:21600, plus
-      # sur :8080.
+      # 127.0.0.1 explicitement : la machine est PARTAGEE, un bind sur 0.0.0.0
+      # exposerait tout le portail, base comprise via /api. 21600 est le port
+      # attribue vers lequel la machine relaie le trafic HTTP.
       - '127.0.0.1:21600:80'
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      # Hors de conf.d/ deliberement : la conf principale de l'image charge
-      # conf.d/*.conf au niveau `http`, ou un `location` nu est une erreur de
-      # syntaxe. Ce fragment est inclus DANS le bloc server.
+      # Hors de conf.d/ : ce sont des directives de niveau `server`, et conf.d/
+      # est inclus au niveau `http`. log-redact.conf, lui, doit y etre — `map` et
+      # `log_format` ne valent qu'au niveau `http`. Voir docs/exploitation.md.
       - ./nginx/portal-locations.conf:/etc/nginx/portal-locations.conf:ro
-      # DANS conf.d/, a l'inverse : `map` et `log_format` ne sont valides qu'au
-      # niveau `http`, ou ce repertoire est justement inclus. Le prefixe 00-
-      # garantit le chargement avant default.conf, donc avant l'usage du format.
-      # Le calque TLS n'a rien a ajouter : compose fusionne les `volumes` par
-      # chemin CIBLE, ce montage lui parvient donc tel quel.
       - ./nginx/log-redact.conf:/etc/nginx/conf.d/00-log-redact.conf:ro
-      # Hors de conf.d/ comme portal-locations.conf : ce sont des directives de
-      # niveau `server`. Inclus par les TROIS blocs server, y compris celui du
-      # port 80 du calque TLS qui ne route rien mais voit passer le jeton.
       - ./nginx/server-hardening.conf:/etc/nginx/server-hardening.conf:ro
-      # Racine du challenge ACME. Presente meme sans TLS : c'est par cette pile
-      # en clair que passe l'AMORCAGE du certificat (nginx ne demarre pas si le
-      # fichier de certificat manque, cf. nginx.conf). Vide, le `location`
-      # repond simplement 404.
+      # Racine du challenge ACME, presente meme sans TLS : c'est par la pile en
+      # clair que passe l'amorcage du certificat.
       - certbot_www:/var/www/certbot:ro
     healthcheck:
-      # busybox wget est present dans nginx:alpine. Le proxy en bonne sante est
-      # la seule chose qui prouve que le portail repond a l'exterieur : c'est
-      # sur lui qu'install.sh conclut.
+      # Le proxy en bonne sante est la seule chose qui prouve que le portail
+      # repond a l'exterieur : c'est sur lui qu'install.sh conclut.
       test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1/']
       interval: 30s
       timeout: 5s
@@ -411,35 +263,29 @@ services:
       start_period: 30s
       start_interval: 1s
     depends_on:
-      # Forme longue : « proxy demarre » doit vouloir dire « ce qu'il sert
-      # repond », sinon la premiere requete tombe sur un 502.
       backend:
         condition: service_healthy
       frontend:
         condition: service_healthy
       grafana:
-        # `service_started` et NON service_healthy, et la nuance est le contrat
-        # du portail : nginx resout `grafana` au chargement de sa configuration,
-        # donc le conteneur doit exister ou nginx refuse de demarrer sur
-        # « host not found in upstream ». Il lui suffit d'exister. Attendre qu'il
-        # soit sain retarderait la reponse du PORTAIL le temps que son tableau de
-        # bord soit pret, ce qui inverse les priorites.
+        # service_started et NON service_healthy : nginx resout `grafana` au
+        # chargement de sa conf, donc le conteneur doit exister — mais attendre
+        # qu'il soit sain retarderait la reponse du PORTAIL pour son tableau de
+        # bord, ce qui inverse les priorites.
         condition: service_started
     restart: unless-stopped
 
 volumes:
   pgdata:
   # Partage entre nginx (lecture) et certbot (ecriture), declare ici et pas
-  # seulement dans le calque TLS : c'est ce compose-ci qui tourne pendant
-  # l'amorcage du certificat, et sans le volume la racine du challenge
-  # n'existerait pas.
+  # seulement dans le calque TLS : c'est cette pile-ci qui tourne pendant
+  # l'amorcage du certificat.
   certbot_www:
-  # Volume distinct de minio_data_dev, comme pgdata l'est de pgdata_dev : un
-  # nettoyage de developpement ne doit pas pouvoir atteindre les pieces reelles.
+  # Distincts des volumes _dev : un nettoyage de developpement ne doit pas
+  # pouvoir atteindre les pieces reelles.
   minio_data:
   prometheus_data:
-  # Base interne de Grafana (utilisateurs, sessions, etat des alertes). Le
-  # tableau de bord, les alertes et la source de donnees n'y sont PAS : ils sont
-  # provisionnes depuis des fichiers, precisement pour survivre a la perte de ce
-  # volume.
+  # Base interne de Grafana. Le tableau de bord, les alertes et la source de
+  # donnees n'y sont PAS : ils sont provisionnes depuis des fichiers, precisement
+  # pour survivre a la perte de ce volume.
   grafana_data:
