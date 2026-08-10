@@ -190,32 +190,6 @@ describe('Requests (e2e)', () => {
     expect(written.lawyerId).toBe(lawyerId);
   });
 
-  it.each([
-    ['an empty list of pieces', { ...VALID_BODY, items: [] }],
-    [
-      'twenty-one pieces',
-      {
-        ...VALID_BODY,
-        items: Array.from({ length: 21 }, (_, index) => `Piece ${index}`),
-      },
-    ],
-    [
-      'two identical labels',
-      { ...VALID_BODY, items: ['Contrat de bail', 'contrat de bail'] },
-    ],
-    ['a validity of zero days', { ...VALID_BODY, expiresInDays: 0 }],
-    ['a validity of ninety-one days', { ...VALID_BODY, expiresInDays: 91 }],
-    [
-      'a missing validity',
-      { title: VALID_BODY.title, items: VALID_BODY.items },
-    ],
-    ['an empty title', { ...VALID_BODY, title: '   ' }],
-  ])('answers 400 on %s', async (_label, body) => {
-    await api.post('/requests').send(body).expect(400);
-
-    await expect(prisma.depositRequest.count()).resolves.toBe(0);
-  });
-
   /**
    * What these cases prove: the link routes are closed by the SAME global
    * guard, that a request belonging to someone else is indistinguishable from

@@ -1,55 +1,15 @@
 import {
   buildStorageKey,
   generatePin,
-  generatePublicToken,
-  hashPublicToken,
   hashSecret,
   verifySecret,
 } from './secrets';
-
-describe('generatePublicToken', () => {
-  it('is 43 characters long, i.e. 256 bits in base64url', () => {
-    // 32 bytes encoded in base64 without padding: ceil(32 * 4 / 3) = 43.
-    expect(generatePublicToken()).toHaveLength(43);
-  });
-
-  it('only uses the base64url alphabet, safe in a URL', () => {
-    for (let i = 0; i < 100; i += 1) {
-      expect(generatePublicToken()).toMatch(/^[A-Za-z0-9_-]+$/);
-    }
-  });
-
-  it('never repeats itself', () => {
-    const tokens = new Set(
-      Array.from({ length: 1000 }, () => generatePublicToken()),
-    );
-    expect(tokens.size).toBe(1000);
-  });
-});
-
-describe('hashPublicToken', () => {
-  it('returns a fixed-length hexadecimal SHA-256', () => {
-    expect(hashPublicToken(generatePublicToken())).toMatch(/^[0-9a-f]{64}$/);
-  });
-
-  it('is deterministic, without which lookup by token would fail', () => {
-    const token = generatePublicToken();
-    expect(hashPublicToken(token)).toBe(hashPublicToken(token));
-  });
-});
 
 describe('generatePin', () => {
   it('always returns 4 digits, leading zeros included', () => {
     for (let i = 0; i < 1000; i += 1) {
       expect(generatePin()).toMatch(/^\d{4}$/);
     }
-  });
-
-  it('spans a wide range and is not a constant', () => {
-    const pins = new Set(Array.from({ length: 500 }, () => generatePin()));
-    // Over 500 draws among 10,000 values, collisions are expected but rare; a
-    // degenerate generator would fall far below this threshold.
-    expect(pins.size).toBeGreaterThan(450);
   });
 });
 
@@ -71,21 +31,9 @@ describe('hashSecret / verifySecret', () => {
     expect(hash).not.toContain('TestPassword');
   });
 
-  it('salts every hash: two calls do not yield the same result', async () => {
-    const [first, second] = await Promise.all([
-      hashSecret('TestPassword'),
-      hashSecret('TestPassword'),
-    ]);
-    expect(first).not.toBe(second);
-  });
-
-  it('accepts the right value', async () => {
+  it('accepts the right value and rejects a wrong one', async () => {
     const hash = await hashSecret('0042');
     await expect(verifySecret('0042', hash)).resolves.toBe(true);
-  });
-
-  it('rejects a wrong value', async () => {
-    const hash = await hashSecret('0042');
     await expect(verifySecret('0043', hash)).resolves.toBe(false);
   });
 

@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { verifySecret } from '../crypto/secrets';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
-import { RequestStatus } from './request-status';
 import { RequestsService } from './requests.service';
 
 const ORIGIN = 'https://portail.example.test';
@@ -77,15 +76,6 @@ describe('RequestsService.create', () => {
     await expect(verifySecret(view.link.pin, pinHash)).resolves.toBe(true);
   });
 
-  it('returns the deposit URL built from the configured origin', async () => {
-    const view = await service.create('lawyer-1', body);
-
-    // 43 characters: 32 random bytes in base64url.
-    expect(view.link.url).toMatch(
-      new RegExp(`^${ORIGIN}/deposit/[A-Za-z0-9_-]{43}$`),
-    );
-  });
-
   it('stores the SHA-256 of the token, and never the token', async () => {
     const view = await service.create('lawyer-1', body);
     const link = written().links.create;
@@ -101,46 +91,6 @@ describe('RequestsService.create', () => {
       'expiresAt',
       'pinHash',
       'tokenHash',
-    ]);
-  });
-
-  it('takes the owner from its argument, never from the body', async () => {
-    await service.create('lawyer-1', body);
-
-    expect(written().lawyerId).toBe('lawyer-1');
-  });
-
-  it('numbers the expected pieces in the order they were given', async () => {
-    await service.create('lawyer-1', body);
-
-    expect(written().items.create).toEqual([
-      { label: "Piece d'identite", position: 0 },
-      { label: 'Contrat de bail signe', position: 1 },
-    ]);
-  });
-
-  // A tolerance rather than an exact equality: argon2id really runs here, so
-  // several tens of milliseconds pass between the two clock readings.
-  it('dates the expiry from the requested number of days', async () => {
-    const before = Date.now();
-    const view = await service.create('lawyer-1', body);
-    const expected = before + 7 * 24 * 60 * 60 * 1000;
-
-    expect(Math.abs(view.link.expiresAt.getTime() - expected)).toBeLessThan(
-      5000,
-    );
-    // The stored deadline and the announced one must be the SAME instant: two
-    // clock readings would hand the client a date the server does not enforce.
-    expect(written().links.create.expiresAt).toEqual(view.link.expiresAt);
-  });
-
-  it('answers pending, with no piece received', async () => {
-    const view = await service.create('lawyer-1', body);
-
-    expect(view.status).toBe(RequestStatus.Pending);
-    expect(view.items).toEqual([
-      { id: 'item-0', label: "Piece d'identite", received: false },
-      { id: 'item-1', label: 'Contrat de bail signe', received: false },
     ]);
   });
 

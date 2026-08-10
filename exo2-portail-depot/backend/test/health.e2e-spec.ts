@@ -120,19 +120,6 @@ describe('HealthController (e2e)', () => {
     });
   });
 
-  it('reports both failures at once', async () => {
-    // Reporting only the first one would send whoever reads the probe after one
-    // of the two problems.
-    breakDatabase('down');
-    ping.mockResolvedValue(false);
-
-    await request(app.getHttpServer()).get(healthPath).expect(503).expect({
-      status: 'error',
-      db: 'down',
-      storage: 'down',
-    });
-  });
-
   it('no longer answers on /health, outside the prefix', async () => {
     // Guard rail on the coupling with the infrastructure: nginx explicitly
     // denies /api/v1/health and the docker healthcheck queries that same

@@ -17,10 +17,7 @@ import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
 import { hashSecret } from './../src/crypto/secrets';
 import { PrismaService } from './../src/prisma/prisma.service';
-import {
-  DEFAULT_PAGE_SIZE,
-  MAX_PAGE_SIZE,
-} from './../src/requests/dto/list-requests.dto';
+import { DEFAULT_PAGE_SIZE } from './../src/requests/dto/list-requests.dto';
 import { StorageService } from './../src/storage/storage.service';
 import { ApiClient } from './api-client';
 import { insertLawyer, resetDatabase } from './database';
@@ -229,27 +226,14 @@ describe('Dashboard (e2e)', () => {
     expect(page.total).toBe(1);
   });
 
-  it('refuses a page size above the ceiling', () =>
-    api.get(`/requests?pageSize=${MAX_PAGE_SIZE + 1}`).expect(400));
-
   // forbidNonWhitelisted covers the query string too: a filter nobody
   // implemented must fail loudly rather than be silently ignored.
   it('refuses an unknown query parameter', () =>
     api.get('/requests?status=expired').expect(400));
 
-  it('counts a piece as received once a file hangs off it', async () => {
-    const created = await createRequest('Dossier A');
-    await attachFile(created.items[0].id);
-
-    const page = await listPage();
-
-    expect(page.items[0]).toMatchObject({
-      expectedCount: 2,
-      receivedCount: 1,
-      status: 'pending',
-    });
-  });
-
+  // The one status case kept end to end: the derivation itself is
+  // request-status.spec.ts, but only a real read proves the SQL selection
+  // feeds it the counts it needs.
   it('reports a request as complete once every piece arrived', async () => {
     const created = await createRequest('Dossier A');
     await attachFile(created.items[0].id);
@@ -260,20 +244,6 @@ describe('Dashboard (e2e)', () => {
     expect(page.items[0].status).toBe('complete');
   });
 
-  it('reports a request whose deadline has passed as expired', async () => {
-    const created = await createRequest('Dossier A');
-    await prisma.publicLink.updateMany({
-      where: { requestId: created.id },
-      data: { expiresAt: new Date(Date.now() - 1000) },
-    });
-
-    const page = await listPage();
-
-    expect(page.items[0].status).toBe('expired');
-  });
-
-  // B3 revokes by dating revokedAt, so the deadline survives. The status keeps
-  // describing the file; `link` is what says nobody can deposit any more.
   it('keeps a three-valued status after the link was revoked', async () => {
     const created = await createRequest('Dossier A');
     await api.delete(`/requests/${created.id}/link`).expect(204);

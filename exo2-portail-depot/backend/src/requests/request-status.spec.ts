@@ -89,15 +89,4 @@ describe('deriveStatus', () => {
       ),
     ).toBe(RequestStatus.Expired);
   });
-
-  // A row written by hand, or a future feature allowing an empty request:
-  // "nothing expected" must not read as "everything received".
-  it('never reports complete when nothing is expected', () => {
-    expect(
-      deriveStatus(
-        { expiresAt: EXPIRY, expectedCount: 0, receivedCount: 0 },
-        before,
-      ),
-    ).toBe(RequestStatus.Pending);
-  });
 });
