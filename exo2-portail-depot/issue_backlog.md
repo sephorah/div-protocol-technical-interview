@@ -33,22 +33,33 @@ téléchargement **octet pour octet identique** → 401 en anonyme, jeton absent
 |---|---|
 | **H1** | README à compléter — observabilité, justification des métriques, limites |
 | **H3** | Export des sessions IA et **caviardage**, à faire ligne à ligne |
-| **Passe navigateur** | Charte, densité, points de rupture, survol, violations CSP. jsdom ne calcule aucun style : 512 tests verts n'en disent **rien** — voir D5 |
+| **E2** + passe navigateur | Charte, **densité aux deux tailles**, points de rupture, survol, violations CSP. jsdom ne calcule aucun style : 512 tests verts n'en disent **rien** — voir D5 |
 | **D1** | La suite d'intégration du seed, seule case encore ouverte |
 
 ### Ce qui a été coupé, et pourquoi
 
 Le budget était de 7 h ; les 22 issues ouvertes en représentaient environ 22. Le périmètre a donc été
-arrêté au **P0 + P1**, et les huit issues P2 restantes sont écartées — **toutes classées *bonus* par
-l'énoncé**, donc leur absence ne retire aucun point éliminatoire ni aucun critère de différenciation.
+arrêté au **P0 + P1**, et les huit issues P2 restantes sont écartées.
+
+**Une exception, et elle corrige une erreur de classement.** L'énoncé a **cinq** bonus — antivirus ou
+vérification de type, URLs pré-signées S3, journal d'audit, CI automatisé, limitation de débit sur le
+PIN.
+
+- **E2** (densité mobile) : « respect de la charte graphique DIV » est **attendu**, au même rang que
+  les tests Jest et la pile Prometheus + Grafana. Coupée sur un P2 écrit à tort → repasse en **P1**.
+
+Les sept autres coupées sont bien des bonus (ou de l'outillage hors énoncé), donc leur absence ne
+retire aucun point éliminatoire.
 
 - **G1** (limite de débit sur le PIN) — le seul regret. Compensé par la métrique
   `portail_unlock_attempts_total` et son alerte, qui **détectent** un brute force sans l'**empêcher**.
   À nommer explicitement dans les limites du README.
 - **C4** (antivirus), **G2** (audit), **G3** (URLs pré-signées), **B1b** (sessions avocat) — bonus.
-- **D3** (CI), **D4** (messages homogènes), **D5** (tests de rendu), **E2** (densité mobile) —
-  qualité et outillage. **D4 est devenue plus visible** : le client API cite désormais le corps d'un
-  400, donc les messages anglais du `ValidationPipe` peuvent atteindre l'écran.
+- **D3** (CI), **D4** (messages homogènes), **D5** (tests de rendu) — qualité et outillage.
+  **D4 est devenue plus visible** : le client API cite désormais le corps d'un 400, donc les
+  messages anglais du `ValidationPipe` peuvent atteindre l'écran.
+- **E2** (densité mobile) — **remise au périmètre**, voir ci-dessus. Elle se fait pendant la passe
+  navigateur, qui ouvre déjà chaque écran.
 
 Le socle (scaffold NestJS + Vite/Chakra, `install.sh`, docker compose + proxy nginx, lint bloquant
 des deux côtés) était déjà en place avant tout ça et sert de base.
@@ -609,10 +620,12 @@ plutôt que gardé par un identifiant que personne ne peut produire.
 
 Dépendances : C1, C2, E1.
 
-### C4. Antivirus sur les pièces déposées — P2
+### C4. Antivirus sur les pièces déposées — P2 (bonus)
 
-L'énoncé range l'antivirus dans les **bonus** — d'où P2 et non P1. Le contrôle du type réel, lui,
-est remonté en C2 : c'est la validation qui rend l'allowlist effective, pas un supplément.
+L'énoncé range « antivirus ou vérification de type sur les fichiers déposés » dans les **bonus** —
+d'où P2 et non P1. La **vérification de type est livrée** par C2 (octets magiques, allowlist de trois
+formats, plafond de 20 Mio, `Content-Disposition` en RFC 5987) : cette moitié du bonus est donc déjà
+tenue, et c'est la validation qui rend l'allowlist effective, pas un supplément.
 
 - [ ] Scan antivirus (ClamAV conteneurisé) avant mise à disposition de l'avocat
 - [ ] Fichier rejeté : statut visible côté client et côté avocat
@@ -797,7 +810,11 @@ les variantes livrées avec Chakra l'emportent sur le `base` d'une recette (titr
 contre 11 px écrits) ; un `textStyle` l'emporte sur un `fontSize` voisin ; `Stack` étire ses
 enfants, donc un bouton y perd son gabarit.
 
-### E2. Densité UI constante mobile / desktop — P2 (l'énoncé la cite parmi les critères de design)
+### E2. Densité UI constante mobile / desktop — **P1, critère ATTENDU**
+
+**Pas un bonus.** L'énoncé range « respect de la charte graphique DIV » dans les critères *attendus*,
+au même rang que les tests Jest et la pile Prometheus + Grafana. E1 a posé le thème ; E2 est ce qui
+vérifie qu'il tient aux deux tailles. Classée P2 par erreur jusqu'ici, et coupée sur cette erreur.
 
 - [ ] Mêmes espacements et même densité d'information aux deux tailles
 - [ ] Parcours client vérifié sur mobile (c'est le contexte d'usage réel)
