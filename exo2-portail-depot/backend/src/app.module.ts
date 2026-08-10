@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { LawyersModule } from './lawyers/lawyers.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PublicModule } from './public/public.module';
 import { RequestsModule } from './requests/requests.module';
@@ -39,6 +40,9 @@ import { StorageModule } from './storage/storage.module';
     AuthModule,
     RequestsModule,
     PublicModule,
+    // @Global, like PrismaModule and StorageModule: a business module reaches
+    // MetricsService without importing anything.
+    MetricsModule,
   ],
 })
 export class AppModule {}

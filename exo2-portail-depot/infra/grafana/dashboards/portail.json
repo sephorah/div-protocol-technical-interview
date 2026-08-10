@@ -1,0 +1,273 @@
+{
+  "uid": "portail-depot",
+  "title": "Portail de depot",
+  "description": "Les cinq metriques de F1, une par question d'exploitation. Ce fichier est la source de verite : le fournisseur portail.yml interdit l'edition depuis l'interface, une modification cliquee serait perdue au prochain demarrage.",
+  "tags": ["portail", "f2"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "API",
+      "description": "up du job portail-backend. C'est la meme serie que l'alerte « API injoignable ».",
+      "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+      "gridPos": { "h": 4, "w": 5, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+          "expr": "up{job=\"portail-backend\"}",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "INJOIGNABLE", "color": "red", "index": 0 },
+                "1": { "text": "OK", "color": "green", "index": 1 }
+              }
+            }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Depots aboutis (1 h)",
+      "description": "Le portail fait-il son seul travail ?",
+      "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+      "gridPos": { "h": 4, "w": 5, "x": 5, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+          "expr": "sum(increase(portail_deposits_total{outcome=\"success\"}[1h]))",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": { "decimals": 0, "unit": "short" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Taux d'echec de depot (5 min)",
+      "description": "Seuil d'alerte a 10 %, avec un plancher de 5 depots dans la fenetre — sinon un seul fichier refuse sur trois afficherait 33 %.",
+      "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+      "gridPos": { "h": 4, "w": 5, "x": 10, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+          "expr": "sum(rate(portail_deposits_total{outcome!=\"success\"}[5m])) / sum(rate(portail_deposits_total[5m]))",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "PIN refuses (5 min)",
+      "description": "Seuil d'alerte a 20. C'est la detection qui remplace la limitation de debit (G1, hors perimetre) : elle voit, elle n'empeche pas.",
+      "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+      "gridPos": { "h": 4, "w": 5, "x": 15, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+          "expr": "sum(increase(portail_unlock_attempts_total{outcome=\"failure\"}[5m]))",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 20 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Liens expires touches (24 h)",
+      "description": "Des clients arrivent trop tard : c'est une decision produit sur la duree par defaut, pas un incident.",
+      "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+          "expr": "sum(increase(portail_expired_link_hits_total[24h]))",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Depots par issue",
+      "description": "Un pic de rejected_type veut dire que l'allowlist n'est pas comprise ; un pic d'error pointe le stockage.",
+      "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+          "expr": "sum by (outcome) (rate(portail_deposits_total[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "fillOpacity": 10, "showPoints": "never" } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Tentatives de deverrouillage",
+      "description": "success contre failure. Une courbe failure qui decolle seule est la signature d'une force brute.",
+      "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+          "expr": "sum by (outcome) (rate(portail_unlock_attempts_total[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "fillOpacity": 10, "showPoints": "never" } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Latence HTTP p95, par route",
+      "description": "Le quantile est calcule a partir des buckets, donc par route et non globalement : une moyenne generale noierait la seule route lente.",
+      "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(portail_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "fillOpacity": 0, "showPoints": "never" } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Taille des fichiers deposes",
+      "description": "Dimensionne le bucket. Les buckets de l'histogramme s'arretent au plafond produit de 20 Mio : au-dela la requete est refusee.",
+      "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(portail_upload_bytes_bucket[30m])))",
+          "legendFormat": "mediane"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "portail-prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(portail_upload_bytes_bucket[30m])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "fillOpacity": 0, "showPoints": "never" } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    }
+  ]
+}

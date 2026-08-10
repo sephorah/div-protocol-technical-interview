@@ -1,0 +1,32 @@
+# Source de donnees Prometheus, PROVISIONNEE (F2).
+#
+# Ajoutee a la main dans l'interface, elle vivrait dans la base SQLite du volume
+# grafana_data : un `docker compose down -v` la ferait disparaitre avec lui, et
+# le tableau de bord provisionne se retrouverait a pointer vers un uid inconnu
+# — les panneaux affichent alors « Datasource not found », sans que rien ne dise
+# ce qui manque.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    # uid FIGE, et c'est la piece maitresse du montage : le JSON du tableau de
+    # bord et les regles d'alerte referencent cette chaine. Laisse a Grafana, il
+    # serait genere aleatoirement a la creation, donc different sur chaque
+    # machine, et les deux autres fichiers ne pourraient plus le nommer.
+    uid: portail-prometheus
+    type: prometheus
+    access: proxy
+    # Nom du service sur le reseau interne. Prometheus ne publie aucun port,
+    # exactement comme la base et MinIO : la machine est partagee.
+    url: http://prometheus:9090
+    isDefault: true
+    # Non modifiable depuis l'interface : une edition manuelle serait perdue au
+    # redemarrage sans avertissement, ce qui est pire que d'etre refusee.
+    editable: false
+    jsonData:
+      # Doit rester egal au scrape_interval de prometheus.yml : c'est ce que
+      # Grafana utilise comme pas minimal de `rate()`. Une valeur plus courte
+      # produit des trous dans les courbes, une valeur plus longue les lisse au
+      # point de masquer un pic de PIN errones.
+      timeInterval: 15s
