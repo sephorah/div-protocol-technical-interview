@@ -1,4 +1,18 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
+  StreamableFile,
+} from '@nestjs/common';
+// `import type` is required, not stylistic: with isolatedModules and
+// emitDecoratorMetadata, a type named in a @Res() signature would otherwise be
+// emitted as a runtime import (TS1272).
+import type { Response } from 'express';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { ListRequestsDto } from './dto/list-requests.dto';
 import type { AuthenticatedRequest } from '../auth/auth.types';
@@ -48,5 +62,32 @@ export class RequestsController {
     @Param('id') id: string,
   ): Promise<RequestDetailView> {
     return this.requests.findOne(id, request.lawyer.id);
+  }
+
+  /**
+   * The bytes of one deposited piece, streamed through the API.
+   *
+   * `passthrough: true` is what keeps Nest in charge of the response: without
+   * it the StreamableFile returned here is ignored and the request hangs.
+   */
+  @Get(':id/items/:itemId/file')
+  async download(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const file = await this.requests.streamFile(id, itemId, request.lawyer.id);
+
+    response.setHeader('Content-Type', file.mimeType);
+    // filename* / RFC 5987, and percent-encoding is the point rather than a
+    // nicety: originalName comes from the client, so it can carry a quote or a
+    // newline -- enough to close the header and inject a second one.
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(file.originalName)}`,
+    );
+
+    return new StreamableFile(file.stream);
   }
 }
