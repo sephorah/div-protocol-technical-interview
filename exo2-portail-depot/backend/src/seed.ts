@@ -1,14 +1,7 @@
 /**
- * Demonstration data, run by install.sh inside the backend container
- * (`node dist/seed.js`) once every healthcheck has passed.
- *
- * Two properties are required of it. IDEMPOTENT, because install.sh runs on
- * every deployment. And IT PRINTS CREDENTIALS: its output is the grader's only
- * way of knowing how to log in, and the PIN is stored hashed -- whatever is not
- * printed here is lost.
- *
- * It goes through a Nest application context rather than its own PrismaClient,
- * so that configuration and connection assembly stay in one place.
+ * Demonstration data, run by install.sh in the backend container once the
+ * healthchecks pass. Two properties are required: IDEMPOTENT, and it PRINTS
+ * CREDENTIALS -- the PIN is hashed, so whatever is not printed is lost.
  */
 
 import { INestApplicationContext, Logger } from '@nestjs/common';
@@ -21,16 +14,10 @@ import { PrismaService } from './prisma/prisma.service';
 import { PublicLinksService } from './requests/public-links.service';
 
 /**
- * The title is what identifies the demonstration DATASET across runs --
- * DepositRequest has no natural unique key, and adding one to the schema for
- * the sake of a fixture would let the fixture dictate the data model.
- *
- * It also identifies the demonstration LAWYER, indirectly: the demo account is
- * "whoever owns this request", not "whoever holds this e-mail address". That
- * indirection is the whole point. Keyed on the address, changing
- * SEED_LAWYER_EMAIL would not rename the account -- it would create a second
- * one, and the first would stay reachable with its old password. The address is
- * a value of the account, not its identity.
+ * Identifies the demonstration dataset AND, indirectly, its lawyer: the demo
+ * account is "whoever owns this request", never "whoever holds this address".
+ * Keyed on the address, changing SEED_LAWYER_EMAIL would create a SECOND
+ * account and leave the first reachable with its old password.
  */
 const DEMO_REQUEST_TITLE = 'Dossier Martin, pieces 2026';
 
@@ -137,14 +124,9 @@ const seed = async (app: INestApplicationContext): Promise<void> => {
     ),
   );
 
-  // Delegated, not duplicated: regenerate() is exactly this -- revoke the
-  // active link, draw a new token and a new PIN, insert, all in one
-  // transaction. Written twice, the two copies would drift, and the seed's
-  // output is the first thing a grader reads.
-  //
-  // Regenerated rather than preserved because the PIN is hashed: a kept link
-  // could not have its PIN reprinted. Revoked rows accumulating is intended --
-  // that history is what PublicLink exists for.
+  // Delegated, not duplicated: written twice, the two copies would drift, and
+  // the seed's output is the first thing a grader reads. Regenerated rather
+  // than preserved because the PIN is hashed and could not be reprinted.
   const issued = await app
     .get(PublicLinksService)
     .regenerate(request.id, lawyer.id, DEMO_LINK_DAYS);

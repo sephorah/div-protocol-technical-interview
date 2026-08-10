@@ -95,12 +95,9 @@ export class PublicService implements OnModuleInit {
   }
 
   /**
-   * The client's checklist.
-   *
-   * `expiresAt` is passed in rather than read here: it belongs to the LINK, not
-   * to the request, and the request can have several links in its history. The
-   * caller -- the unlock route or the session guard -- is the one that knows
-   * which link the client is holding.
+   * `expiresAt` is passed in rather than read: it belongs to the LINK, and a
+   * request has several links in its history. Only the caller knows which one
+   * the client is holding.
    */
   async viewOf(requestId: string, expiresAt: Date): Promise<PublicRequestView> {
     const request = await this.prisma.depositRequest.findUnique({

@@ -33,7 +33,8 @@ téléchargement **octet pour octet identique** → 401 en anonyme, jeton absent
 |---|---|
 | **H1** | README à compléter — observabilité, justification des métriques, limites |
 | **H3** | Export des sessions IA et **caviardage**, à faire ligne à ligne |
-| **E2** + passe navigateur | Charte, **densité aux deux tailles**, points de rupture, survol, violations CSP. jsdom ne calcule aucun style : 512 tests verts n'en disent **rien** — voir D5 |
+| **B4b**, écran | **Nouveau, 10/08.** L'API de téléchargement répond, **aucun écran n'y mène** : l'avocat ne peut pas récupérer les pièces déposées. Le plus grave de ce qu'a trouvé la passe navigateur |
+| ~~**E2** + passe navigateur~~ | **Passe faite le 10/08** — survol mesuré, CSP à zéro violation, aucun débordement à 375 ni 1440, parcours client rejoué sur mobile. Reste la densité du bouton de dépôt (190×40 contre 156×36) et les cibles tactiles à 18–21 px. Voir `ai-plans/2026-08-10-passe-navigateur-playwright.md` |
 | **D1** | La suite d'intégration du seed, seule case encore ouverte |
 
 ### Ce qui a été coupé, et pourquoi
@@ -152,7 +153,7 @@ L'énoncé impose `infra/` (compose, Prometheus, Grafana, reverse proxy). Les de
 
 Le déplacement n'est pas un `git mv` : compose déduit son **répertoire de projet** du dossier du
 premier `-f`, donc son `.env` et son nom de projet. D'où deux ajouts, documentés dans
-`infra/README.md` :
+`docs/exploitation.md` :
 
 - `--env-file .env` sur chaque appel — le `.env` reste à la racine, où `pnpm dev` le lit aussi ;
 - `name:` explicite dans chaque fichier, sans quoi le projet s'appellerait `infra` et tous les
@@ -440,7 +441,18 @@ paramètre de requête inconnu. Détail dans `ai-plans/2026-08-09-b4-dashboard.m
 
 Dépendances : B2.
 
-### B4b. Téléchargement des pièces déposées — P0 — **fait**
+### B4b. Téléchargement des pièces déposées — P0 — **API faite, écran manquant**
+
+> **Rouvert le 10/08 par la passe navigateur.** Les trois critères ci-dessous portent tous sur
+> l'API, et ils tiennent : la route répond 200 et rend le fichier **octet pour octet identique**
+> (SHA-256 concordant, vérifié à travers nginx). Mais **aucun écran n'y mène** — le détail d'une
+> demande n'a ni bouton, ni lien, ni le mot « télécharger » ; ses seuls boutons sont « Se
+> déconnecter », « Régénérer le lien », « Révoquer l'accès ». Un avocat ne peut donc pas récupérer
+> les pièces de son client, ce qui est la finalité du produit. Cocher l'issue « faite » sur ses
+> critères d'API était exact au niveau technique et faux au niveau du produit — c'est précisément
+> le genre d'écart qu'aucune suite ne voit, les tests e2e appelant la route directement.
+>
+> - [ ] **Une action de téléchargement sur chaque pièce reçue de l'écran de détail**
 
 - [x] L'avocat récupère un fichier déposé — **flux à travers l'API**, `GET
       /requests/:id/items/:itemId/file`, servi en `StreamableFile` sur `getObjectStream`
@@ -727,13 +739,23 @@ variantes par défaut — et non `base` seul. Cela aurait attrapé les trois.
 
 Ce qui reste hors de portée :
 
-- [ ] **L'inversion au survol du bouton primaire** — la signature d'interaction de la charte. Elle
-      est vérifiée à la main (mesuré : `#F7F6FF`, texte violet, contour intérieur, même gabarit
-      153×40 à la même position, donc aucun décalage d'un pixel)
+- [x] **L'inversion au survol du bouton primaire** — la signature d'interaction de la charte.
+      **Mesurée dans un vrai Chromium** le 10/08, plus seulement constatée à l'œil : fond
+      `#5100FF` → `#F7F6FF`, texte `#FFFFFF` → `#5100FF`, contour
+      `#5100FF 0 0 0 1px **inset**` (aucune bordure), boîte du bouton **643.69, 565.14 — 152.63 × 40
+      avant comme pendant**, et surtout **rectangle du libellé identique au centième de pixel**
+      (668.69, 575.14 — 102.63 × 20). C'est cette dernière valeur qui prouve le critère : une
+      bordure au survol l'aurait décalé
 - [ ] Décider du moyen : **Vitest en mode navigateur** (donc un Chromium téléchargé en CI, ce qui
       alourdit D3) ou un test de bout en bout piloté par navigateur, qui couvrirait aussi le
-      parcours à travers nginx — aujourd'hui la seule chose qu'aucun étage de tests ne traverse
-- [ ] Trancher **avant** B5 et C3 : plus il y a d'écrans, plus la vérification à la main coûte
+      parcours à travers nginx — aujourd'hui la seule chose qu'aucun étage de tests ne traverse.
+      **Toujours ouvert** : la passe du 10/08 a démontré que le bout-en-bout navigateur fonctionne
+      contre la pile réelle (parcours complet joué à travers nginx, styles calculés relevés, CSP
+      contrôlée), mais elle a été **jouée, pas versionnée** — donc rien n'est rejouable et la
+      prochaine régression de charte repassera sous une suite verte
+- [~] Trancher **avant** B5 et C3 : plus il y a d'écrans, plus la vérification à la main coûte.
+      **Raté** : les deux issues sont livrées et le moyen n'est toujours pas tranché. Le coût annoncé
+      s'est matérialisé — la passe du 10/08 a dû couvrir six écrans au lieu de deux
 
 Dépendances : D2. Articulation avec D3 : le choix décide du temps de CI.
 
@@ -816,10 +838,22 @@ enfants, donc un bouton y perd son gabarit.
 au même rang que les tests Jest et la pile Prometheus + Grafana. E1 a posé le thème ; E2 est ce qui
 vérifie qu'il tient aux deux tailles. Classée P2 par erreur jusqu'ici, et coupée sur cette erreur.
 
-- [ ] Mêmes espacements et même densité d'information aux deux tailles
-- [ ] Parcours client vérifié sur mobile (c'est le contexte d'usage réel)
+- [~] Mêmes espacements et même densité d'information aux deux tailles — **mesuré à 375 et 1440 px**
+      dans la passe navigateur du 10/08 : hauteurs de composants **identiques** sur les quatre écrans
+      avocat, seul le retrait latéral passe de 24 px à 16 px, **aucun débordement horizontal** et
+      aucun texte tronqué. Une exception, d'où le `~` : le bouton de dépôt du client fait
+      **190 × 40 à 375 px contre 156 × 36 à 1440**. L'écart va dans le bon sens (cible plus grande au
+      doigt) mais contredit littéralement le critère, donc il se tranche plutôt qu'il ne se coche
+- [x] Parcours client vérifié sur mobile (c'est le contexte d'usage réel) — rejoué **entièrement à
+      375 px** dans un contexte navigateur vierge, dépôt réel compris : écran PIN, déverrouillage,
+      dépôt d'un PDF, passage de la pièce à *reçue*
 
-Dépendances : E1.
+Relevé par la même passe, hors critères ci-dessus : **cibles tactiles sous le minimum WCAG 2.2 AA
+(24 × 24 px)** — « Gerer le lien → » à **21 px** de haut sur chaque carte du tableau de bord, et
+« ← Retour au tableau de bord » à **18 px**. Les boutons (40 px) et les champs (42 px) passent l'AA,
+sous les 44 px des guides mobiles.
+
+Dépendances : E1. Compte rendu complet : `ai-plans/2026-08-10-passe-navigateur-playwright.md`.
 
 ---
 

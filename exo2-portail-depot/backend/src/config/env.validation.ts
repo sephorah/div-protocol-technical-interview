@@ -1,16 +1,9 @@
 /**
- * Environment variable validation, run by ConfigModule before a single module
- * is instantiated.
+ * Environment validation, run before a single module is instantiated: a missing
+ * configuration must fail at boot, not as a 500 on the first query.
  *
- * Without this check, a missing database configuration only shows up on the
- * first call that touches the database: a 500 in production, on a route with no
- * apparent link to configuration. Here the application refuses to start and
- * main.ts turns the rejection into a named message plus exit code 1, which
- * `restart: unless-stopped` and `docker compose logs` know how to act on.
- *
- * Absolute rule: never copy a variable's value into an error message.
- * DB_PASSWORD and JWT_SECRET are secrets, and error messages end up in logs,
- * which are themselves aggregated elsewhere.
+ * ABSOLUTE RULE: never copy a variable's value into an error message. Secrets
+ * end up in aggregated logs.
  */
 
 import { buildDatabaseUrl, DatabaseEnv } from './database-url';
@@ -29,13 +22,10 @@ const EXPECTED_URL = 'expected: postgresql://user:password@host:port/database';
 const EXPECTED_ORIGIN = 'expected: https://portail.example.com';
 
 /**
- * PORT, API_PREFIX and BIND_ADDRESS are required and deliberately have NO
- * default value in the code.
- *
- * A `process.env.PORT ?? 3000` made the API listen on 3000 as soon as the
- * variable was missing, i.e. outside the range assigned on the shared machine
- * (21600-21699). A service that starts in the wrong place is harder to diagnose
- * than a service that refuses to start.
+ * Required, with NO default: a `PORT ?? 3000` made the API listen outside the
+ * range assigned on the shared machine as soon as the variable was missing, and
+ * a service that starts in the wrong place is harder to diagnose than one that
+ * refuses to start.
  */
 const REQUIRED_APP_KEYS = ['PORT', 'API_PREFIX', 'BIND_ADDRESS'] as const;
 
@@ -154,27 +144,18 @@ const inspectApp = (
     );
   }
 
-  // BIND_ADDRESS has no default for the same reason as PORT, only worse:
-  // app.listen(port) with no address listens on 0.0.0.0. On the staging
-  // machine, SHARED with other candidates, that would publish the API on every
-  // interface -- the nginx proxy would stop being the only entry point and the
-  // `deny all` rule on the health probe would become bypassable.
-  //
-  // The value legitimately differs by context: 127.0.0.1 on the host, 0.0.0.0
-  // in the container (isolated network namespace, no published port, and nginx
-  // must be able to reach the service over the internal network).
+  // app.listen(port) with no address listens on 0.0.0.0: on a SHARED machine
+  // the proxy would stop being the only entry point, and the `deny all` on the
+  // health probe would become bypassable. 127.0.0.1 on the host, 0.0.0.0 in the
+  // container, where the network is isolated.
   const bindAddress = readString(raw, 'BIND_ADDRESS');
 
   return { PORT: port, API_PREFIX: prefix, BIND_ADDRESS: bindAddress };
 };
 
 /**
- * Checks the lawyer authentication configuration (read by B1) and returns the
- * normalised values.
- *
- * Validated before anything reads them, precisely because that is the failure
- * mode this file cannot otherwise catch: a variable that is set, looks
- * configured, and does nothing.
+ * Validated before anything reads them, because of the failure mode nothing
+ * else catches: a variable that is set, looks configured, and does nothing.
  */
 const inspectAuth = (
   raw: Record<string, unknown>,
@@ -325,12 +306,8 @@ const inspectStorage = (
 };
 
 /**
- * Checks the public origin the client links are built from.
- *
- * Required and without a fallback, for the same reason as BIND_ADDRESS: a
- * silent default would have the lawyer send their clients links pointing at
- * 127.0.0.1. The API would answer 201, the link would simply be unreachable
- * from anywhere but the server itself, and nothing would report it.
+ * Required and without a fallback: a silent default would have the lawyer mail
+ * links pointing at 127.0.0.1, the API answering 201 all the while.
  */
 const inspectPublic = (
   raw: Record<string, unknown>,

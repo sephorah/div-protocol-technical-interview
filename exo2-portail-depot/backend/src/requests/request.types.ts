@@ -20,32 +20,21 @@ export interface RequestedItemView {
 export type FileStatusRow = { status: UploadStatus } | null | undefined;
 
 /**
- * A piece is received when a file hangs off it AND that file is complete.
- *
- * The `status === 'complete'` half arrived with C2: until then nothing could
- * write `failed`, so presence alone was exact. It no longer is -- a rejected
+ * Received = a file hangs off the piece AND that file is complete. A rejected
  * file counted as received would show a request as COMPLETE while a piece is
- * still missing, on the lawyer's dashboard and in the client's own progress.
- *
- * One definition, used by the three read paths (creation, dashboard, client
- * view): written three times, they could drift and each would look right on its
- * own.
+ * still missing. One definition for the three read paths: written three times,
+ * they could drift and each would look right on its own.
  */
 export const isReceived = (file: FileStatusRow): boolean =>
   file?.status === 'complete';
 
 /**
- * The link, IN CLEAR.
+ * The link IN CLEAR, and it exists at exactly two moments: creation and
+ * regeneration. Whatever the lawyer does not copy is lost -- a forgotten PIN is
+ * repaired by REGENERATING, never by displaying it again.
  *
- * This shape exists at exactly two moments -- the creation response and the
- * regeneration response -- because the database only ever holds an argon2id of
- * the PIN and a SHA-256 of the token. Whatever the lawyer does not copy here is
- * lost, and a PIN nobody knows any more is repaired by REGENERATING the link,
- * never by displaying it again.
- *
- * `url` and not `token`: the raw token has no consumer of its own, and the
- * address is what gets copied into an email. One fewer place where a bearer
- * credential travels on its own.
+ * `url` and not `token`: one fewer place where a bearer credential travels
+ * alone.
  */
 export interface IssuedLink {
   url: string;

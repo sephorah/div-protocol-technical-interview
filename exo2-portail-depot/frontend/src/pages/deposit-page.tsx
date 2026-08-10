@@ -49,14 +49,9 @@ const TEXT = {
 }
 
 /**
- * Which link this browser tab has already unlocked.
- *
- * The client session cookie is scoped to /api/v1/public, so it survives a
- * reload -- but it names ONE dossier, and a tab that opened link B must not be
- * shown the dossier of link A because the cookie of A is still there. The token
- * is already in this tab's address bar, so remembering it here exposes nothing
- * new; sessionStorage rather than localStorage keeps it to the tab and to the
- * session.
+ * Which link THIS tab has unlocked: the session cookie names one dossier, so a
+ * tab opening link B must not be shown the dossier of link A. The token is
+ * already in this tab's address bar, so storing it here exposes nothing new.
  */
 const SESSION_KEY = 'portail-depot:token'
 

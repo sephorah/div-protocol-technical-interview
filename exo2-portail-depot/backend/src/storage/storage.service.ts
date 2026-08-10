@@ -20,15 +20,8 @@ import { ConfigService } from '@nestjs/config';
 const DELETE_BATCH_SIZE = 1000;
 
 /**
- * Object storage, behind an S3 interface.
- *
- * Nothing here names MinIO: only the endpoint knows what is at the other end,
- * which is what makes a managed S3 a configuration change rather than a
- * rewrite.
- *
- * No method ever touches the local filesystem. Uploads are streamed straight to
- * the object -- the API disk must never hold a client's document, not even
- * briefly.
+ * Object storage behind an S3 interface. NOTHING here names MinIO -- only the
+ * endpoint knows -- and no method ever touches the local filesystem.
  */
 @Injectable()
 export class StorageService implements OnModuleInit, OnModuleDestroy {
@@ -60,16 +53,10 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Checks that the bucket is there. It never creates it.
-   *
-   * Provisioning belongs to `infra/minio/provision.sh`, run by the `minio-init`
-   * container: creating a bucket is an administrative act, and doing it here
-   * would force this service to hold MinIO's root credentials. Its own are
-   * restricted to this one bucket and carry no `s3:CreateBucket`.
-   *
-   * Failing instead of creating is also what catches a misspelt STORAGE_BUCKET.
-   * A service that created what it could not find would happily write to the
-   * wrong bucket, and everything would appear to work.
+   * Checks, and NEVER creates: provisioning belongs to minio-init, and creating
+   * here would force this service to hold root credentials. Failing is also
+   * what catches a misspelt STORAGE_BUCKET, which would otherwise create a
+   * parallel bucket and appear to work.
    */
   async assertBucketExists(): Promise<void> {
     try {
@@ -94,12 +81,9 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Writes an object from a stream.
-   *
-   * `Upload` rather than `PutObjectCommand`, because the latter requires
-   * ContentLength: the size would have to come from the client's declared
-   * Content-Length header, which is exactly the value that must not be trusted.
-   * Above a threshold `Upload` switches to multipart on its own.
+   * `Upload` and not `PutObjectCommand`: the latter requires ContentLength,
+   * which could only come from the client's declared header -- the one value
+   * that must not be trusted. Do not "simplify" it back.
    */
   async putObject(
     key: string,
@@ -130,16 +114,9 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Deletes ONE object, by its exact key.
-   *
-   * The counterpart of deleteByPrefix, for the one case where the key is still
-   * known: replacing a deposited file. There the row that carried the previous
-   * key is about to be overwritten, so this is the last moment the old object
-   * can be named at all -- afterwards nothing in the database points at it and
-   * it would stay in the bucket forever.
-   *
-   * DeleteObject is idempotent on S3: an already-absent key answers 204, so a
-   * retry after a partial failure is safe.
+   * For the one case where the key is still known: replacing a deposited file,
+   * where the row carrying the old key is about to be overwritten. Idempotent
+   * on S3, so a retry is safe.
    */
   async deleteObject(key: string): Promise<void> {
     if (key.length === 0) {
@@ -152,12 +129,8 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Deletes every object under a prefix.
-   *
-   * By prefix and not by list of keys, because UploadedFile rows cascade with
-   * their DepositRequest: once the SQL delete has run, no query can say which
-   * objects belonged to it, and they would stay orphaned forever. The prefix,
-   * on the other hand, derives from the request id alone.
+   * By prefix and never by list of keys: UploadedFile rows cascade with their
+   * request, so once the SQL delete has run no query can name the objects.
    */
   async deleteByPrefix(prefix: string): Promise<number> {
     if (prefix.length === 0) {

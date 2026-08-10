@@ -63,15 +63,9 @@ const withAccept = (headers: HeadersInit | undefined): Record<string, string> =>
 }
 
 /**
- * The statuses whose body OUR code writes, in French, for the person reading
- * the screen. Everything else keeps our own wording: a 401/404/500 body is
- * Nest's English default ("Unauthorized", "Internal server error"), which would
- * replace a deliberately neutral French message with a technical one.
- *
- * 413 and 415 are the deposit's two refusals (C2, upload.constants.ts) --
- * "Fichier trop volumineux (20 Mo maximum)." and "Format refuse. PDF, JPG ou
- * PNG uniquement." Rewriting them here would be a second copy of a limit the
- * server owns, free to drift the day it changes.
+ * The statuses whose body OUR code writes, in French. Everything else keeps our
+ * wording: a 401/404/500 body is Nest's English default. Rewriting the deposit
+ * limits here would be a second copy of a rule the server owns.
  */
 const QUOTED_STATUSES: readonly number[] = [400, 409, 413, 415]
 

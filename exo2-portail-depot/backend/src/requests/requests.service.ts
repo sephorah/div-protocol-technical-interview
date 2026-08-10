@@ -125,16 +125,11 @@ export class RequestsService {
   }
 
   /**
-   * One page of the lawyer's requests, newest first.
-   *
    * The page and its total go through ONE $transaction: read apart, a creation
-   * landing between them makes `total` describe a table the page does not come
-   * from, and the dashboard says "3 sur 47" over 46 rows.
+   * landing between them makes the dashboard say "3 sur 47" over 46 rows.
    *
-   * The pieces are selected rather than counted: Prisma's _count expresses one
-   * filter per relation, not the two this needs, and B2 bounds a request to 20
-   * pieces -- so a full page reads 400 tiny rows at worst, against the extra
-   * round trip a second query would cost.
+   * The pieces are selected rather than counted -- Prisma's _count expresses
+   * one filter per relation, and this needs two.
    */
   async list(
     lawyerId: string,
@@ -222,23 +217,13 @@ export class RequestsService {
   }
 
   /**
-   * One deposited file, streamed rather than handed over as a pre-signed URL.
+   * Streamed rather than handed over as a pre-signed URL: that would put a
+   * SECOND bearer credential in a URL, hence a second entry in the log
+   * redaction -- the protection here whose failure is silent. See
+   * docs/architecture.md § Le stockage objet.
    *
-   * The pre-signed URL is workable (an nginx location onto MinIO), and it was
-   * weighed and dropped: it puts a second bearer credential in a URL, so a
-   * second entry in infra/nginx/log-redact.conf -- the one protection here
-   * whose failure is silent. Streaming reuses getObjectStream, which
-   * storage.int-spec.ts already drives against a real MinIO under the
-   * restricted policy.
-   *
-   * ONE findFirst carrying the piece, its request and the owner: no branch in
-   * which the ownership check can be forgotten, and a request belonging to
-   * another practice is indistinguishable from one that does not exist.
-   *
-   * `status === 'complete'` is the decision B4b was left to make. A `failed`
-   * file must never be served: C4 will mark one that the antivirus refused, and
-   * serving it anyway would hand the lawyer exactly the file the portal had
-   * just rejected.
+   * ONE findFirst on the piece, its request and the owner: no branch in which
+   * the ownership check can be forgotten. A `failed` file is never served.
    */
   async streamFile(
     requestId: string,

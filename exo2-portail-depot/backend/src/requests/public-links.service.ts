@@ -17,24 +17,14 @@ import { IssuedLink } from './request.types';
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
- * The outcome of presenting a token.
- *
- * A discriminated union rather than a boolean or an exception, because C1 will
- * collapse the three refusals into ONE indistinguishable answer: an anonymous
- * caller must not be able to tell a wrong token from an expired one, or they
- * could enumerate live links. The distinction is kept here because the tests
- * need it, and because G2 (audit log) will record which of the three happened.
- *
- * It must therefore never be serialised as-is by a public route.
+ * A discriminated union, and it must NEVER be serialised as-is by a public
+ * route: the public surface collapses the three refusals into one
+ * indistinguishable answer, or an anonymous caller could enumerate live links.
  */
 /**
- * What a caller gets of the link itself.
- *
- * Narrowed rather than the whole row, and that is the compiler doing the work a
- * comment cannot: handed a full PublicLink, C1 could serialise `pinHash` into a
- * response to an anonymous client -- the material for an offline attack on a
- * 4-digit PIN. `pinHash` is here because verifying the PIN is exactly what C1
- * does with it; `tokenHash` is not, nobody needs it back.
+ * Narrowed rather than the whole row: handed a full PublicLink, a caller could
+ * serialise `pinHash` to an anonymous client -- the material for an offline
+ * attack on a 4-digit PIN.
  */
 export type ResolvedLink = Pick<PublicLink, 'id' | 'pinHash' | 'expiresAt'>;
 
@@ -120,19 +110,13 @@ export class PublicLinksService {
   }
 
   /**
-   * Replaces the active link: new token, NEW PIN, new deadline.
+   * New token, NEW PIN, new deadline. The PIN is redrawn rather than preserved
+   * BECAUSE it is hashed: a kept link could not have its code reprinted, and a
+   * link whose PIN nobody knows is worth nothing. This is the only way back
+   * when the lawyer never saw it.
    *
-   * The PIN is redrawn rather than preserved, and that is the point of the
-   * operation: it is stored as an argon2id hash, so a preserved PIN could not
-   * be reprinted, and a link whose code nobody knows is worth nothing.
-   *
-   * The case to have in mind is not the client losing the PIN, it is the LAWYER
-   * never seeing it: it appears once, in the creation response. A closed tab or
-   * a response lost after the write leaves a valid request whose code exists
-   * nowhere. This is the only way back.
-   *
-   * Extending an existing link is deliberately NOT offered: it would lengthen
-   * the life of a token already sent by email, beyond any control.
+   * Extending an existing link is deliberately not offered: it would lengthen
+   * the life of a token already sent by email.
    */
   async regenerate(
     requestId: string,
