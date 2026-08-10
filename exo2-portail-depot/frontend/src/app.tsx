@@ -1,7 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { RequireSession } from './auth/require-session'
 import { SessionProvider } from './auth/session-provider'
-import { DashboardPlaceholder } from './pages/dashboard-placeholder'
+import { DashboardPage } from './pages/dashboard-page'
 import { LoginPage } from './pages/login-page'
 
 export const App = () => (
@@ -14,7 +14,7 @@ export const App = () => (
           path="/dashboard"
           element={
             <RequireSession>
-              <DashboardPlaceholder />
+              <DashboardPage />
             </RequireSession>
           }
         />
