@@ -4,6 +4,7 @@ import { SessionProvider } from './auth/session-provider'
 import { DashboardPage } from './pages/dashboard-page'
 import { LoginPage } from './pages/login-page'
 import { NewRequestPage } from './pages/new-request-page'
+import { RequestDetailPage } from './pages/request-detail-page'
 
 export const App = () => (
   <BrowserRouter>
@@ -27,6 +28,14 @@ export const App = () => (
           element={
             <RequireSession>
               <NewRequestPage />
+            </RequireSession>
+          }
+        />
+        <Route
+          path="/requests/:id"
+          element={
+            <RequireSession>
+              <RequestDetailPage />
             </RequireSession>
           }
         />
