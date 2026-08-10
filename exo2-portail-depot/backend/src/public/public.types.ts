@@ -19,3 +19,17 @@ export interface PublicRequestView {
   expiresAt: Date;
   items: PublicItemView[];
 }
+
+/**
+ * The receipt for one deposited file. `itemId` is echoed back so the SPA can
+ * tick the right line without reloading the whole checklist; `storageKey` is
+ * deliberately absent -- it names an object the client must never address
+ * directly.
+ */
+export interface DepositedFileView {
+  itemId: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  receivedAt: Date;
+}

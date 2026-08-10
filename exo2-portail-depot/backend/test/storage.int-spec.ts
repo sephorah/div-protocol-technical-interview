@@ -244,6 +244,24 @@ describe('StorageService (integration, real MinIO)', () => {
     });
   });
 
+  describe('deleteObject', () => {
+    it('erases the replaced object under the restricted policy', async () => {
+      // The path C2 takes when a client re-deposits a piece. Its failure is
+      // SILENT in production -- the deposit answers 201 and the orphan is only
+      // a log line -- so a policy missing s3:DeleteObject has to fail here.
+      const key = `requests/${randomUUID()}/items/i1/premier.pdf`;
+      await service.putObject(
+        key,
+        Readable.from([Buffer.from('%PDF-1.7')]),
+        'application/pdf',
+      );
+
+      await service.deleteObject(key);
+
+      await expect(service.getObjectStream(key)).rejects.toThrow();
+    });
+  });
+
   describe('deleteByPrefix', () => {
     it("erases one request's files and leaves another request's alone", async () => {
       // The regression this guards against -- a prefix that matches too much --
