@@ -439,6 +439,9 @@ example_origin="$(grep -E '^PUBLIC_BASE_URL=' .env.example | head -n 1 | cut -d=
 set_env_default PUBLIC_BASE_URL "$DEFAULT_PUBLIC_BASE_URL"
 set_env_default DB_PASSWORD "$(random_hex 32)"
 set_env_default JWT_SECRET "$(random_hex 32)"
+# Tire separement, jamais recopie depuis JWT_SECRET : validateEnv refuse les
+# deux valeurs egales, et c'est ce qui rend la frontiere cryptographique.
+set_env_default CLIENT_JWT_SECRET "$(random_hex 32)"
 # Deux paires distinctes, et c'est tout l'objet du decoupage : MINIO_ROOT_*
 # administre le serveur (bucket, policy, utilisateur) et n'est passe qu'a minio
 # et minio-init ; STORAGE_* est l'utilisateur applicatif restreint, le seul a

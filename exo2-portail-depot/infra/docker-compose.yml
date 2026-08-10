@@ -170,6 +170,8 @@ services:
       # etaient documentees et generees par install.sh, mais n'atteignaient pas
       # le conteneur — l'oubli ne se serait vu qu'a la premiere connexion.
       JWT_SECRET: ${JWT_SECRET:?definir JWT_SECRET dans .env}
+      # Cle de la session client anonyme (C1), distincte de la precedente.
+      CLIENT_JWT_SECRET: ${CLIENT_JWT_SECRET:?definir CLIENT_JWT_SECRET dans .env}
       JWT_EXPIRES: ${JWT_EXPIRES:?definir JWT_EXPIRES dans .env}
       # Duree de la session et inactivite toleree. La seconde doit rester
       # inferieure a la premiere, sinon elle ne s'applique jamais : l'API le
