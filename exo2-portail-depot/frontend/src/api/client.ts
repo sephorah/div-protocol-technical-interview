@@ -54,6 +54,33 @@ const withAccept = (headers: HeadersInit | undefined): Record<string, string> =>
   return Object.fromEntries(merged.entries())
 }
 
+/**
+ * What the API said about a refused body, or null when it said nothing usable.
+ *
+ * class-validator answers `message` as a string OR an array of strings, one per
+ * broken rule; rendering the array raw prints "a,b", so it is joined. Every
+ * other status keeps our own wording: a 401/404/500 body is Nest's English
+ * default ("Unauthorized", "Internal server error"), which would replace a
+ * deliberately neutral French message with a technical one.
+ */
+const validationMessage = async (response: Response): Promise<string | null> => {
+  if (!(response.headers.get('content-type') ?? '').includes('json')) return null
+  try {
+    const body: unknown = await response.json()
+    if (typeof body !== 'object' || body === null) return null
+    const { message } = body as { message?: unknown }
+    if (typeof message === 'string' && message !== '') return message
+    if (Array.isArray(message)) {
+      const lines = message.filter((entry): entry is string => typeof entry === 'string')
+      if (lines.length > 0) return lines.join(' ')
+    }
+    return null
+  } catch {
+    // A body announced as JSON that does not parse is not a message.
+    return null
+  }
+}
+
 const send = async (path: string, init: RequestInit): Promise<Response> => {
   try {
     return await fetch(`${API_PREFIX}${path}`, {
@@ -97,7 +124,12 @@ export const apiRequest = async <T>(path: string, init: RequestInit = {}): Promi
 
   if (!response.ok) {
     const kind = kindForStatus(response.status)
-    throw new ApiError(kind, messageForKind(kind))
+    // Only a 400 is quoted, and the reading happens here because this is the
+    // last place that still holds the response. A screen showing "Une erreur
+    // est survenue" over "Deux pieces portent le meme libelle" would hide the
+    // one sentence that says what to change.
+    const quoted = kind === 'badRequest' ? await validationMessage(response) : null
+    throw new ApiError(kind, quoted ?? messageForKind(kind))
   }
 
   return parse<T>(response)

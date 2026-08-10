@@ -3,6 +3,7 @@ import { RequireSession } from './auth/require-session'
 import { SessionProvider } from './auth/session-provider'
 import { DashboardPage } from './pages/dashboard-page'
 import { LoginPage } from './pages/login-page'
+import { NewRequestPage } from './pages/new-request-page'
 
 export const App = () => (
   <BrowserRouter>
@@ -15,6 +16,17 @@ export const App = () => (
           element={
             <RequireSession>
               <DashboardPage />
+            </RequireSession>
+          }
+        />
+        {/* Declared BEFORE /requests/:id, which arrives with the detail
+            screen: read as an identifier, "new" would make the creation
+            screen unreachable. */}
+        <Route
+          path="/requests/new"
+          element={
+            <RequireSession>
+              <NewRequestPage />
             </RequireSession>
           }
         />
