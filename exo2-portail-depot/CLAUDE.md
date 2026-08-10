@@ -825,9 +825,11 @@ Six things are non-obvious:
   only exists to migrate rows written before it. The **seed realigns** pre-existing items, which the
   migration cannot: it is the only thing that knows the demonstration order.
 - **`deriveStatus(input, now)` takes the clock as an argument.** Expiry tests then need no frozen
-  clock, and B4 will classify a whole list against a single instant. Expiry wins over completeness
-  (A2's rule), and the comparison is **strict** — at the exact expiry instant the link still works.
-  A test covers that boundary and another covers the order of the two branches.
+  clock, and B4 will classify a whole list against a single instant. **Completeness wins over
+  expiry** — a finished case must not read as an abandoned one — and the comparison is **strict**:
+  at the exact expiry instant the link still works. A test covers that boundary and another covers
+  the order of the two branches. The status describes the case, the link describes the access:
+  `PublicLinksService.resolve` still closes an expired link even on a complete request.
 - **`lawyerId` is read from `request.lawyer`, never from the body.** A body naming one answers 400
   through `forbidNonWhitelisted`, and an e2e case asserts it. The controller carries no `@UseGuards`
   and must never carry `@Public()`: the global guard is what closes it, and the 401 test is what
@@ -1046,8 +1048,8 @@ Five entities: `Lawyer` → `DepositRequest` → (`RequestedItem` → `UploadedF
 Four things are counter-intuitive and expensive to relearn:
 
 - **Status is not a column.** `expired` depends on the wall clock, so a stored column would be
-  wrong between the expiry instant and whatever job flips it. It is derived: `now > expiresAt` →
-  expired, else every item received → complete, else pending. Same for "number of expected items",
+  wrong between the expiry instant and whatever job flips it. It is derived: every item received →
+  complete, else `now > expiresAt` → expired, else pending. Same for "number of expected items",
   which is `count(RequestedItem)`. Do not "optimise" either into a column.
 - **`PublicLink` is a table, not three columns on the request.** Regenerating means revoke +
   insert, so an old PIN cannot survive a regeneration. That invariant rests on a **partial unique

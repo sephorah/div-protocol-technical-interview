@@ -70,12 +70,21 @@ describe('deriveStatus', () => {
     ).toBe(RequestStatus.Complete);
   });
 
-  // Expiry wins, as recorded in A2. Whoever inverts the two branches breaks
-  // this test rather than the lawyer's dashboard.
-  it('reports expired rather than complete once the deadline has passed', () => {
+  // A finished case must not read as an abandoned one: everything arrived, so
+  // the deadline passing changes nothing the lawyer needs to act on.
+  it('stays complete once every piece is in, even past the deadline', () => {
     expect(
       deriveStatus(
         { expiresAt: EXPIRY, expectedCount: 3, receivedCount: 3 },
+        after,
+      ),
+    ).toBe(RequestStatus.Complete);
+  });
+
+  it('still reports expired when a piece is missing at the deadline', () => {
+    expect(
+      deriveStatus(
+        { expiresAt: EXPIRY, expectedCount: 3, receivedCount: 2 },
         after,
       ),
     ).toBe(RequestStatus.Expired);

@@ -33,14 +33,15 @@ export const isExpired = (expiresAt: Date, now: Date): boolean =>
  * against a single instant instead of twenty slightly different ones.
  */
 export const deriveStatus = (input: StatusInput, now: Date): RequestStatus => {
-  if (isExpired(input.expiresAt, now)) {
-    return RequestStatus.Expired;
-  }
-
-  // The count guard is not decoration: without it a request expecting nothing
-  // would report "complete" the moment it is created.
+  // Completeness is checked first: a request whose pieces all arrived is done,
+  // and the deadline passing afterwards does not undo the work. The count guard
+  // stops "nothing expected" from reading as "everything received".
   if (input.expectedCount > 0 && input.receivedCount >= input.expectedCount) {
     return RequestStatus.Complete;
+  }
+
+  if (isExpired(input.expiresAt, now)) {
+    return RequestStatus.Expired;
   }
 
   return RequestStatus.Pending;
