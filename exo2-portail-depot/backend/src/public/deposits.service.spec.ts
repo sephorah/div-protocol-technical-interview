@@ -4,6 +4,7 @@ import {
   NotFoundException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
+import { MetricsService } from '../metrics/metrics.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { DepositsService, IncomingFile } from './deposits.service';
@@ -34,6 +35,7 @@ describe('DepositsService', () => {
     uploadedFile: { upsert: jest.Mock };
   };
   let storage: { putObject: jest.Mock; deleteObject: jest.Mock };
+  let metrics: { recordDeposit: jest.Mock; observeUploadBytes: jest.Mock };
   let service: DepositsService;
 
   const storedRow = {
@@ -58,9 +60,11 @@ describe('DepositsService', () => {
       putObject: jest.fn().mockResolvedValue(undefined),
       deleteObject: jest.fn().mockResolvedValue(undefined),
     };
+    metrics = { recordDeposit: jest.fn(), observeUploadBytes: jest.fn() };
     service = new DepositsService(
       prisma as unknown as PrismaService,
       storage as unknown as StorageService,
+      metrics as unknown as MetricsService,
     );
   });
 
@@ -305,5 +309,59 @@ describe('DepositsService', () => {
 
     const writtenKey = firstCall(storage.putObject)[0] as string;
     expect(storage.deleteObject).toHaveBeenCalledWith(writtenKey);
+  });
+
+  /**
+   * What this block protects: a counter that stops moving fails silently --
+   * Grafana keeps drawing a flat line, which reads as "no deposit" and not as
+   * "the call was dropped in a refactor".
+   */
+  describe('the counters', () => {
+    it('counts a stored file once, with its size', async () => {
+      withItem(null);
+
+      await service.deposit(REQUEST_ID, ITEM_ID, PDF);
+
+      expect(metrics.recordDeposit).toHaveBeenCalledTimes(1);
+      expect(metrics.recordDeposit).toHaveBeenCalledWith('success');
+      expect(metrics.observeUploadBytes).toHaveBeenCalledWith(
+        PDF.buffer.length,
+      );
+    });
+
+    it('counts a format refusal apart from an error', async () => {
+      // The two are the same 4xx-vs-5xx story to a client but not to an
+      // operator: a spike of rejected_type is a product problem (clients do not
+      // understand the allowlist), a spike of error is an incident.
+      withItem(null);
+
+      await expect(
+        service.deposit(REQUEST_ID, ITEM_ID, {
+          originalName: 'contrat.pdf',
+          buffer: Buffer.from([0x4d, 0x5a, 0x90, 0x00]),
+        }),
+      ).rejects.toBeInstanceOf(UnsupportedMediaTypeException);
+
+      expect(metrics.recordDeposit).toHaveBeenCalledWith('rejected_type');
+      expect(metrics.observeUploadBytes).not.toHaveBeenCalled();
+    });
+
+    it('counts the loser of a race, and every other failure, as an error', async () => {
+      withItem(null);
+      prisma.uploadedFile.upsert.mockRejectedValue(
+        Object.assign(new Error('unique'), { code: 'P2002' }),
+      );
+
+      await expect(
+        service.deposit(REQUEST_ID, ITEM_ID, PDF),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      prisma.requestedItem.findFirst.mockResolvedValue(null);
+      await expect(
+        service.deposit(REQUEST_ID, ITEM_ID, PDF),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(metrics.recordDeposit.mock.calls).toEqual([['error'], ['error']]);
+    });
   });
 });

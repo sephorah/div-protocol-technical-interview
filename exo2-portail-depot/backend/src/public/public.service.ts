@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { hashSecret, verifySecret } from '../crypto/secrets';
+import { MetricsService } from '../metrics/metrics.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PublicLinksService } from '../requests/public-links.service';
 import { isReceived } from '../requests/request.types';
@@ -40,6 +41,8 @@ export class PublicService implements OnModuleInit {
   constructor(
     private readonly links: PublicLinksService,
     private readonly prisma: PrismaService,
+    // MetricsModule is @Global, so no import is added to PublicModule.
+    private readonly metrics: MetricsService,
   ) {}
 
   // Nest awaits this before the first request, so no unlock sees an empty decoy.
@@ -56,18 +59,39 @@ export class PublicService implements OnModuleInit {
   async unlock(token: string, pin: string, now: Date): Promise<UnlockResult> {
     const resolution = await this.links.resolve(token, now);
 
+    // The only place the four refusals are allowed to differ, and it goes to a
+    // counter rather than to the caller: a client arriving after the deadline
+    // is a product signal, not an incident.
+    if (resolution.outcome === 'expired') {
+      this.metrics.recordExpiredLinkHit();
+    }
+
     const hash =
       resolution.outcome === 'ok' ? resolution.link.pinHash : this.decoyHash;
     const pinMatches = await verifySecret(pin, hash);
 
     if (resolution.outcome !== 'ok' || !pinMatches) {
+      // Every cause increments the SAME label: the brute-force alert counts
+      // failures, and an attacker walking the 10 000 PINs of a revoked or
+      // expired link would be invisible if only the wrong-PIN branch counted.
+      this.metrics.recordUnlock('failure');
       throw refuseAccess();
     }
 
-    return {
-      linkId: resolution.link.id,
-      view: await this.viewOf(resolution.request.id, resolution.link.expiresAt),
-    };
+    try {
+      const view = await this.viewOf(
+        resolution.request.id,
+        resolution.link.expiresAt,
+      );
+      this.metrics.recordUnlock('success');
+      return { linkId: resolution.link.id, view };
+    } catch (error) {
+      // viewOf's own refusal is a corruption path (see its comment), but it is
+      // still a 401 handed to a client; counted here so success + failure
+      // always equals the number of answers the route gave.
+      this.metrics.recordUnlock('failure');
+      throw error;
+    }
   }
 
   /**

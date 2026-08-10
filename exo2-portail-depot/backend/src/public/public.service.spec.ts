@@ -9,6 +9,7 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import * as secrets from '../crypto/secrets';
+import { MetricsService } from '../metrics/metrics.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   LinkResolution,
@@ -26,6 +27,7 @@ describe('PublicService', () => {
   let service: PublicService;
   let links: { resolve: jest.Mock };
   let prisma: { depositRequest: { findUnique: jest.Mock } };
+  let metrics: { recordUnlock: jest.Mock; recordExpiredLinkHit: jest.Mock };
   let okResolution: LinkResolution;
 
   beforeAll(async () => {
@@ -59,11 +61,14 @@ describe('PublicService', () => {
       },
     };
 
+    metrics = { recordUnlock: jest.fn(), recordExpiredLinkHit: jest.fn() };
+
     const moduleRef = await Test.createTestingModule({
       providers: [
         PublicService,
         { provide: PublicLinksService, useValue: links },
         { provide: PrismaService, useValue: prisma },
+        { provide: MetricsService, useValue: metrics },
       ],
     }).compile();
 
@@ -152,5 +157,74 @@ describe('PublicService', () => {
         'items',
       ]);
     });
+  });
+
+  /**
+   * What this block protects: the brute-force alert reads
+   * portail_unlock_attempts_total{outcome="failure"}, and it is the ONLY thing
+   * standing in for the rate limiting of G1. A refusal that forgets to count
+   * itself makes an attacker walking the 10 000 PINs of a revoked link
+   * invisible, while the dashboard stays green.
+   */
+  describe('the counters', () => {
+    const refusals: LinkResolution[] = [
+      { outcome: 'unknown' },
+      { outcome: 'revoked' },
+      { outcome: 'expired' },
+    ];
+
+    it.each(refusals)('counts %o as a failed unlock', async (resolution) => {
+      links.resolve.mockResolvedValue(resolution);
+
+      await expect(service.unlock('token', PIN, new Date())).rejects.toThrow(
+        UnauthorizedException,
+      );
+
+      expect(metrics.recordUnlock.mock.calls).toEqual([['failure']]);
+    });
+
+    it('counts a wrong pin on a valid link as a failed unlock', async () => {
+      links.resolve.mockResolvedValue(okResolution);
+
+      await expect(service.unlock('token', '9999', new Date())).rejects.toThrow(
+        UnauthorizedException,
+      );
+
+      expect(metrics.recordUnlock.mock.calls).toEqual([['failure']]);
+    });
+
+    it('counts a successful unlock once', async () => {
+      links.resolve.mockResolvedValue(okResolution);
+
+      await service.unlock('token', PIN, new Date());
+
+      expect(metrics.recordUnlock.mock.calls).toEqual([['success']]);
+    });
+
+    it('counts an expired link separately from the other refusals', async () => {
+      // The only place the four causes are allowed to differ. It must stay
+      // behind the one indistinguishable answer -- the test above asserts the
+      // same 401 for all three.
+      links.resolve.mockResolvedValue({ outcome: 'expired' });
+
+      await expect(service.unlock('token', PIN, new Date())).rejects.toThrow(
+        UnauthorizedException,
+      );
+
+      expect(metrics.recordExpiredLinkHit).toHaveBeenCalledTimes(1);
+    });
+
+    it.each<LinkResolution>([{ outcome: 'unknown' }, { outcome: 'revoked' }])(
+      'does not count %o as an expired-link hit',
+      async (resolution) => {
+        links.resolve.mockResolvedValue(resolution);
+
+        await expect(service.unlock('token', PIN, new Date())).rejects.toThrow(
+          UnauthorizedException,
+        );
+
+        expect(metrics.recordExpiredLinkHit).not.toHaveBeenCalled();
+      },
+    );
   });
 });

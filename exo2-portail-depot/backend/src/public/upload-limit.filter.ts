@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { MulterError } from 'multer';
+import { MetricsService } from '../metrics/metrics.service';
 import { FILE_TOO_LARGE } from './upload.constants';
 
 const MULTIPART_INVALID = 'Envoi multipart invalide.';
@@ -27,6 +28,11 @@ const MULTIPART_INVALID = 'Envoi multipart invalide.';
  */
 @Catch(PayloadTooLargeException, MulterError)
 export class UploadLimitFilter implements ExceptionFilter {
+  // @UseFilters is given the CLASS, not an instance, which is what lets Nest
+  // resolve this through the container. Passing `new UploadLimitFilter()` there
+  // would compile and silently leave the counter unincremented.
+  constructor(private readonly metrics: MetricsService) {}
+
   catch(
     exception: PayloadTooLargeException | MulterError,
     host: ArgumentsHost,
@@ -42,6 +48,10 @@ export class UploadLimitFilter implements ExceptionFilter {
     const status = tooLarge
       ? HttpStatus.PAYLOAD_TOO_LARGE
       : HttpStatus.BAD_REQUEST;
+
+    // The deposit never reached DepositsService, so this is the only place the
+    // attempt can be counted at all.
+    this.metrics.recordDeposit(tooLarge ? 'rejected_size' : 'error');
 
     response.status(status).json({
       message: tooLarge ? FILE_TOO_LARGE : MULTIPART_INVALID,

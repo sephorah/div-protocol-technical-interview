@@ -7,6 +7,7 @@ import {
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { buildStorageKey } from '../crypto/secrets';
+import { MetricsService } from '../metrics/metrics.service';
 import { isUniqueViolation } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
@@ -45,7 +46,39 @@ export class DepositsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    // MetricsModule is @Global, so no import is added to PublicModule.
+    private readonly metrics: MetricsService,
   ) {}
+
+  /**
+   * The one accounting point of the deposit route.
+   *
+   * Wrapping rather than five scattered calls: a branch added to `store` later
+   * is counted without anyone remembering to, and `rejected_size` is
+   * deliberately absent here -- multer refuses an oversized file before this
+   * service is ever reached, so UploadLimitFilter is what counts it.
+   */
+  async deposit(
+    requestId: string,
+    itemId: string,
+    file: IncomingFile,
+  ): Promise<DepositedFileView> {
+    try {
+      const view = await this.store(requestId, itemId, file);
+      this.metrics.recordDeposit('success');
+      // Only accepted files are measured: a refused one says nothing about
+      // what the bucket has to hold.
+      this.metrics.observeUploadBytes(view.sizeBytes);
+      return view;
+    } catch (error) {
+      this.metrics.recordDeposit(
+        error instanceof UnsupportedMediaTypeException
+          ? 'rejected_type'
+          : 'error',
+      );
+      throw error;
+    }
+  }
 
   /**
    * Stores one file against one expected piece.
@@ -59,7 +92,7 @@ export class DepositsService {
    *   putObject that fails would leave the piece with no file at all when it
    *   had one -- a client correcting a document would lose the first.
    */
-  async deposit(
+  private async store(
     requestId: string,
     itemId: string,
     file: IncomingFile,
