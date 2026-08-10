@@ -4,6 +4,7 @@ import { buttonRecipe } from './recipes/button'
 import { cardRecipe } from './recipes/card'
 import { fieldRecipe, inputRecipe } from './recipes/field'
 import { headingRecipe } from './recipes/heading'
+import { pinDigitRecipe } from './recipes/pin-digit'
 import { semanticTokens } from './semantic-tokens'
 import { textStyles } from './text-styles'
 import { tokens } from './tokens'
@@ -29,6 +30,7 @@ const config = defineConfig({
       button: buttonRecipe,
       heading: headingRecipe,
       input: inputRecipe,
+      pinDigit: pinDigitRecipe,
     },
     slotRecipes: { card: cardRecipe, field: fieldRecipe },
   },

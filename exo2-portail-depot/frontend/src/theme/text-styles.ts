@@ -14,4 +14,13 @@ export const textStyles = defineTextStyles({
       textTransform: 'uppercase',
     },
   },
+  // The generated link, as the kit draws it: monospace, truncated, selectable.
+  codeLink: {
+    value: {
+      fontFamily: 'mono',
+      fontSize: '13px',
+      lineHeight: '1.4',
+      letterSpacing: '0',
+    },
+  },
 })
