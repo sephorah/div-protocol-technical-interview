@@ -1,86 +1,53 @@
 #!/usr/bin/env bash
 # Point d'entree du projet, prevu pour une machine vierge.
 #
-#   ./install.sh                monte toute la stack et affiche les URLs
+#   ./install.sh                tire les images, monte la stack, affiche les URLs
 #   ./install.sh --from-source  construit les images au lieu de les tirer
 #
-# HTTPS (A7) ne s'active PAS par un drapeau mais par `DOMAIN` dans .env : la
-# configuration d'une machine appartient au fichier qui decrit cette machine,
-# pas a un argument qu'il faudrait se rappeler a chaque redeploiement — et un
-# oubli ferait retomber le portail en clair sans rien signaler. Vide, ce qui
-# est le cas chez l'evaluateur, rien de tout cela ne se produit.
+# CONTRAT : quand ce script rend la main sans erreur, le portail REPOND — pas
+# « les conteneurs sont lances ». Rien a taper ensuite, rien a lire dans le
+# README pour y arriver. HTTPS s'active par `DOMAIN` dans .env, jamais par un
+# drapeau. Le raisonnement complet est dans docs/exploitation.md.
 #
-# Contrat : quand ce script rend la main sans erreur, l'application repond.
-# Pas « les conteneurs sont lances » — le portail repond. Il n'y a aucune
-# commande a taper ensuite, et rien a lire dans le README pour y arriver.
+# Il ne teste JAMAIS l'existence de backend/ ou frontend/ : la machine de
+# staging n'a que infra/, .env.example et ce fichier.
 #
-# Le developpement au quotidien, lui, n'utilise pas ce script : c'est
-# `pnpm db:up && pnpm dev`, qui suppose Node et pnpm deja installes.
-#
-# Depuis A6, le cas nominal ne construit RIEN : les images sont tirees de GHCR,
-# ou le workflow les publie. Ce script tourne donc aussi bien sur un checkout
-# complet que sur la machine de staging, qui n'a que infra/, .env.example et ce
-# fichier — d'ou l'absence deliberee de tout controle sur backend/ ou frontend/.
-#
-# pipefail : un pipe echoue si n'importe quel maillon echoue, pas seulement le dernier.
+# pipefail : un pipe echoue si n'importe quel maillon echoue.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
 HTTP_PORT=21600           # port attribue, cible du proxy de la machine
 HTTPS_PORT=21601          # idem, cible du passthrough TLS (A7, si DOMAIN)
-# Origine par defaut des liens client. Nommee ici parce que deux endroits la
-# comparent : le set_env_default qui la pose, et la branche TLS qui ne la
-# remplace QUE si elle est encore celle-ci.
-#
-# Elle doit rester identique CARACTERE POUR CARACTERE a la valeur de
-# PUBLIC_BASE_URL dans .env.example : si les deux divergent, la comparaison de
-# la branche TLS ne matche plus jamais, le realignement cesse silencieusement
-# de se produire, et une machine en production compose des liens vers
-# 127.0.0.1 pendant que l'API repond 201. Le test ci-dessous echoue plutot que
-# de laisser passer.
+# Doit rester identique CARACTERE POUR CARACTERE a PUBLIC_BASE_URL dans
+# .env.example : divergentes, la branche TLS ne matche plus jamais, le
+# realignement cesse en silence et la production compose des liens vers
+# 127.0.0.1 pendant que l'API repond 201.
 DEFAULT_PUBLIC_BASE_URL="http://127.0.0.1:$HTTP_PORT"
 HEALTH_TIMEOUT=300        # secondes d'attente maximale des healthchecks
-# minio-init en est deliberement ABSENT : la boucle d'attente plus bas n'accepte
-# que healthy|running, or ce conteneur provisionne puis sort en 0. L'y ajouter
-# ferait patienter le script jusqu'au HEALTH_TIMEOUT sur un conteneur qui a
-# parfaitement fait son travail. L'attente sur backend le couvre deja, puisque
-# le backend en depend (service_completed_successfully).
-#
-# prometheus et grafana en font partie : le contrat du script est « sortie 0
-# veut dire que le portail repond », et /grafana/ est une de ses adresses. Sans
-# eux, le script rendait la main pendant que Grafana appliquait encore son
-# provisionnement, et la premiere visite tombait sur un 502.
+# minio-init en est deliberement ABSENT : la boucle n'accepte que
+# healthy|running, or ce conteneur provisionne puis sort en 0 — l'y ajouter
+# ferait attendre HEALTH_TIMEOUT entier. prometheus et grafana en font partie :
+# /grafana/ est une des adresses que la banniere annonce.
 SERVICES="db minio backend frontend proxy prometheus grafana"
 
 # Toutes les commandes docker passent par $DOCKER : selon la machine, ce sera
 # `docker` ou `sudo docker` (voir la cascade d'installation plus bas).
 DOCKER="docker"
 
-# Et toutes les commandes compose par `$DOCKER compose $COMPOSE`. Les deux
-# drapeaux sont indissociables du deplacement des fichiers sous infra/ :
-# compose deduit son repertoire de projet du dossier du premier `-f`, donc il
-# chercherait infra/.env, qui n'existe pas — le .env vit a la racine, ou
-# `pnpm dev` le lit aussi. Le `cd` ci-dessus rend ces deux chemins relatifs
-# valides quel que soit le repertoire d'ou le script est appele.
+# Et toutes les commandes compose par `$DOCKER compose $COMPOSE` : en oublier
+# une n'est pas une erreur de syntaxe, cet appel viserait un AUTRE projet.
 COMPOSE="-f infra/docker-compose.yml --env-file .env"
 
-# Calque de construction locale, ajoute a la SEULE commande `build` de
-# --from-source. Tout le reste — pull, up, ps, logs, exec, la banniere — reste
-# sur le compose de production seul : ce qui demarre est alors exactement le
-# fichier qui tournera sur la machine de staging, images locales comprises
-# (docker ne retelecharge pas ce qu'il a deja). Le fichier de base reste
-# PREMIER, c'est lui qui fixe le repertoire de projet.
+# Ajoute a la SEULE commande `build` : ce qui demarre ensuite est le compose de
+# production seul. Le fichier de base reste PREMIER, c'est lui qui fixe le
+# repertoire de projet.
 COMPOSE_BUILD="$COMPOSE -f infra/docker-compose.build.yml"
 
-# Calque TLS (A7), ajoute plus bas si DOMAIN est renseigne. Le fichier de base
-# reste PREMIER pour la meme raison que ci-dessus. Une fois le certificat
-# obtenu, $COMPOSE devient $COMPOSE_TLS : tout ce qui suit — up, ps, logs, la
-# banniere — parle alors de la pile reellement demarree.
-# Ecrit en entier plutot que derive de $COMPOSE : le calque doit venir juste
-# apres le fichier de base, et non apres `--env-file`, parce que cette chaine
-# finit telle quelle dans la banniere et dans les messages d'erreur, ou un
-# `-f` egare derriere l'option se recopie mal.
+# Ajoute si DOMAIN est renseigne ; $COMPOSE devient alors ceci, pour que la
+# banniere parle de la pile reellement demarree. Ecrit en entier plutot que
+# derive : le calque doit venir juste apres le fichier de base, pas apres
+# `--env-file`, cette chaine etant recopiee telle quelle dans la banniere.
 COMPOSE_TLS="-f infra/docker-compose.yml -f infra/docker-compose.tls.yml --env-file .env"
 
 die() { printf '\nErreur : %s\n' "$*" >&2; exit 1; }
@@ -106,9 +73,7 @@ case "${1:-}" in
   *)             die "argument inconnu : $1 (attendu : --from-source, --help, ou aucun)." ;;
 esac
 
-# --------------------------------------------------------------------------
-# Docker
-# --------------------------------------------------------------------------
+# === Docker ===
 # On ne sait pas ce qu'il y a sur la machine de test, ni si l'utilisateur a les
 # droits. Le script descend donc une cascade et ne s'arrete qu'apres l'avoir
 # epuisee : docker deja utilisable -> installation privilegiee -> installation
@@ -145,16 +110,12 @@ detect_package_manager() {
   return 1
 }
 
-# Installe curl. $1 est le prefixe de privilege ("" ou "sudo").
+# $1 est le prefixe de privilege ("" ou "sudo").
 #
-# `apt-get update` avant l'installation est OBLIGATOIRE et c'est le piege de
-# cette fonction : sur une ubuntu:24.04 nue, les listes de paquets sont vides et
-# `apt-get install -y curl` repond « Unable to locate package curl » — un
-# message qui accuse le paquet alors que c'est l'index qui manque.
-#
-# ca-certificates est demande explicitement : le premier usage de curl est un
-# https:// vers get.docker.com. Sur Debian/Ubuntu il arrive en dependance, mais
-# sur une image minimale son absence donne une erreur TLS qui n'evoque rien.
+# `apt-get update` est OBLIGATOIRE : sur une ubuntu:24.04 nue les listes sont
+# vides et l'installation repond « Unable to locate package curl », en accusant
+# le paquet quand c'est l'index qui manque. ca-certificates est explicite parce
+# que le premier usage de curl est un https:// vers get.docker.com.
 install_curl_with() {
   local sudo_cmd="$1" pm="$2"
   case "$pm" in
@@ -169,15 +130,9 @@ install_curl_with() {
   esac
 }
 
-# Une marche de plus dans la cascade, et la meme philosophie qu'elle : on ne
-# meurt qu'apres avoir epuise les options.
-#
-# Le script exigeait curl et mourait sinon en demandant `apt install curl`. Or
-# ubuntu:24.04 n'a ni curl ni wget : le correcteur devait taper une commande,
-# exactement ce que le contrat de ce script exclut. Les mesures « machine
-# vierge » ne l'avaient jamais vu parce que le harnais de test installait curl
-# AVANT de lancer le script — il validait donc une machine moins vierge que
-# celle qu'il pretendait simuler.
+# Une marche de plus dans la cascade : on ne meurt qu'apres avoir epuise les
+# options. ubuntu:24.04 n'a ni curl ni wget, et sans cette fonction le
+# one-click demandait au correcteur de taper une commande.
 ensure_fetcher() {
   # wget suffit : on n'installe pas curl par principe quand la machine a deja
   # de quoi telecharger.
@@ -331,18 +286,13 @@ else
   info "Docker installe et operationnel."
 fi
 
-# --------------------------------------------------------------------------
-# Configuration
-# --------------------------------------------------------------------------
-# AVANT la verification du port, et l'ordre est load-bearing : `port_is_ours`
-# appelle `docker compose ps`, qui ne peut pas parser un .env auquel manque une
-# variable `${VAR:?}`. Un .env anterieur a l'ajout d'une variable requise faisait
-# donc echouer la verification du port en annoncant un conflit inexistant — sur
-# notre propre proxy. Cette etape ne depend que de .env.example, elle peut venir
-# en premier.
-#
-# Secret aleatoire sans dependance : /dev/urandom, od et tr sont partout ou
-# tourne bash. L'hexadecimal evite tout caractere a echapper dans un .env.
+# === Configuration ===
+# AVANT la verification du port, et l'ordre est porteur : `port_is_ours` appelle
+# `docker compose ps`, qui ne sait pas parser un .env auquel manque une variable
+# `${VAR:?}` — inverse, un .env perime faisait echouer le script sur « port deja
+# utilise », en designant notre propre proxy.
+
+# Hexadecimal : aucun caractere a echapper dans un .env.
 random_hex() { head -c "${1:-32}" /dev/urandom | od -An -tx1 | tr -d ' \n'; }
 
 # Remplace la valeur d'une cle en conservant les commentaires de .env.example,
@@ -447,10 +397,9 @@ set_env_default JWT_SECRET "$(random_hex 32)"
 # Tire separement, jamais recopie depuis JWT_SECRET : validateEnv refuse les
 # deux valeurs egales, et c'est ce qui rend la frontiere cryptographique.
 set_env_default CLIENT_JWT_SECRET "$(random_hex 32)"
-# Deux paires distinctes, et c'est tout l'objet du decoupage : MINIO_ROOT_*
-# administre le serveur (bucket, policy, utilisateur) et n'est passe qu'a minio
-# et minio-init ; STORAGE_* est l'utilisateur applicatif restreint, le seul a
-# atteindre le backend. Elles doivent differer, minio-init le verifie.
+# Deux paires distinctes : MINIO_ROOT_* administre le serveur, STORAGE_* est
+# l'utilisateur applicatif restreint. Elles doivent differer, minio-init le
+# verifie.
 #
 # Jamais regenerees si deja presentes (set_env_default) : un root regenere ne
 # correspondrait plus a celui qui a cree l'utilisateur applicatif, et le
@@ -459,21 +408,12 @@ set_env_default STORAGE_ACCESS_KEY "$(random_hex 16)"
 set_env_default STORAGE_SECRET_KEY "$(random_hex 32)"
 set_env_default MINIO_ROOT_USER "$(random_hex 16)"
 set_env_default MINIO_ROOT_PASSWORD "$(random_hex 32)"
-# Compte admin de Grafana (F2). Meme regle que les autres : genere une fois.
-# Grafana ne lit ce mot de passe qu'a l'initialisation de son volume, donc un
-# secret regenere a chaque execution ne changerait rien au conteneur et
-# afficherait simplement a l'evaluateur un mot de passe qui n'ouvre plus rien.
+# Grafana ne lit ce mot de passe qu'a l'initialisation de son volume : le
+# regenerer afficherait un mot de passe qui n'ouvre plus rien.
 set_env_default GRAFANA_ADMIN_PASSWORD "$(random_hex 24)"
-# Compte avocat de demonstration. Le mot de passe est le seul des trois a etre
-# genere : les deux autres sont des valeurs d'affichage, posees par
-# .env.example. 12 octets, soit 24 caracteres hexadecimaux — assez court pour
-# etre recopie a la main depuis la sortie du seed, assez long (~96 bits) pour
-# qu'une attaque par force brute soit hors de question, ce qui est necessaire
-# ici : le portail n'a pas de limitation de debit sur /auth/login (voir README).
-#
-# Comme les autres, genere UNE fois : le regenerer a chaque execution
-# changerait le mot de passe imprime a l'evaluateur d'un `./install.sh` a
-# l'autre, sans rien dire.
+# 24 caracteres hexadecimaux : assez court pour etre recopie a la main depuis
+# la sortie du seed, assez long (~96 bits) pour qu'une force brute soit hors de
+# question — il n'y a pas de limitation de debit sur /auth/login.
 set_env_default SEED_LAWYER_PASSWORD "$(random_hex 12)"
 set_env_default SEED_LAWYER_EMAIL avocat@example.com
 set_env_default SEED_LAWYER_NAME "Maitre Dupont"
@@ -482,16 +422,10 @@ set_env_default SEED_LAWYER_NAME "Maitre Dupont"
 # le deplace, ce qui reinitialiserait les permissions au umask.
 chmod 600 .env
 
-# --------------------------------------------------------------------------
-# TLS (A7)
-# --------------------------------------------------------------------------
-# Lit une valeur de .env. Ces trois cles ne passent NI par docker compose NI par
-# l'application : seul ce script les lit, pour les donner a certbot en ligne de
-# commande. Elles n'ont donc pas d'entree `${VAR:?}` dans le compose, et ce
-# n'est pas un oubli.
+# === TLS ===
+# Les trois cles TLS ne passent NI par compose NI par l'application : seul ce
+# script les lit. Leur absence de `${VAR:?}` n'est pas un oubli.
 env_get() {
-  # `cut` et non un decoupage sur `=` : un mot de passe ou un domaine ne
-  # contiennent pas de `=`, mais rien ne le garantit pour une valeur future.
   # `tr -d '\r'` : un .env edite sous Windows glisserait un retour chariot dans
   # le nom de domaine, et certbot echouerait sur un message incomprehensible.
   grep -E "^$1=" .env 2>/dev/null | head -n 1 | cut -d= -f2- | tr -d '\r'
@@ -508,18 +442,15 @@ if [ -n "$DOMAIN" ]; then
        Let's Encrypt exige une adresse, et c'est le seul canal qui previendra
        si le renouvellement automatique cesse de fonctionner."
   step "HTTPS active pour $DOMAIN"
-  # set_env_default ne remplit que le vide. Sans ce qui suit, une machine qui
-  # active DOMAIN APRES une premiere installation garderait l'origine locale et
-  # composerait des liens vers 127.0.0.1 — en production, sans aucun signal :
-  # l'API repond 201, et c'est le client qui decouvre que le lien ne mene nulle
-  # part. On ne remplace QUE la valeur par defaut ; une origine saisie a la main
-  # (reverse proxy, nom interne) n'est jamais ecrasee.
+  # set_env_default ne remplit que le vide : sans ceci, une machine qui active
+  # DOMAIN APRES une premiere installation composerait des liens vers
+  # 127.0.0.1, en production et sans aucun signal. Seule la valeur par defaut
+  # est remplacee.
   if [ "$(env_get PUBLIC_BASE_URL)" = "$DEFAULT_PUBLIC_BASE_URL" ]; then
     set_env_value PUBLIC_BASE_URL "https://$DOMAIN"
-    # set_env_value passe par un fichier temporaire qu'il deplace, ce qui remet
-    # les droits au umask. Le chmod global est plus haut, donc DEJA passe : sans
-    # cette ligne, activer HTTPS laisserait .env — mot de passe de la base et
-    # secret JWT compris — lisible par tous sur une machine partagee.
+    # set_env_value deplace un fichier temporaire, ce qui remet les droits au
+    # umask, et le chmod global est DEJA passe : sans cette ligne, activer
+    # HTTPS laisserait .env lisible par tous.
     chmod 600 .env
     info "PUBLIC_BASE_URL aligne sur https://$DOMAIN"
   fi
@@ -535,17 +466,11 @@ else
   TLS=0
 fi
 
-# --------------------------------------------------------------------------
-# Port
-# --------------------------------------------------------------------------
-# Teste AVANT le pull : sinon l'echec arrive apres le telechargement (ou, en
-# --from-source, apres plusieurs minutes de build). Un port
-# tenu par notre propre proxy n'est pas un conflit — compose recree le
-# conteneur — sinon un second ./install.sh echouerait sur lui-meme.
-# Prend le port en argument, et verifie que notre proxy publie CE port-la : se
-# contenter de « le proxy tourne » declarerait libre un 21601 tenu par un
-# programme tiers pendant que notre proxy n'ecoute qu'en 21600, et l'echec
-# n'arriverait qu'au `up`, sans nommer le vrai coupable.
+# === Port ===
+# Teste AVANT le pull, sinon l'echec arrive apres le telechargement. Un port
+# tenu par notre propre proxy n'est pas un conflit, sinon un second
+# ./install.sh echouerait sur lui-meme — mais la verification porte sur CE
+# port-la : « le proxy tourne » declarerait libre un 21601 tenu par un tiers.
 port_is_ours() {
   local ids; ids="$($DOCKER compose $COMPOSE ps -q proxy 2>/dev/null || true)"
   [ -n "$ids" ] || return 1
@@ -553,17 +478,10 @@ port_is_ours() {
     | grep -q "\"HostPort\":\"$1\""
 }
 
-# Tente une connexion TCP sur 127.0.0.1:$1, avec un garde-temps de $2 secondes.
-# Retourne 0 si quelque chose ecoute.
+# Connexion TCP sur 127.0.0.1:$1, garde-temps de $2 secondes.
 #
-# `timeout` vient des coreutils GNU et N'EXISTE PAS sur macOS. Ecrit en dur, la
-# commande absente renvoyait 127, le `if` echouait, et port_state concluait
-# « port libre » — un port reellement occupe passait la verification et l'echec
-# n'arrivait qu'au `up`, sans nommer le coupable. Exactement la panne silencieuse
-# que le commentaire de port_state dit vouloir eviter.
-#
-# Sans garde-temps le risque est nul ici : sur la boucle locale, une connexion
-# aboutit ou est refusee immediatement, il n'y a personne pour laisser pendre.
+# `timeout` vient des coreutils GNU et peut manquer : ecrit en dur, il renvoyait
+# 127, le `if` echouait, et un port occupe etait declare LIBRE.
 tcp_probe() {
   if command -v timeout >/dev/null; then
     timeout "$2" bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null
@@ -615,9 +533,7 @@ if [ "$TLS" = 1 ]; then
   check_port "$HTTPS_PORT"
 fi
 
-# --------------------------------------------------------------------------
-# Images et demarrage
-# --------------------------------------------------------------------------
+# === Images et demarrage ===
 if [ "$FROM_SOURCE" = 1 ]; then
   # Un checkout de production n'a ni le calque ni les sources. Sans ce controle,
   # docker se plaindrait d'un fichier compose introuvable, ce qui ne dit pas
@@ -655,16 +571,10 @@ else
        le code source. Depuis un checkout complet, ./install.sh --from-source."
 fi
 
-# --------------------------------------------------------------------------
-# Certificat (A7)
-# --------------------------------------------------------------------------
-# AVANT le demarrage, et l'ordre est load-bearing : si le certificat est deja
-# la — le cas de tout redeploiement — on demarre DIRECTEMENT avec le calque.
-# Passer systematiquement par la pile en clair recreerait le proxy deux fois et
-# supprimerait le 443 entre les deux, donc une coupure HTTPS a chaque relance.
-# La pile en clair n'est qu'un moyen d'AMORCAGE : nginx refuse de demarrer si
-# ssl_certificate designe un fichier absent, donc le tout premier certificat ne
-# peut etre obtenu qu'a travers elle.
+# === Certificat ===
+# AVANT le demarrage : si le certificat est deja la, on demarre DIRECTEMENT
+# avec le calque. Passer systematiquement par la pile en clair recreerait le
+# proxy deux fois, donc une coupure HTTPS a chaque relance.
 NEED_ISSUE=0
 if [ "$TLS" = 1 ]; then
   # `run --rm` : un conteneur jetable qui sort. Le service `certbot` du calque,
@@ -743,9 +653,7 @@ fi
 step "Demarrage de la stack"
 $DOCKER compose $COMPOSE up -d
 
-# --------------------------------------------------------------------------
-# Attente
-# --------------------------------------------------------------------------
+# === Attente ===
 # C'est cette etape qui fait la difference entre « le script a rendu la main »
 # et « l'application repond ». Les migrations sont jouees par l'entrypoint du
 # backend : un backend healthy signifie qu'elles sont passees.
@@ -850,16 +758,10 @@ else
   check_portal_http
 fi
 
-# --------------------------------------------------------------------------
-# Amorcage du certificat, puis bascule en HTTPS (A7)
-# --------------------------------------------------------------------------
-# Ce bloc n'existe QUE pour le premier certificat, ou pour le passage du
-# certificat de test au vrai. Un redeploiement ordinaire est deja parti en
-# HTTPS plus haut et ne passe pas ici — sans quoi chaque relance couperait le
-# 443 le temps de deux recreations du proxy.
-#
-# On arrive ici avec la pile en clair, saine : c'est elle qui sert le jeton que
-# Let's Encrypt vient lire sur le port 80 de la machine, relaye sur 21600.
+# === Amorcage du certificat, puis bascule en HTTPS ===
+# Uniquement pour le PREMIER certificat, ou le passage du certificat de test au
+# vrai : on arrive ici avec la pile en clair, qui sert le jeton que Let's
+# Encrypt vient lire.
 if [ "$TLS" = 1 ] && [ "$NEED_ISSUE" = 1 ]; then
   step "Obtention du certificat"
   issue_certificate
