@@ -120,9 +120,9 @@ describe('ClientSessionGuard', () => {
       revokedAt: new Date(),
     });
 
-    await expect(activateWith(await clientJwt.signAsync(payload))).rejects.toThrow(
-      UnauthorizedException,
-    );
+    await expect(
+      activateWith(await clientJwt.signAsync(payload)),
+    ).rejects.toThrow(UnauthorizedException);
   });
 
   it('refuses a session whose link has expired since the unlock', async () => {
@@ -131,17 +131,17 @@ describe('ClientSessionGuard', () => {
       expiresAt: AN_HOUR_AGO,
     });
 
-    await expect(activateWith(await clientJwt.signAsync(payload))).rejects.toThrow(
-      UnauthorizedException,
-    );
+    await expect(
+      activateWith(await clientJwt.signAsync(payload)),
+    ).rejects.toThrow(UnauthorizedException);
   });
 
   it('refuses a session whose link no longer exists', async () => {
     prisma.publicLink.findUnique.mockResolvedValue(null);
 
-    await expect(activateWith(await clientJwt.signAsync(payload))).rejects.toThrow(
-      UnauthorizedException,
-    );
+    await expect(
+      activateWith(await clientJwt.signAsync(payload)),
+    ).rejects.toThrow(UnauthorizedException);
   });
 });
 
