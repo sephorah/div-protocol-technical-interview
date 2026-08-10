@@ -76,23 +76,48 @@ Layout:
   only**, for local `pnpm dev` — there is no dev image), `nginx/{nginx,nginx-tls,portal-locations}.conf`,
   `minio/`.
   `prometheus/` (F1) and `grafana/` (F2) land here too. This directory plus `.env` is the whole of
-  what lives on the staging machine. `infra/README.md` documents the compose flags, the registry and
-  the deployment — see § Docker and § Images and registry.
+  what lives on the staging machine. **`docs/exploitation.md` documents the compose flags, the
+  registry and the deployment** — `infra/README.md` was absorbed into it and deleted.
 - `.github/workflows/` — **at the root of the git repository, one level up from this folder**:
   `exo2-publish-images.yml` builds and publishes the two images (A6).
 - `issue_backlog.md` — the backlog derived from the exercise statement; every feature branch
   should name the issue it closes
-- `README.md` — project title, staging subdomain, and a list of topics the final README must cover
+- `README.md` — **the deliverable**, ~230 lines: product, install, architecture on one page, data
+  model, test strategy, observability, known limitations. Each section ends in a link to `docs/`.
+- `docs/` — where the long reasoning lives now: `architecture.md` (design choices and what was
+  rejected), `exploitation.md` (install.sh, compose, proxy, TLS, registry — it absorbed
+  `infra/README.md`), `observabilite.md` (metrics, alerts, runbook), `tests-manuels.md` (the manual
+  acceptance checklist derived from the statement)
 - `install.sh` — **the one-click entrypoint, and the first thing the graders run** (`git clone` on
   a bare machine, `./install.sh`, wait). It does exactly one thing: bring up the docker stack. It
   installs Docker if missing, generates `.env` with random secrets, builds, starts, waits for every
   healthcheck, then prints the URLs. **Its contract is that when it returns 0, the portal
-  answers** — not "the containers started". `./install.sh --build` builds images without starting.
+  answers** — not "the containers started". `./install.sh --from-source` builds locally instead of
+  pulling.
   It no longer installs Node/nvm/pnpm: the build happens inside the images, so that would make the
   grader wait for nothing. Local development is `pnpm db:up && pnpm dev`, which assumes Node 22 and
   pnpm 11 are already installed. See § install.sh below.
 - `ai-plans/` — one dated markdown per feature: plan followed, decisions, verification, code review
 - `ai-logs/` — AI session logs required by the internship deliverable, saved manually via `/export`
+
+## Two rules this repository now enforces
+
+**Comments say only what the code cannot, in 1 to 3 lines** — a trap, an external constraint, an
+obvious alternative that was rejected. Every longer piece of reasoning (measurements, the history of
+a bug, a comparison of options) belongs in `README.md` or `docs/`, and the code keeps at most a
+one-line pointer (`see docs/exploitation.md § TLS`). Banner separators, file headers narrating an
+issue, and docblocks repeating a signature do not get replaced, they go. Measured before the cleanup:
+4 722 comment lines, one in four, 49 % of `infra/`; after: 3 742, and the five heaviest configuration
+files went from 998 to about 330.
+
+**A test is kept only if a plausible change to OUR code can make it fail**, applied in that order:
+drop tests of libraries (argon2 salts, `Intl` formats a date) and assertions that a constant equals
+itself; where a rule is already asserted at another layer, keep the ONE that crosses the most real
+code; an `it.each` of seven rows testing one rule becomes two, a nominal case and a boundary.
+**Security is never pruned** — indistinguishable answers, secrets never in clear, the boundary
+between the two session kinds, 404 rather than 403, path traversal, magic bytes — including in
+duplicate when the two layers really test different things. After pruning, break the invariant on
+purpose and check a test falls; one that no longer makes anyone fail has lost its guardian.
 
 ## Architecture
 
@@ -281,7 +306,7 @@ Consequence: **relative paths inside those files are relative to `infra/`** — 
 `./minio`, `./nginx/nginx.conf`. `--project-directory ..` was rejected for exactly that reason: it
 would restore root-relative paths inside a file that no longer lives at the root. The command is
 written once per consumer — `COMPOSE` in `install.sh`, the `stack:*`/`db:*` scripts, the final
-banner, `infra/README.md`.
+banner, `docs/exploitation.md`.
 
 A misplaced `nginx.conf` mount is the **silent** failure mode of any move here: nginx then serves
 its default welcome page, `wget /` still returns 200, `proxy` goes healthy and `install.sh` reports
@@ -329,7 +354,7 @@ SIGTERM would go nowhere.
 Both services run `pnpm prune --prod` in the build stage, so neither image carries its build
 toolchain: no `nest`/`tsc` in the backend image, no `vite` in the frontend one. The frontend is
 served by `serve -s dist` — the `-s` flag is what gives the SPA its history fallback, so deep links
-like `/depot/<token>` resolve instead of 404ing. Both run as the image's `node` user (uid 1000).
+like `/deposit/<token>` resolve instead of 404ing. Both run as the image's `node` user (uid 1000).
 
 `proxy` (stock `nginx:alpine` with `infra/nginx/nginx.conf` bind-mounted) is the **only published
 port**:
@@ -825,9 +850,11 @@ Six things are non-obvious:
   only exists to migrate rows written before it. The **seed realigns** pre-existing items, which the
   migration cannot: it is the only thing that knows the demonstration order.
 - **`deriveStatus(input, now)` takes the clock as an argument.** Expiry tests then need no frozen
-  clock, and B4 will classify a whole list against a single instant. Expiry wins over completeness
-  (A2's rule), and the comparison is **strict** — at the exact expiry instant the link still works.
-  A test covers that boundary and another covers the order of the two branches.
+  clock, and B4 will classify a whole list against a single instant. **Completeness wins over
+  expiry** — a finished case must not read as an abandoned one — and the comparison is **strict**:
+  at the exact expiry instant the link still works. A test covers that boundary and another covers
+  the order of the two branches. The status describes the case, the link describes the access:
+  `PublicLinksService.resolve` still closes an expired link even on a complete request.
 - **`lawyerId` is read from `request.lawyer`, never from the body.** A body naming one answers 400
   through `forbidNonWhitelisted`, and an e2e case asserts it. The controller carries no `@UseGuards`
   and must never carry `@Public()`: the global guard is what closes it, and the 401 test is what
@@ -850,7 +877,7 @@ attacker's rate today.
 ## Public links (B3)
 
 Two things share the name "link" and confusing them is the first mistake to avoid.
-**`<origin>/depot/<token>` is the CLIENT-FACING PAGE**, the address the lawyer pastes into an email.
+**`<origin>/deposit/<token>` is the CLIENT-FACING PAGE**, the address the lawyer pastes into an email.
 **`POST /requests/:id/link` is the LAWYER'S API CALL** that issues a new one. The statement's own
 surface never mentions the second — it lists its routes "à titre indicatif" and leaves the split to
 us, so the addition is ours and its justification belongs in the README.
@@ -914,7 +941,7 @@ Two mitigations, both in nginx, both load-bearing:
   `add_header` added later *inside* a `location` cancels every inherited one, with no startup error.
 - **`infra/nginx/log-redact.conf`**, mounted at `/etc/nginx/conf.d/00-log-redact.conf`. A path is
   written to `access.log`, in clear, on a machine shared with other candidates. A `map` rewrites the
-  token segment to `[redacted]` in `/depot/…` and `/api/v1/public/…`, keeping everything else. It
+  token segment to `[redacted]` in `/deposit/…` and `/api/v1/public/…`, keeping everything else. It
   cannot live in `portal-locations.conf`: `map` and `log_format` are only valid at `http` level, and
   that fragment is included inside a `server` block — whereas `conf.d/*.conf` is included at `http`.
   The `00-` prefix orders it before `default.conf`, so the format exists before its use. One file
@@ -937,7 +964,7 @@ Two mitigations, both in nginx, both load-bearing:
   token sits next to it. `scripts/test-bare-machine.sh` asserts the token appears **nowhere** in the
   proxy's *and* the frontend's logs.
 - **`frontend/Dockerfile` passes `-L` to `serve`.** By default it logs every request URL to stdout,
-  so `docker logs frontend` held `GET /depot/<token>` in clear — the same token nginx redacts, in the
+  so `docker logs frontend` held `GET /deposit/<token>` in clear — the same token nginx redacts, in the
   same place. Dropping the flag makes the whole nginx effort worthless.
 
 ## Theme and lawyer screens (E1)
@@ -990,7 +1017,7 @@ the traceability of a case file. Verified: 40 requests on load, none off-origin.
 
 **Lawyer-side routes are English** (`/login`, `/dashboard`). The client route is **not ours to
 rename**: the backend composes it (`DEPOSIT_PATH` in `backend/src/requests/public-url.ts`) and
-`infra/nginx/log-redact.conf` redacts that exact prefix, so `/depot` only moves if all three move
+`infra/nginx/log-redact.conf` redacts that exact prefix, so `/deposit` only moves if all three move
 together.
 
 **The scroll reveal is deliberately NOT here** -- it moved to B5, and the backlog says so rather
@@ -1046,8 +1073,8 @@ Five entities: `Lawyer` → `DepositRequest` → (`RequestedItem` → `UploadedF
 Four things are counter-intuitive and expensive to relearn:
 
 - **Status is not a column.** `expired` depends on the wall clock, so a stored column would be
-  wrong between the expiry instant and whatever job flips it. It is derived: `now > expiresAt` →
-  expired, else every item received → complete, else pending. Same for "number of expected items",
+  wrong between the expiry instant and whatever job flips it. It is derived: every item received →
+  complete, else `now > expiresAt` → expired, else pending. Same for "number of expected items",
   which is `count(RequestedItem)`. Do not "optimise" either into a column.
 - **`PublicLink` is a table, not three columns on the request.** Regenerating means revoke +
   insert, so an old PIN cannot survive a regeneration. That invariant rests on a **partial unique
@@ -1152,17 +1179,28 @@ was absent.
 made the API reachable around the proxy on a shared machine. It is `127.0.0.1` on the host and
 `0.0.0.0` in the container (isolated network, no published port, and nginx must reach the service).
 
-Four files freeze these values and must change together, since nginx does not read the
-environment: `.env`, `infra/nginx/nginx.conf`, the `healthcheck` in `infra/docker-compose.yml`, and
-**`frontend/src/api/client.ts`** -- the browser cannot read `.env` either. A `VITE_API_PREFIX` would
-be baked into the image at build time in CI, so it would be configurable in appearance only. What
-the fourth copy buys instead is that a drift reads as itself: the API client reports a 404 as its
-own error kind and the login screen says "API introuvable", not "serveur injoignable".
-In `nginx.conf`,
-`proxy_pass http://backend:21610` carries **no trailing slash** — a trailing slash would strip the
-prefix Nest now serves itself, and everything would 404. The `deny all` rule targets
-`= /api/v1/health`: desynchronising it breaks nothing visible, it just makes the probe public
-again.
+**SIX places freeze these values** and must change together, since nginx and Prometheus do not read
+the environment. This file said four until the observability work added two more; counted again by
+grep:
+
+1. `.env` / `.env.example` — the source of truth;
+2. `infra/nginx/portal-locations.conf` — `location = /api/v1/health` and `location = /api/v1/metrics`;
+3. `infra/nginx/log-redact.conf` — the `map` that redacts `/api/v1/public/<token>`;
+4. the `healthcheck` in `infra/docker-compose.yml`;
+5. `infra/prometheus/prometheus.yml` — `metrics_path: /api/v1/metrics`;
+6. **`frontend/src/api/client.ts`** — the browser cannot read `.env` either.
+
+A `VITE_API_PREFIX` would be baked into the image at build time in CI, so it would be configurable in
+appearance only. What the browser copy buys instead is that a drift reads as itself: the API client
+reports a 404 as its own error kind and the login screen says "API introuvable", not "serveur
+injoignable". **Desynchronising 2, 3 or 5 breaks nothing visible** — the probe and the metrics become
+public again, or the token stops being redacted.
+
+In `portal-locations.conf`, `proxy_pass http://backend:21610` carries **no trailing slash** — a
+trailing slash would strip the prefix Nest serves itself, and everything would 404.
+
+The client path is `/deposit`, not `/depot`: `DEPOSIT_PATH` in `backend/src/requests/public-url.ts`,
+the redaction map, and the SPA route move together or not at all.
 
 ## Persistence
 
@@ -1228,8 +1266,8 @@ Five things are non-obvious:
   replays a rotated refresh token on purpose, so an automatic jar would overwrite the cookie under
   the test and the reuse detection would never fire.
 
-Measured on this machine: **8,5 s** with the doubles, **9,8 s** of Jest plus container startup and
-`migrate deploy` — **20,3 s** wall clock — against the real database, for 65 tests instead of 60.
+Measured after the test pruning: **18 s** wall clock, container startup and `migrate deploy`
+included, for **98 cases** (was 20,3 s for 114 before the pruning).
 
 Three of those tests exist only because the database is real: the partial unique index refusing a
 second active link, the same index *allowing* revoked ones beside it, and `onDelete: Cascade`

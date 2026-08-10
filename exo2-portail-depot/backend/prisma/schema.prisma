@@ -1,23 +1,7 @@
-// Prisma schema of the deposit portal.
-//
-// Three modelling decisions cannot be guessed by reading the fields:
-//
-// 1. A request's STATUS is NOT a column. "expired" depends on the clock: a
-//    column would stay at "pending" after expiry for as long as no job flips
-//    it, and the dashboard would lie. It is computed on read from expiresAt and
-//    the count of received items. Same reason for "number of expected items",
-//    which is a count(RequestedItem).
-//
-// 2. There is NO AccessLog table. The exercise statement classifies the audit
-//    log as a bonus (issue G2): the table would be written by nobody and read
-//    by nobody, and its cost of addition will be the same later. PublicLink
-//    prepares the ground, and G2 will attach its events to a specific link.
-//
-// 3. UploadedFile.mimeType is a String, not an enum. The statement fixes
-//    PDF/JPG/PNG, but C2 requires the allowed types to be *configurable*: a
-//    Postgres enum would force a migration to change a validation list. The
-//    allowlist and the maximum size live in the configuration; the database
-//    merely records what was deposited.
+// Prisma schema of the deposit portal. The three decisions that cannot be
+// guessed from the fields are in docs/architecture.md § Le modele de donnees:
+// the status is NOT a column, there is no audit table, and mimeType is a String
+// rather than an enum.
 
 generator client {
   provider = "prisma-client"
@@ -114,15 +98,9 @@ model DepositRequest {
   @@index([lawyerId])
 }
 
-/// The expiring public link protected by a PIN. A dedicated table rather than
-/// three columns on DepositRequest, for two reasons:
-///
-/// - regenerating a link creates a row and revokes the previous one, so it is
-///   structurally impossible for an old PIN to stay valid on a new link -- the
-///   invariant belongs to the schema, not to applicative discipline;
-/// - the link history exists from the start, whereas extracting it after the
-///   fact would have required a data migration plus a rewrite of every query
-///   touching the token, the PIN or the expiry.
+/// A table rather than three columns on DepositRequest: regenerating revokes
+/// and inserts, so an old PIN cannot structurally survive a new link -- the
+/// invariant belongs to the schema, not to applicative discipline.
 model PublicLink {
   id String @id @default(uuid())
 
@@ -138,14 +116,9 @@ model PublicLink {
 
   expiresAt DateTime
   createdAt DateTime  @default(now())
-  /// Non-null = link replaced or revoked. A single active link per request, via
-  /// a partial unique index added by hand in the migration (Prisma cannot
-  /// express a conditional index):
-  ///
-  ///   CREATE UNIQUE INDEX "PublicLink_requestId_active_key"
-  ///     ON "PublicLink" ("requestId") WHERE "revokedAt" IS NULL;
-  ///
-  /// Not to be lost when regenerating a migration.
+  /// Non-null = replaced or revoked. One active link per request, enforced by a
+  /// PARTIAL unique index written by hand in the migration (Prisma cannot
+  /// express a conditional index) -- not to be lost when regenerating one.
   revokedAt DateTime?
 
   requestId String

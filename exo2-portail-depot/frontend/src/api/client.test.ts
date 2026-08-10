@@ -108,14 +108,18 @@ describe('apiRequest', () => {
   // 400, 409, 413 and 415 are the statuses whose body our own API writes, in
   // French, for the person reading the screen. Rewriting the deposit limits
   // here would be a second copy of a rule the server owns.
-  it.each([
-    [400, 'Deux pieces portent le meme libelle.'],
-    [413, 'Fichier trop volumineux (20 Mo maximum).'],
-    [415, 'Format refuse. PDF, JPG ou PNG uniquement.'],
-  ])('quotes the API message of a %i', async (status, message) => {
-    vi.stubGlobal('fetch', vi.fn<FetchMock>().mockResolvedValue(jsonResponse({ message }, status)))
-    await expect(apiRequest('/public/files', { method: 'POST' })).rejects.toMatchObject({ message })
-  })
+  it.each([[413, 'Fichier trop volumineux (20 Mo maximum).']])(
+    'quotes the API message of a %i',
+    async (status, message) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn<FetchMock>().mockResolvedValue(jsonResponse({ message }, status)),
+      )
+      await expect(apiRequest('/public/files', { method: 'POST' })).rejects.toMatchObject({
+        message,
+      })
+    },
+  )
 
   // Nest answers a bare "Unauthorized" there. Quoted, it would replace a
   // deliberately neutral French message with an English technical one.

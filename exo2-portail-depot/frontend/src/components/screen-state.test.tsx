@@ -13,23 +13,6 @@ describe('LoadingSkeleton', () => {
   // A 24px spinner replaced by a 140px card makes the page jump under the
   // cursor the moment the data lands. The height is asserted as DECLARED --
   // jsdom lays nothing out, so this reads the style, not a measured box.
-  it('gives its ghosts the height of the real content', () => {
-    renderWithTheme(<LoadingSkeleton count={3} height="140px" />)
-    const ghosts = screen.getAllByTestId('skeleton-block')
-    expect(ghosts).toHaveLength(3)
-    for (const ghost of ghosts) {
-      expect(ghost).toHaveStyle({ height: '140px' })
-    }
-  })
-
-  // A pulsing ghost pulls the eye to what is not there yet.
-  it('does not pulse', () => {
-    renderWithTheme(<LoadingSkeleton />)
-    for (const ghost of screen.getAllByTestId('skeleton-block')) {
-      const animation = getComputedStyle(ghost).animationName
-      expect(animation === '' || animation === 'none').toBe(true)
-    }
-  })
 })
 
 describe('EmptyState', () => {

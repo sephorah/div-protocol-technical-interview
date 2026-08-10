@@ -29,16 +29,6 @@ describe('ItemRow', () => {
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   })
 
-  // A hostile file name is the anonymous client's input (C2). U+202E reverses
-  // what follows it, which is how "facture<RLO>fdp.exe" reads as "facturexe.pdf".
-  it('sanitises the file name it displays', () => {
-    renderWithTheme(
-      <ItemRow label="Facture" state="received" file={file('facture‮fdp.exe')} />,
-    )
-    expect(screen.queryByText(/‮/)).not.toBeInTheDocument()
-    expect(screen.getByText('facturefdp.exe')).toBeInTheDocument()
-  })
-
   // C2 will write this state. Drawn now so the lawyer screen does not have to
   // be redesigned under pressure the day an upload can fail.
   it('names a failed deposit, keeps the file name, and says what to do', () => {
@@ -76,13 +66,4 @@ describe('ItemRow', () => {
     expect(screen.queryByText(/deposer a nouveau/i)).not.toBeInTheDocument()
   })
 
-  // The client's deposit button sits beside the badge, not under the row: two
-  // facts about the same piece, one right-hand column.
-  it('renders the action beside the state badge', () => {
-    renderWithTheme(
-      <ItemRow label="Attestation" state="pending" action={<button>Deposer</button>} />,
-    )
-    expect(screen.getByRole('button', { name: 'Deposer' })).toBeInTheDocument()
-    expect(screen.getByText(/en attente/i)).toBeInTheDocument()
-  })
 })

@@ -1,6 +1,17 @@
 # Portail dépôt
 
-Sous-domaine : https://sephorah-aniambossou.stage2-div.rayan-drissi.com
+Un avocat monte un dossier et doit récupérer des pièces chez son client. Aujourd'hui cela se passe
+par courriel, en pièces jointes, sans traçabilité. Ce portail remplace ça.
+
+**Côté avocat** (authentifié) : il crée une demande de dépôt, génère un lien public expirable protégé
+par un code PIN, l'envoie à son client, et suit dans un tableau de bord l'état de chaque demande — en
+attente, complète, expirée.
+**Côté client** (anonyme) : il ouvre le lien sans compte, saisit le PIN, dépose ses pièces et voit sa
+progression.
+
+Déployé sur https://sephorah-aniambossou.stage2-div.rayan-drissi.com
+
+---
 
 ## Démarrage
 
@@ -9,586 +20,214 @@ Sous-domaine : https://sephorah-aniambossou.stage2-div.rayan-drissi.com
 ```
 
 C'est tout. Le script installe ce qui manque — jusqu'à `curl` et Docker eux-mêmes — génère la
-configuration et ses secrets, **tire les images publiées**, monte la stack, applique les migrations,
-et n'affiche les URLs qu'une fois que le portail répond. Il n'y a rien à faire ensuite, et rien à
-lire ici pour y arriver.
+configuration et ses secrets, **tire les images publiées**, monte la pile, applique les migrations,
+et n'affiche les URLs qu'une fois que **le portail répond**. Il imprime alors les identifiants de
+démonstration, le lien client et son PIN.
 
-Le portail est alors sur **http://127.0.0.1:21600**.
+Le portail est sur **http://127.0.0.1:21600**, Grafana sur **/grafana/**.
 
-Comptez **~2 min sur une machine vierge** (1 min 52 s et 2 min 28 s mesurées sur deux passages),
-installation de Docker comprise, **~35 s** si Docker est déjà là, et une quinzaine de secondes
-ensuite. Ce parcours est rejouable en une commande :
-`pnpm test:bare-machine` le refait dans un conteneur `ubuntu:24.04` où rien n'est préinstallé, et
-vérifie que le portail répond vraiment à la fin.
+| Situation | Durée mesurée |
+|---|---|
+| machine nue, installation de Docker comprise | ~2 min |
+| Docker présent, images à tirer | 35 s |
+| tout en cache | 15 s |
 
-Les secrets sont générés **une seule fois**, au premier lancement : relancer `./install.sh` ne les
-régénère pas, sans quoi le script casserait sa propre base de données au second passage.
+Ce parcours est rejouable en une commande : `pnpm test:bare-machine` le refait dans un conteneur
+`ubuntu:24.04` où **rien** n'est préinstallé, et vérifie que le portail répond vraiment à la fin.
 
-**Systèmes couverts : Linux avec bash** — Debian/Ubuntu, Fedora/RHEL et les autres ; les paquets
-manquants sont installés via `apt-get`, `dnf`, `yum`, `apk`, `zypper` ou `pacman` selon la machine.
-C'est le seul système sur lequel le parcours est testé de bout en bout.
+Les secrets sont générés **une seule fois**, au premier lancement : les régénérer casserait la base
+au second passage. **Systèmes couverts : Linux avec bash** ; macOS et Alpine ne le sont pas, et le
+script ne prétend pas le contraire.
 
-**macOS et les machines sans bash ne sont pas couverts**, et le script ne prétend pas le contraire —
-voir les limitations.
+HTTPS s'active en renseignant `DOMAIN` dans `.env`, **jamais par un drapeau** : un drapeau devrait
+être retapé à chaque redéploiement, et l'oublier une fois ferait retomber le portail en clair sans
+bruit. → `docs/exploitation.md`
 
-Rien n'est compilé sur place : les images sont construites par le CI et publiées sur
-[GHCR](https://github.com/sephorah?tab=packages). `./install.sh --from-source` construit en local à
-la place — utile pour essayer le compose de production avant de publier, et impossible sur la
-machine de staging, qui n'a pas le code source.
+Le développement au quotidien n'utilise pas ce script : `pnpm db:up && pnpm dev`.
 
-L'infrastructure vit dans `infra/` (compose, reverse proxy, provisionnement du stockage). Les
-fichiers compose n'étant pas à la racine, la commande porte deux drapeaux — `infra/README.md`
-explique pourquoi aucun des deux n'est facultatif :
+---
 
-```bash
-docker compose -f infra/docker-compose.yml --env-file .env down     # ou pnpm stack:down
-docker compose -f infra/docker-compose.yml --env-file .env logs -f  # ou pnpm stack:logs
+## Architecture, en une page
+
+```
+navigateur ──▶ nginx (seul port publié) ──┬──▶ frontend  (SPA Vite + React 19 + Chakra v3)
+                                          └──▶ backend   (NestJS 11)
+                                                  ├──▶ PostgreSQL 17 (Prisma 7)
+                                                  └──▶ MinIO (S3)
+                                        prometheus ──▶ grafana (sous /grafana/)
 ```
 
-## HTTPS
-
-Le portail est en **HTTPS avec un certificat Let's Encrypt renouvelé automatiquement** sur son
-sous-domaine. Le proxy de la machine relaie le `:443` en **passthrough TLS** : il lit le SNI et
-recopie les octets sans rien déchiffrer, donc c'est notre nginx qui termine TLS.
-
-**C'est `DOMAIN` dans `.env` qui l'active, pas un drapeau.** Vide — poste de développement, machine
-de l'évaluateur — le portail reste en clair sur `127.0.0.1:21600`, ce qui est le seul comportement
-possible : sans nom de domaine public, Let's Encrypt n'a rien à valider. Renseigné, `./install.sh`
-ajoute le calque `infra/docker-compose.tls.yml`, obtient le certificat et publie le 21601. Un
-drapeau aurait dû être retapé à chaque redéploiement, et un oubli aurait fait retomber le portail
-en clair en silence.
-
-Trois variables, et elles ne servent qu'à la machine de déploiement : `DOMAIN` (l'interrupteur),
-`ACME_EMAIL` (les avis d'expiration) et `ACME_STAGING` (`1` pour l'endpoint de test — obligatoire au
-premier essai, la production plafonnant à 5 certificats identiques par semaine). Le détail du
-mécanisme — amorçage, `--webroot`, renouvellement — est dans `infra/README.md` § HTTPS.
-
-Trois limites, dont une lourde de conséquences :
-
-- **`$remote_addr` n'est pas l'adresse du client.** En passthrough SNI, la connexion TCP vient du
-  proxy de la machine ; sans PROXY protocol, nginx ne voit que lui. Le `X-Forwarded-For` que nous
-  produisons est donc faux, et **une limitation de débit par IP ne peut pas s'y fier** — ce qui
-  touche directement la protection du PIN contre le bruteforce (voir les limites du modèle de
-  données). Il faudra limiter par jeton de lien, pas par adresse.
-- **HSTS est un engagement de 180 jours** : repasser le portail en HTTP laisserait les navigateurs
-  déjà venus incapables de l'atteindre jusqu'à l'expiration de l'en-tête.
-- **Le certificat expire en 90 jours.** Le renouvellement est automatique et vérifié en `--dry-run`,
-  mais si la machine reste éteinte plus longtemps, rien ne le rattrape avant son réveil.
-
-**La machine de production ne contient aucun code source** : seuls `infra/`, `.env` et
-`install.sh` y vivent, et le compose de production ne sait que *tirer* les images
-(`ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}`). Le déploiement se fait par
-`git sparse-checkout` — voir `infra/README.md` §&nbsp;Déploiement. La version épinglée par défaut est
-**0.3.0**, la première où le lien de dépôt est réellement utilisable ; déployer une autre version, ou
-revenir en arrière, tient dans une variable : `IMAGE_TAG=sha-1a2b3c4`. Deux retours en arrière sont
-piégeux et rien ne les signale au démarrage : `0.2.0` n'a ni URL client complète, ni expiration
-appliquée, ni régénération de lien, et elle écrit le jeton de dépôt **en clair** dans les journaux ;
-`0.1.0`, plus loin encore, précède l'authentification, donc n'a ni route de connexion ni compte de
-démonstration.
-
-## Développement
-
-`install.sh` ne sert pas au développement quotidien : il monte la stack de production. Pour
-travailler avec le rechargement à chaud (Node 22 et pnpm 11 requis sur la machine) :
-
-```bash
-pnpm install:all
-pnpm db:up      # Postgres seul, sur 127.0.0.1:21632
-pnpm dev        # API :21610, frontend :5173
-pnpm test       # les deux suites : backend (jest) puis frontend (vitest)
-```
-
-L'API lit sa configuration dans `.env` à la racine et **refuse de démarrer si une variable
-manque** — sans valeur de repli, délibérément : la machine de staging est partagée et seule la
-plage 21600–21699 nous est attribuée. Un repli en dur ferait écouter le service au mauvais
-endroit sans que rien ne le signale. `BIND_ADDRESS` vaut `127.0.0.1` sur la machine, et le
-compose le surcharge à `0.0.0.0` dans le conteneur, dont le réseau est isolé et sans port publié.
-
-## Configuration
-
-Un seul fichier, `.env` à la racine — et à la racine même si le compose est dans `infra/`, parce que
-l'API le lit aussi quand elle tourne sur la machine (`pnpm dev`) : d'où le `--env-file .env` des
-commandes ci-dessus. Il est lu à la fois par `docker compose` et par l'API. `.env.example`
-en est la documentation ; `./install.sh` le génère et tire au sort les secrets. **Rien n'a de valeur
-de repli dans le code** : une variable manquante fait échouer le démarrage en la nommant, plutôt que
-de faire écouter le service au mauvais endroit ou de démarrer Postgres sans mot de passe.
-
-| Variable | Secret | Défaut | Rôle |
-|---|---|---|---|
-| `PORT`, `API_PREFIX` | non | `21610`, `/api/v1` | écrites **aussi en dur** dans `infra/nginx/nginx.conf` et le healthcheck du compose : les changer suppose de changer les trois ensemble |
-| `BIND_ADDRESS` | non | `127.0.0.1` | interface d'écoute. Le compose la surcharge à `0.0.0.0` dans le conteneur, dont le réseau est isolé |
-| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | mot de passe | — | l'URL de connexion est **assemblée** à partir d'elles, avec `encodeURIComponent` : n'importe quel mot de passe fonctionne |
-| `DATABASE_URL` | oui | *(vide)* | facultative, l'emporte sur les cinq précédentes — l'échappatoire pour une base managée ou de CI |
-| `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET` | non | MinIO local, `us-east-1`, `portail-depot` | endpoint S3. Le compose le surcharge en `http://minio:9000` |
-| `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | oui | — | utilisateur applicatif, restreint au seul bucket |
-| `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | oui | — | administration du serveur de stockage |
-| `JWT_SECRET`, `JWT_EXPIRES` | secret | —, `15m` | authentification avocat. 32 caractères minimum, unité de durée obligatoire (et non nulle). **`JWT_EXPIRES` n'est pas corrigé dans un `.env` existant** : `install.sh` n'écrase jamais une valeur choisie, donc une machine antérieure garde `2h` jusqu'à édition à la main |
-| `SESSION_EXPIRES`, `SESSION_IDLE_EXPIRES` | non | `7d`, `3d` | plafond de la session depuis la connexion, et inactivité tolérée. La seconde doit être **strictement inférieure** à la première, sinon elle ne s'appliquerait jamais — le démarrage échoue en le disant |
-| `SEED_LAWYER_EMAIL`, `SEED_LAWYER_NAME` | non | `avocat@example.com`, `Maitre Dupont` | compte de démonstration. Lues **par le seed seul**, jamais par l'API. Changer l'adresse **renomme** le compte, elle n'en crée pas un second |
-| `SEED_LAWYER_PASSWORD` | oui | — | mot de passe du compte de démonstration, tiré au sort une fois par `install.sh`. Stocké en clair dans `.env` **parce qu'il doit rester relisible** : c'est ce que le seed réaffiche à chaque exécution, et un hachage ne se relit pas |
-| `DOMAIN`, `ACME_EMAIL`, `ACME_STAGING` | non | *(vides)* | HTTPS. Lues **ni** par compose **ni** par l'application : seul `install.sh` les lit, pour les passer à certbot |
-
-**Le préfixe dit qui lit la variable.** Tout ce qui commence par `STORAGE_` est lu par
-l'application ; `MINIO_ROOT_*` ne l'est **jamais** — le compose ne le passe qu'aux conteneurs
-`minio` et `minio-init`, qui provisionnent le bucket, la politique d'accès et l'utilisateur
-applicatif. L'API n'a donc pas le droit de créer un bucket, ni de voir les autres. C'est aussi ce
-qui rend le stockage remplaçable : rien dans le code ne nomme MinIO, seul l'endpoint le sait.
-
-**Aucune variable côté frontend**, délibérément : le SPA appelle l'API en relatif sur `/api/...`
-derrière le même proxy, donc aucune origine à configurer et aucun CORS à ouvrir. Un `VITE_API_URL`
-figerait de toute façon sa valeur au *build* de l'image, pas au déploiement.
-
-Les secrets ne sortent jamais du fichier : `.env` est gitignoré, en `chmod 600`, absent de
-l'historique git, et aucun message d'erreur de validation ne recopie une valeur — ils finiraient
-dans les journaux agrégés.
-
-## Authentification de l'avocat
-
-L'avocat est le seul acteur qui se connecte ; le client reste anonyme de bout en bout, avec un lien
-et un PIN pour seuls justificatifs.
-
-| Route | Accès | Effet |
-|---|---|---|
-| `POST /api/v1/auth/login` | ouverte | vérifie e-mail + mot de passe, pose les deux cookies, renvoie `{ id, name, email }` |
-| `POST /api/v1/auth/refresh` | ouverte | échange le cookie de rafraîchissement contre une paire neuve |
-| `POST /api/v1/auth/logout` | ouverte | **révoque la session côté serveur** et efface les cookies |
-| `GET /api/v1/auth/me` | authentifiée | le profil de la session en cours |
-
-**Deux jetons, deux cookies `httpOnly`**, jamais dans le corps de la réponse : le JavaScript du
-navigateur ne peut donc pas les lire, et un script injecté dans la page ne peut pas les emporter.
-
-| | Jeton d'accès | Jeton de rafraîchissement |
-|---|---|---|
-| Nature | JWT signé, sans état | secret opaque de 256 bits, stocké **haché** en base |
-| Durée | 15 min | jusqu'à la fin de la session |
-| Cookie | `portail_auth`, chemin `/`, 15 min | `portail_refresh`, chemin `/api/v1/auth`, expire **avec la session** |
-| Révocable | **non** — c'est la nature d'un JWT | **oui**, c'est tout son intérêt |
-
-Le cookie de rafraîchissement est limité aux routes d'authentification : le navigateur ne l'attache
-donc jamais à un appel ordinaire, et le secret le plus précieux est absent de la quasi-totalité du
-trafic.
-
-Les deux cookies sont `SameSite=Strict` — le navigateur ne les attache jamais à une requête venue
-d'un autre site, ce qui écarte le CSRF sans jeton supplémentaire — et leur `Secure` (« à n'envoyer
-que chiffré ») est décidé **requête par requête** d'après `X-Forwarded-Proto` : posé
-systématiquement, il casserait la connexion sur le `http://127.0.0.1:21600` de l'évaluateur ; jamais
-posé, il laisserait le cookie capturable sur le domaine public.
-
-**Toutes les routes sont fermées par défaut.** Le garde est global (`APP_GUARD`) et seul le
-décorateur `@Public()` ouvre une route — le sens inverse, un garde à poser sur chaque route, publie
-une route dès qu'on l'oublie, et sans rien signaler. Aujourd'hui `@Public()` porte sur le login, le
-logout et la sonde de santé ; les futures routes `/public/*` du client (C1, C2) devront le porter
-aussi.
-
-### Expiration, renouvellement, révocation
-
-**Deux échéances bornent une session, et la première atteinte gagne** : un **plafond de 7 jours**
-figé à la connexion, que le renouvellement ne repousse jamais, et une **inactivité de 3 jours**, que
-chaque renouvellement repousse. Le plafond borne une session active ; l'inactivité referme une
-session oubliée — un poste laissé ouvert, un cookie recopié et gardé de côté. Trois jours plutôt que
-deux pour une raison prosaïque : une session du vendredi soir survit au lundi matin.
-
-**Le jeton de rafraîchissement est remplacé à chaque usage** (*rotation*), et l'ancien reste en base,
-marqué consommé. C'est ce qui rend une réutilisation détectable : si un jeton déjà consommé est
-représenté, c'est qu'une copie circule — le client légitime, lui, détient le successeur et n'a aucune
-raison de rejouer l'ancien. La session entière est alors coupée. Le serveur ne peut pas distinguer le
-voleur de la victime, donc les deux tombent : c'est le prix de la détection.
-
-**Une tolérance de 30 secondes** empêche cette détection de se retourner contre l'avocat. Deux onglets
-qui se rafraîchissent en même temps présentent le même jeton ; le second arrive après la rotation du
-premier et ressemblerait à un vol. En deçà de 30 secondes, la requête est refusée sans couper la
-session, et le navigateur — qui partage ses cookies entre onglets — réussit au réessai.
-
-**La déconnexion coupe réellement**, désormais : elle révoque la chaîne côté serveur, donc un cookie
-copié auparavant cesse de fonctionner. Reste que le jeton d'accès en cours, lui, vaut jusqu'à
-15 minutes : un JWT ne se révoque pas, c'est sa nature (voir les limites connues).
-
-Référence : **RFC 9700 (BCP 240, janvier 2025), § 4.14.2**. Elle impose, pour un client public comme
-un SPA, soit de lier le jeton au client par cryptographie, soit la rotation ; nous prenons la
-rotation. Couper toute la chaîne plutôt que le seul jeton présenté est en revanche **notre** décision,
-la norme ne parlant que du jeton actif. Elle ne fixe aucune durée : les 7 et 3 jours sont des
-arbitrages, pas une conformité.
-
-**Le mot de passe n'existe nulle part en clair côté serveur** : argon2id, paramètres OWASP
-(`src/crypto/secrets.ts`), le même primitif que le PIN des liens publics.
-
-**Un e-mail inconnu et un mot de passe faux sont indiscernables** : même statut 401, même message, et
-surtout **même durée** — quand le compte n'existe pas, la vérification tourne quand même contre un
-hachage factice. Sans cela, l'écart de temps (une milliseconde contre ~67) transformerait le login en
-annuaire des comptes existants.
-
-### Compte de démonstration
-
-`./install.sh` exécute le seed dans le conteneur `backend` et affiche ses identifiants : adresse, mot
-de passe, plus le lien de dépôt et son PIN. Le mot de passe est tiré au sort à la première
-installation (24 caractères hexadécimaux, ~96 bits) et conservé dans `.env` ; le rejouer ne duplique
-rien.
-
-## Le lien de dépôt
-
-Deux objets portent le mot « lien », et les confondre est la première erreur à éviter.
-
-**`https://…/depot/<jeton>` est l'adresse de la page client** : ce que l'avocat colle dans un
-courriel. Elle est composée à partir de `PUBLIC_BASE_URL`, une variable de configuration — **jamais à
-partir de l'en-tête `Host` de la requête**. Cet en-tête est fourni par l'appelant : un appel forgé
-ferait renvoyer par l'API un lien pointant vers le domaine d'un attaquant, que l'avocat transmettrait
-lui-même à son client.
-
-### Ce qui est stocké, et ce qui ne l'est pas
-
-Le jeton en clair **n'entre jamais dans la base**. À la création, dans cet ordre :
-
-1. `generatePublicToken()` tire **32 octets** du générateur du système et les encode en base64url —
-   43 caractères, 256 bits d'entropie.
-2. `hashPublicToken()` en calcule le **SHA-256**. C'est cette empreinte, et elle seule, qui part dans
-   la colonne `tokenHash`.
-3. La valeur en clair repart dans la **réponse HTTP**, composée en URL, et le serveur l'oublie.
-
-Elle n'est pas non plus journalisée : nginx la remplace par `[redacted]` dans `access.log`, et
-l'option de journalisation du serveur de fichiers statiques est désactivée pour la même raison. Elle
-existe donc en clair à deux endroits seulement — l'écran de l'avocat, et le courriel qu'il envoie.
-
-**Deux algorithmes, parce que les deux secrets ne posent pas le même problème.**
-
-| | Jeton de lien | PIN |
-|---|---|---|
-| Entropie | 256 bits | ~13 bits (4 chiffres) |
-| Stocké en | SHA-256 | argon2id, salé |
-| Sert à | **retrouver** la ligne | **vérifier** une saisie |
-
-Le jeton doit être **cherché** : quand un client se présente, on hache ce qu'il apporte et on
-interroge `WHERE tokenHash = …`, en une lecture indexée. Cela exige un hachage **déterministe** — la
-même entrée donne toujours la même sortie. argon2 est **salé** : deux hachages d'une même valeur
-diffèrent, donc la recherche par égalité est impossible et il faudrait tester le jeton contre toutes
-les lignes de la table. Le PIN, lui, n'a jamais à être cherché : on a déjà la ligne, on vérifie une
-saisie contre son empreinte — c'est exactement le cas d'usage d'argon2id.
-
-Et la lenteur d'argon2 n'apporterait rien au jeton : elle existe pour rendre coûteuse l'attaque d'un
-secret **devinable**. 256 bits ne se devinent pas, à n'importe quelle vitesse.
-
-**SHA-256 est à sens unique.** Des 64 caractères hexadécimaux stockés on ne remonte pas aux 43
-d'origine. Ce n'est pas un chiffrement : il n'y a pas de clé, et rien à déchiffrer. Un vol de base
-livre donc des empreintes inexploitables — **c'est le hachage du jeton qui rend une fuite sans
-valeur**, pas celui du PIN (voir les limites connues, où le chiffre est donné).
-
-**D'où l'affichage unique — qui n'est pas une protection, mais une conséquence.** On ne réaffiche pas
-ce qu'on ne conserve pas. Et **régénérer n'est pas non plus une protection : c'est la réparation** que
-cette conséquence rend nécessaire. Le gain de sécurité tient en deux mots — *jeton haché* et
-*révocation* ; l'affichage unique et la régénération en sont le prix ergonomique, assumé.
-
-**Régénérer ne réaffiche pas, ça remplace.** L'ancien jeton est perdu pour tout le monde,
-définitivement. La régénération en tire un neuf, révoque l'ancien, et l'affiche une fois — comme à la
-création. Conséquence à connaître avant de cliquer : **si le client avait déjà reçu l'ancien lien, il
-cesse de fonctionner**, et il faut lui envoyer le nouveau. C'est pourquoi l'interface demande
-confirmation en nommant cette conséquence, et pourquoi l'action de la carte s'appelle « Gérer le
-lien » et non « Copier le lien » — ce dernier mot conduirait l'avocat à casser un lien en service.
-
-**Ce qui protège réellement un dépôt, par ordre de poids réel.** La liste est souvent lue comme quatre
-protections empilées ; elle ne l'est pas.
-
-1. **Le jeton de 256 bits non devinable.** C'est *lui* le contrôle d'accès. Rien d'autre n'approche.
-2. **L'expiration**, qui borne la fenêtre sans intervention humaine.
-3. **La révocation**, seul moyen d'*arrêter* immédiatement un accès. Un lien parti par courriel
-   échappe à tout contrôle — transfert, boîte compromise, mauvais destinataire — et « il expirera dans
-   douze jours » ne répond pas à ça.
-4. **Le hachage au repos**, qui protège contre une fuite de base, pas contre une interception.
-5. **Le PIN à 4 chiffres**, le maillon faible — voir les limites connues.
-
-**Le PIN ne protège pas contre qui lit le courriel.** L'avocat collera vraisemblablement le lien *et*
-le code dans le même message ; le PIN ne défend alors que contre celui qui trouve l'URL **sans** le
-message — un journal, un historique de navigateur, une passerelle antispam. Le dire vaut mieux que
-laisser croire à une double authentification. C'est aussi pourquoi l'interface offre **deux boutons
-« Copier » séparés** et **aucun `mailto:` prérempli** : réunir les deux secrets d'un geste
-encouragerait exactement ce qu'on décrit ici.
-
-### Régénérer et révoquer
-
-**`POST /requests/:id/link` est l'appel de l'avocat** pour en obtenir un nouveau. Cette route n'est
-pas dans l'énoncé, qui encadre sa liste par « à titre indicatif […] le découpage exact est ton choix,
-on regardera comment tu le justifies ». Voici la justification.
-
-Le PIN n'est affiché **qu'une seule fois**, dans la réponse à la création, et il est stocké en
-argon2id : le serveur lui-même ne peut pas le relire. Le cas qui impose cette route n'est pas le
-client qui égare son code, c'est **l'avocat qui ne l'a jamais vu** — un onglet fermé, un
-rafraîchissement, une réponse perdue après l'écriture en base. La demande existe alors, valide, et
-personne au monde n'en connaît le PIN. Sans régénération, elle meurt à la seconde où elle naît, et
-l'avocat doit retaper intitulé et liste des pièces dans une nouvelle demande, en laissant
-l'ancienne « en attente » pour toujours.
-
-Régénérer révoque l'actif et émet jeton, PIN et échéance neufs. `DELETE /requests/:id/link` coupe
-sans réémettre, et répond 204 même s'il n'y avait rien à couper — le résultat demandé, personne
-n'entre, est atteint dans les deux cas.
-
-**Prolonger un lien n'est pas offert.** Ce serait rallonger la vie d'un jeton déjà parti par
-courriel, hors de tout contrôle. La pratique établie sur les liens de partage est de réémettre avec
-une fenêtre neuve, et de garder la révocation comme mécanisme distinct de l'expiration.
-
-**Une demande qui n'appartient pas à l'appelant répond 404, pas 403.** Un 403 confirmerait qu'un
-identifiant existe chez un autre avocat, ce qui suffit à énumérer ses dossiers.
-
-## Le tableau de bord
-
-`GET /requests` rend une page de demandes, la plus récente d'abord ; `GET /requests/:id` rend une
-demande avec ses pièces. Les deux sont fermées par le garde global : aucune ne porte `@Public()`.
-
-**Le statut n'est pas une colonne, il est calculé à la lecture.** « Expirée » dépend de l'horloge :
-une colonne resterait à « en attente » depuis l'instant d'expiration jusqu'au passage d'un job qui la
-bascule — et sans job, pour toujours. Le tableau de bord mentirait, sur le seul point qu'on lui
-demande. Le calcul ne coûte rien de plus ici : l'échéance et les pièces sont déjà chargées par la
-même requête.
-
-**Le statut garde les trois valeurs de l'énoncé ; l'état du lien est un champ voisin.** Révoquer un
-lien (`DELETE /requests/:id/link`) date `revokedAt` sans rien supprimer, donc l'échéance survit. Une
-demande révoquée conserve son statut — `en attente`, `complète` ou `expirée` — et `link.state` dit
-`revoked` à côté. Les deux faits sont indépendants : une demande peut être **complète et coupée**,
-et un champ unique en perdrait un. C'est aussi ce qui dit à l'avocat s'il doit régénérer.
-
-```json
-{
-  "items": [
-    { "id": "…", "title": "Dossier Martin, pièces 2026", "status": "pending",
-      "expectedCount": 3, "receivedCount": 1,
-      "link": { "state": "active", "expiresAt": "2026-08-23T19:49:38.626Z" } }
-  ],
-  "page": 1, "pageSize": 20, "total": 47, "totalPages": 3
-}
-```
-
-**`pageSize` est plafonné à 100.** Sans borne, un seul appel authentifié tire la table entière et
-toutes ses pièces. Le plafond est une constante du code, pas une variable d'environnement : il
-protège l'API, il ne dépend pas du déploiement.
-
-**Une demande qui n'appartient pas à l'appelant répond 404, pas 403** — la même règle que sur les
-routes de lien, pour la même raison. L'appartenance est un critère de la clause `where`, jamais une
-comparaison faite après la lecture : il n'existe donc aucune branche où le contrôle puisse être
-oublié.
-
-### Le jeton voyage dans l'URL, et ce que ça coûte
-
-L'énoncé fige `POST /public/:token/unlock` : le jeton est dans le **chemin**. C'est un laissez-passer
-— qui le lit entre dans le dossier — et un chemin fuit par deux voies.
-
-La parade radicale aurait été de le placer **après un `#`**, partie de l'URL que le navigateur
-n'envoie jamais au serveur. Elle est écartée : elle imposerait `POST /public/unlock` avec le jeton
-dans le corps, donc une surface d'API qui s'écarte de la consigne. (Hacher le jeton dans l'URL ne
-serait pas une alternative : ce que l'URL porte *est* le laissez-passer, quel que soit son encodage.)
-
-Deux mesures compensent, toutes deux dans nginx :
-
-- **`Referrer-Policy: no-referrer`.** Dès qu'une page charge une ressource d'un autre domaine, le
-  navigateur transmet à ce domaine l'adresse de la page courante — donc le jeton. C'est le scénario
-  que l'OWASP décrit pour les liens de réinitialisation de mot de passe, de même forme. S'y ajoute
-  `X-Robots-Tag: noindex, nofollow` : le portail est privé de bout en bout.
-- **Le jeton est masqué dans le format de journal.** Un chemin s'écrit dans `access.log`, en clair,
-  sur une machine partagée avec d'autres candidats. Le journal montre `/depot/[redacted]` et garde
-  tout le reste — code, durée, adresse.
+nginx est le **seul point d'entrée publié**, sur `127.0.0.1` uniquement — la machine est partagée
+avec d'autres candidats, et un bind sur `0.0.0.0` exposerait tout le portail, base comprise via
+`/api`. Frontend et API étant servis depuis la même origine, **il n'y a aucun CORS à configurer**.
+
+**Délibérément pas de Next.js.** NestJS fournit déjà l'étage serveur ; Next ajouterait un second
+runtime Node dont le seul vrai travail serait de relayer. Le rendu côté serveur et le référencement
+sont d'ailleurs indésirables : c'est un portail privé qui ne doit pas être indexé. Le SPA se compile
+en fichiers statiques, et il reste **un seul processus applicatif** à exploiter. Ce que ça coûte : un
+premier affichage qui attend le JavaScript — sans conséquence à quelques visites par dossier.
+
+**Deux populations, deux sessions, deux clés.** L'avocat a un JWT court (15 min) dans un cookie
+httpOnly, plus un jeton de rafraîchissement opaque, tourné à chaque usage, révocable. Le client
+anonyme a une session de dépôt signée par une **clé différente** — l'API refuse de démarrer si les
+deux sont égales, sans quoi un jeton de dépôt présenté au garde avocat passerait la vérification de
+signature (RFC 8725 § 3.8).
+
+**Toute route est fermée par défaut** : le garde est global, `@Public()` est la seule sortie, donc un
+nouveau contrôleur naît protégé.
+
+**Aucun composant ne contacte de tiers** : la police est auto-hébergée, Grafana a ses analytics et
+son préchargement de greffons coupés. Sur un produit dont l'argument est la traçabilité d'un dossier,
+c'est une position, pas un détail.
+
+→ Le détail et les options écartées : **`docs/architecture.md`**
+→ Le déploiement, le proxy, TLS, le registre d'images : **`docs/exploitation.md`**
+
+---
 
 ## Modèle de données
 
-Cinq entités. `Lawyer` est le seul acteur authentifié : le client n'a ni compte ni ligne en base,
-seulement un lien et un PIN.
+Cinq entités : `Lawyer` → `DepositRequest` → (`RequestedItem` → `UploadedFile`, `PublicLink`).
 
-```
-Lawyer ──< DepositRequest ──< RequestedItem ──0..1 UploadedFile
-                    └──< PublicLink
-```
+Quatre décisions ne se devinent pas en lisant les champs :
 
-| Entité | Rôle |
-|---|---|
-| `Lawyer` | `name`, `email` (unique, normalisé en minuscules), `passwordHash` |
-| `DepositRequest` | « Dossier Martin, pièces 2026 ». Porte le titre et le propriétaire |
-| `PublicLink` | `tokenHash`, `pinHash`, `expiresAt`, `revokedAt` — le lien envoyé au client |
-| `RequestedItem` | Une pièce attendue (« Carte d'identité ») |
-| `UploadedFile` | Le fichier déposé : `storageKey` MinIO, `mimeType`, `sizeBytes`, `status` |
-
-Quatre décisions méritent d'être expliquées.
-
-**Le statut n'est pas stocké.** « Expirée » dépend de l'horloge : une colonne resterait à « en
-attente » après l'expiration tant qu'aucun travail de fond ne la retournerait, et le tableau de
-bord mentirait. Il est dérivé à la lecture — `now > expiresAt` → expirée, sinon toutes les pièces
-reçues → complète, sinon en attente. Zéro colonne, zéro tâche planifiée, une fonction pure
-testable en gelant le temps. Même raison pour le « nombre de pièces attendues », qui est un
-`count(RequestedItem)`.
-
-**Le lien est une entité, pas trois colonnes.** Régénérer un lien révoque le précédent et en
-insère un nouveau, PIN compris : il est donc *structurellement* impossible qu'un ancien PIN reste
-valide sur un nouveau lien. Un index unique **partiel** — unique sur `requestId` uniquement là où
-`revokedAt IS NULL` — garantit un seul lien actif à la fois tout en laissant l'historique
-s'accumuler. Cet index est écrit à la main dans la migration : Prisma ne sait pas exprimer un
-index conditionnel.
-
-**Aucun secret n'est stocké en clair.** Le mot de passe et le PIN sont hachés en **argon2id**
-(configuration de référence OWASP : 19 Mio, 2 itérations, 1 voie), via `argon2` — liaison vers
-`phc-winner-argon2`, l'implémentation C de référence. Le **token du lien est haché en SHA-256** :
-c'est une credential au porteur au même titre qu'un mot de passe, et en clair une fuite de la base
-livrerait tous les liens actifs. SHA-256 et non argon2id parce que le token porte 256 bits
-d'entropie et ne se devine pas — un hachage rapide suffit et garde la recherche indexée.
-Conséquence assumée : le lien n'est affiché **qu'une fois**, à sa création ; le perdre oblige à le
-régénérer.
-
-**`mimeType` est une chaîne, pas un enum.** L'énoncé fige PDF/JPG/PNG, mais les types autorisés
-doivent rester configurables : un enum PostgreSQL imposerait une migration pour modifier une liste
-de validation. L'allowlist et la taille maximale (20 Mo) vivent dans la configuration.
-
-### Limites connues
-
-- **Pas de journal d'audit** (`AccessLog`) : classé en bonus dans l'énoncé. `PublicLink` en prépare
-  le rattachement.
-- **L'avocat ne peut pas encore télécharger les pièces reçues.** Le tableau de bord dit qu'une pièce
-  est arrivée, avec son nom, son type, sa taille et sa date ; il ne rend pas le fichier. C'est
-  l'issue **B4b**, qui attend C2 — tant que rien ne dépose, une route de téléchargement serait
-  livrée sans qu'aucun parcours réel ne l'ait exercée.
-- **La pagination du tableau de bord est par décalage** (`page` / `pageSize`). Si une demande est
-  créée pendant qu'on feuillette, une autre peut apparaître deux fois ou être sautée d'une page à la
-  suivante. Un curseur supprimerait le défaut, mais aussi le numéro de page et le total — donc le
-  « 3 sur 47 » de l'interface. À la volumétrie d'un cabinet, le compromis penche de ce côté.
-- **Pas de filtre ni de tri par statut.** Le statut étant calculé à la lecture, le filtrer en SQL en
-  ferait une seconde définition de la règle, susceptible de diverger de la première sans qu'aucun
-  test ne le voie. Ni l'énoncé ni le backlog ne le demandent.
-- **Français uniquement, sans mécanisme de traduction.** Les messages de validation de l'API sont
-  écrits en français dans les DTO, et un test unitaire de B2 refuse tout message anglais : traduire
-  l'interface seule donnerait des écrans anglais à erreurs françaises. Un vrai multilingue demande
-  deux catalogues et la reprise de trois modules déjà livrés. Ce qui est fait à la place ne coûte
-  rien et rendrait la traduction mécanique : les textes de chaque écran sont regroupés dans un objet
-  `TEXT` en tête de fichier, et `<html lang="fr">` est posé.
-- **Aucun en-tête `Content-Security-Policy`.** L'application n'en a pas besoin pour fonctionner, mais
-  c'est la défense qui limiterait les dégâts d'une dépendance frontend compromise. Issue **G4** : le
-  point dur y est nommé, Chakra injectant ses styles à l'exécution.
-- **Le survol du bouton n'est couvert par aucun test.** jsdom ne calcule pas les styles ; c'est une
-  vérification au navigateur (mesurée : fond `#F7F6FF`, texte violet, contour intérieur, et le même
-  gabarit de 153×40 px à la même position — donc aucun décalage d'un pixel). Issue **D5**.
-- **Le chemin du lien client est `/depot`**, alors que les routes de l'espace avocat sont en anglais.
-  Il n'appartient pas au frontend : le backend le compose et nginx masque ce préfixe exact dans ses
-  journaux, donc les trois doivent bouger ensemble. Issue **D6**.
-- **Le nom de fichier d'origine est restitué tel que le client l'a envoyé.** Il n'est jamais utilisé
-  comme chemin — la clé de stockage est composée à partir des identifiants — mais l'interface qui
-  l'affichera (B5) devra l'échapper comme n'importe quelle donnée venue de l'extérieur.
-- **Le PIN à 4 chiffres n'est protégé par aucune limitation de débit, et son hachage n'est pas un
-  rempart.** 10 000 combinaisons. **En ligne**, seul le coût d'argon2id (~67 ms mesurés) borne un
-  attaquant : c'est **G1**, par jeton de lien, et B3 ne le règle pas — le dire vaut mieux que le
-  laisser croire réglé. **Hors ligne**, après une fuite de base, ces mêmes 67 ms font
-  10 000 × 67 ms ≈ **11 minutes** pour casser **un** PIN sur un cœur, quelques secondes en parallèle.
-  Le hachage du PIN est donc de la défense en profondeur, pas une barrière ; ce qui rend une base
-  volée inexploitable est le hachage **du jeton**, sans lequel les PIN retrouvés n'ouvrent rien.
-  Quatre chiffres viennent de l'énoncé ; l'expiration du lien borne la fenêtre d'attaque, elle ne la
-  ferme pas. **C'est la limite la plus sérieuse du modèle actuel.**
-- **Le jeton survit hors de nos journaux.** Le masquage dans `access.log` ne couvre que notre disque :
-  l'adresse reste dans l'historique du navigateur du client, dans le courriel qui la transporte et
-  dans toute passerelle antispam qui l'aura ouvert. C'est la conséquence assumée d'un jeton dans le
-  chemin, forme que l'énoncé impose.
-- **Révoquer ou régénérer ne ferme pas une session client déjà ouverte**, tant que C1 n'existe pas.
-  La contrainte est posée dans le backlog : la session client devra porter le `linkId` et non le seul
-  `requestId`, sans quoi un client déjà déverrouillé conserverait son accès.
-- **Aucune limitation de débit sur `/auth/login`**, et c'est un choix, pas un oubli. Sur le port 443
-  la machine relaie le HTTPS en *passthrough* : elle recopie des octets chiffrés sans lire de requête
-  HTTP, donc elle ne peut renseigner aucun en-tête d'adresse d'origine. Notre nginx voit la même
-  adresse pour tous les clients, si bien qu'une limite « par IP » serait en réalité une limite
-  globale : un attaquant consommerait le quota et **verrouillerait l'avocat légitime**. Ce qui protège
-  le login à la place : un mot de passe tiré au sort (~96 bits, pas un mot de passe choisi), vérifié
-  en argon2id (~67 ms), une taille de champ bornée pour que personne ne puisse faire hacher un
-  mégaoctet, et des réponses indiscernables. La limitation revient en **G1**, par jeton de lien — la
-  seule clé qui reste discriminante derrière ce relais.
-- **Le jeton d'accès reste irrévocable pendant ses 15 minutes.** C'est la nature d'un JWT : rien
-  n'est consulté pour le valider, hormis la relecture du compte que fait le garde. La déconnexion
-  coupe le renouvellement, pas le quart d'heure en cours. Le fermer vraiment demanderait une liste de
-  jetons révoqués consultée à chaque requête — c'est-à-dire renoncer au JWT.
-- **La tolérance de 30 secondes sur la rotation est un compromis.** Un attaquant qui rejoue dans cet
-  intervalle échappe à la détection ; il n'y gagne rien, le jeton étant déjà consommé, mais l'alerte
-  ne part pas. Sans cette tolérance, deux onglets ouverts en parallèle déconnecteraient l'avocat.
-- **Aucune notification lors d'une détection.** La session est coupée sans que personne soit
-  prévenu : l'avocat constate qu'il doit se reconnecter. Un vrai signalement suppose G2 (journal
-  d'audit) et un canal de notification, dont l'énoncé ne parle pas.
-- **Pas de liste des sessions actives** ni de « déconnecter mes autres appareils ». Le modèle le
-  permet — une famille de jetons par connexion — c'est une route à écrire, pas un obstacle (B1b).
-- **Un seul compte avocat, celui du seed.** Pas d'inscription, pas de réinitialisation de mot de
-  passe, pas de multi-cabinet. Changer le mot de passe, c'est changer `SEED_LAWYER_PASSWORD` et
-  relancer `./install.sh` — ce qui **renomme** le compte plutôt que d'en créer un second, le seed le
-  retrouvant par la demande qu'il possède et non par son adresse.
-- **Le seed réécrit ce qu'il a créé.** Chaque exécution repose le hachage du mot de passe et
-  **révoque le lien public en cours** pour en émettre un nouveau — sans quoi il ne pourrait pas
-  réafficher un PIN utilisable, celui-ci étant haché. Conséquence à connaître : relancer
-  `./install.sh` pendant qu'un client utilise le lien de démonstration le lui invalide.
-- **Le compte de démonstration existe aussi sur le domaine public**, avec une adresse devinable et
-  aucune limitation de débit devant lui. C'est son mot de passe tiré au sort qui le protège, seul.
-  Un déploiement réel devrait le supprimer.
-- **Pas de versionnage des fichiers** : un fichier par pièce attendue, un nouveau dépôt écrase le
-  précédent, objet MinIO compris.
-- **Pas d'historique conservé au-delà des liens** : supprimer une demande détruit en cascade ses
-  liens, pièces et métadonnées. Les objets MinIO sont effacés par préfixe
-  (`requests/<id>/`) — d'où cette convention de nommage — mais il n'y a pas de balayage
-  périodique des orphelins en cas d'échec partiel.
-- **Pas de chiffrement au repos**, ni de la base ni des objets.
-- **Pas de politique de rétention** : les liens expirés restent en base indéfiniment.
-- **`install.sh` ne démarre pas sur une machine sans bash** (Alpine nu, par exemple). Son shebang est
-  `bash`, donc l'échec arrive avant sa première ligne, hors de portée de sa propre gestion d'erreur.
-  Le correctif tient en une douzaine de lignes — shebang `#!/bin/sh`, préambule POSIX qui obtient
-  bash puis `exec bash "$0" "$@"`, après quoi tout le reste est inchangé, `/dev/tcp` compris. Il
-  n'est pas fait parce qu'aucune machine visée n'est concernée : Alpine est une image de base pour
-  conteneurs, et Ubuntu/Debian, Fedora/RHEL et macOS livrent tous bash.
-- **macOS n'est pas couvert, faute de pouvoir le tester.** Sur un Mac sans Docker, `install.sh`
-  appelle `get.docker.com`, qui détecte lui-même le système et répond
-  `ERROR: Unsupported operating system 'macOS'` en renvoyant vers Docker Desktop — un message juste,
-  qu'il aurait été inutile de remplacer par le nôtre. Avec Docker Desktop déjà lancé, le reste du
-  script a de bonnes chances de fonctionner (aucune option GNU-only sur le chemin nominal), mais
-  **ce n'est pas vérifié** et rien dans le projet ne l'affirme.
-- **Le palier root de la cascade Docker est le seul testé automatiquement**
-  (`pnpm test:bare-machine`). Les paliers *sudo* et *rootless* sont vérifiés à la main.
-- **Un `.env` et un volume Postgres peuvent diverger** sur une machine de développement dont le
-  `.env` a été régénéré alors que les volumes survivaient : Postgres ne lit son mot de passe qu'à la
-  création du volume. Le backend boucle alors sur `P1000` et le remède est `down -v`. Le cas ne peut
-  pas se produire sur une machine neuve, où les deux naissent ensemble.
+- **Le statut n'est pas une colonne.** « Expirée » dépend de l'horloge : une colonne serait fausse
+  entre l'instant d'échéance et le passage d'un travail de fond, et le tableau de bord mentirait. Il
+  est dérivé à la lecture — tout reçu → *complète*, sinon échéance dépassée → *expirée*, sinon *en
+  attente*. **Une demande complète le reste après la date limite** : un dossier abouti ne doit pas
+  ressembler à un dossier abandonné. Le statut décrit le dossier, le lien décrit l'accès : un lien
+  expiré reste fermé même sur une demande complète.
+- **`PublicLink` est une table, pas trois colonnes.** Régénérer, c'est révoquer puis insérer, donc un
+  ancien PIN ne peut structurellement pas survivre. L'invariant tient à un **index unique partiel
+  écrit à la main** dans la migration — Prisma ne sait pas exprimer un index conditionnel.
+- **Aucun secret n'est stocké en clair, le jeton compris** : SHA-256 pour le jeton (256 bits ne se
+  devinent pas, et un hachage rapide reste indexable), argon2id aux paramètres OWASP pour le PIN et
+  le mot de passe. Conséquence : **le lien et le PIN n'existent en clair qu'une fois**, et un PIN
+  perdu ne se réaffiche pas, il se **remplace**.
+- **`RequestedItem.position` existe parce que `createdAt` ne peut pas ordonner** : les pièces d'une
+  demande partagent leur horodatage à la milliseconde, et la liste du client se réordonnerait entre
+  deux chargements.
 
 ---
 
 ## Stratégie de tests
 
-Trois étages, qui ne prouvent pas la même chose. Chacun a une dépendance et un coût assumés.
+**Le critère de conservation, appliqué dans cet ordre.** Un test ne reste que s'il peut échouer à
+cause d'un changement plausible de *notre* code. Si la même règle est déjà affirmée à une autre
+couche, on n'en garde qu'une — celle qui traverse le plus de code réel. **La sécurité ne s'élague
+pas**, y compris en double si les deux couches testent des choses différentes.
 
-| Commande | Ce que ça exerce | Docker | Durée mesurée |
+| Commande | Ce que ça exerce | Docker | Mesuré |
 |---|---|---|---|
-| `pnpm test` | Les deux suites unitaires, backend puis frontend | non | ~9 s — 314 tests |
-| `pnpm -C backend test` | Les unités du backend, avec des doublures : validation de configuration, dérivation du statut, primitives de hachage, règles de rotation | non | 3,8 s — 257 tests |
-| `pnpm -C frontend test` | Le thème (les valeurs de la charte verrouillées), le client d'API, le contexte de session, l'écran de connexion — jsdom, Vitest | non | 4,8 s — 57 tests |
-| `pnpm test:e2e` | L'API entière par HTTP, contre un **vrai PostgreSQL 17** monté par testcontainers, migrations réelles appliquées | oui | 20,3 s — 65 tests |
-| `pnpm test:integration` | `StorageService` contre un **vrai MinIO**, sous la politique d'accès restreinte de la production | oui | 4,7 s — 9 tests |
-| `pnpm test:bare-machine` | `./install.sh` sur une image `ubuntu:24.04` où rien n'est préinstallé | oui | ~2 min |
+| `pnpm -C backend test` | unités : validation de configuration, statut, primitives de hachage, rotation des jetons | non | 3 s — 239 cas |
+| `pnpm -C frontend test` | Vitest + jsdom : client d'API, session, écrans | non | 12 s — 112 cas |
+| `pnpm test:e2e` | l'API entière par HTTP, contre un **vrai PostgreSQL 17** | oui | 18 s — 98 cas |
+| `pnpm test:integration` | `StorageService` contre un **vrai MinIO**, sous la policy restreinte | oui | 5 s — 10 cas |
+| `pnpm test:bare-machine` | `./install.sh` sur `ubuntu:24.04` où rien n'est préinstallé | oui | ~2 min |
 
-**Pourquoi une vraie base pour les tests e2e.** Ils utilisaient jusqu'ici une doublure de Prisma
-écrite à la main. Elle se maintenait à chaque nouvelle route, et surtout elle ne pouvait rien
-prouver : sa fonction `$transaction` n'annulait rien, et le test du conflit 409 vérifiait qu'on
-traduisait bien une erreur simulée, pas que la contrainte qui la produit existe. Or cette
-contrainte — un index unique **partiel** qui n'autorise qu'un seul lien actif par demande — est
-écrite à la main dans la migration, parce que Prisma ne sait pas exprimer un index conditionnel :
-régénérer la migration la perd sans un mot. Deux liens actifs deviendraient alors possibles, un
-ancien PIN survivrait à la régénération censée le remplacer, et toute la suite resterait verte.
+Les trois sujets que l'énoncé nomme :
 
-Trois tests n'existent que grâce à la vraie base : l'index refusant un second lien actif, ce même
-index acceptant les liens révoqués à côté, et la suppression en cascade d'une demande. Le premier a
-été vérifié de la seule manière qui vaille — en supprimant l'index de la migration, en constatant
-que ce test précis échoue, puis en remettant le fichier.
+- **expiration du lien** — `backend/src/requests/request-status.spec.ts` (la borne stricte : à
+  l'instant exact de l'échéance le lien fonctionne encore) et le cas « dies as soon as the link
+  expires » de `backend/test/public.e2e-spec.ts` ;
+- **vérification du PIN** — le bloc *unlock* de `backend/src/public/public.service.spec.ts` et
+  `backend/test/public.e2e-spec.ts` : les quatre refus (lien inconnu, révoqué, expiré, PIN faux)
+  répondent la **même** chose, et le PIN est vérifié contre un hachage-leurre même quand le lien
+  n'existe pas — sinon l'écart de temps redonnerait l'oracle que le message unique venait de retirer ;
+- **transitions de statut** — `request-status.spec.ts` et `request.types.spec.ts` pour la règle,
+  `dashboard.e2e-spec.ts` pour un cas de bout en bout qui prouve que la sélection SQL alimente bien
+  la dérivation.
 
-**Ce que ça coûte, dit franchement.** Docker devient nécessaire pour `pnpm test:e2e`, et la suite
-passe de 8,5 s à 20 s. L'argument qui justifiait l'ancien montage — « la CI ne pourra pas lancer
-Docker » — était faux : les exécuteurs GitHub embarquent un démon Docker.
+**Pourquoi une vraie base pour les e2e.** La doublure de Prisma écrite à la main ne pouvait rien
+prouver : son `$transaction` n'annulait rien, et le test du 409 vérifiait qu'on traduisait une erreur
+simulée, pas que la contrainte existe. Trois tests n'existent que grâce à la vraie base — l'index
+refusant un second lien actif, ce même index acceptant les liens révoqués à côté, et la cascade. Le
+premier a été vérifié de la seule façon qui vaille : en supprimant l'index de la migration, en
+regardant ce test précis tomber, puis en restaurant. Ce que ça coûte, dit franchement : Docker
+devient nécessaire, et la suite passe de 8,5 s à 18 s.
 
-**Pourquoi Vitest côté frontend et pas Jest**, alors que le backend est en Jest. Vitest relit
-`vite.config.ts` : les greffons, les alias et TypeScript sont déjà réglés. Jest ne le lit pas, et
-Chakra v3 comme Ark UI ne sont livrés qu'en modules ES, ce qui impose une liste d'exceptions de
-transformation à maintenir. La cohérence entre les deux applications est une préférence ; la
-compatibilité avec des modules ES est une contrainte, et c'est elle qui tranche.
+**Vitest côté frontend et pas Jest** : Vitest relit `vite.config.ts`, et Chakra v3 comme Ark UI ne
+sont livrés qu'en modules ES — Jest demanderait une liste d'exceptions de transformation à maintenir.
 
-**Ce qu'aucun étage ne couvre.** Aucun test ne traverse nginx : le parcours réel d'un avocat ou d'un
-client à travers la pile complète reste une vérification à la main.
+### Ce qui n'est vérifié qu'au navigateur, et qu'il faut dire
 
-Et **jsdom ne calcule aucun style**. Il dit qu'un bouton existe, jamais qu'il est violet. Trois
-défauts de la charte sont passés au travers de 55 tests verts et n'ont été vus qu'au navigateur :
-un titre de carte rendu à 18 px alors que la recette écrivait 11, un fond de carte et un fond de
-champ pris à Chakra plutôt qu'à la charte. Les tests de recette lisent depuis la valeur **effective**
-— `base` plus les variantes par défaut — au lieu de `base` seul, ce qui les aurait attrapés ; mais
-l'inversion au survol, elle, reste hors de leur portée. La couvrir demanderait Vitest en mode
-navigateur, donc un Chromium téléchargé en CI.
+**jsdom ne calcule aucun style.** Il dit qu'un bouton existe, jamais qu'il est violet, ni qu'il
+s'inverse au survol, ni que la densité tient sur mobile. Trois défauts de la charte sont passés au
+travers de tests verts et n'ont été vus qu'au navigateur.
+
+Les 35 cas du dossier `theme/` ont donc été **supprimés** : ils relisaient des jetons de style et
+donnaient l'illusion de couvrir la charte. Deux ont été gardés, parce qu'ils portent un vrai piège
+Chakra ou de l'accessibilité. La charte n'est vérifiée **que** par la passe navigateur, et
+`docs/tests-manuels.md § B3` est la seule chose qui la décrive.
+
+**Aucun test ne traverse nginx** : le parcours réel reste `./install.sh` puis
+`docs/tests-manuels.md`, déroulé à la main.
 
 ---
 
-_À documenter d'ici la fin : architecture et choix justifiés, périmètre d'observabilité et pourquoi
-ces métriques, identifiants de démo._
+## Observabilité
+
+Sept métriques métier, **une question d'exploitation chacune** — une métrique sur laquelle personne
+ne peut agir est une série à stocker pour toujours.
+
+| Métrique | La question à laquelle elle répond |
+|---|---|
+| `portal_deposits_total{outcome}` | le produit fait-il son seul travail ? |
+| `portal_unlock_attempts_total{outcome}` | une pointe de `failure` est la signature d'une force brute sur le PIN |
+| `portal_expired_link_hits_total` | la durée de vie par défaut d'un lien est-elle trop courte ? |
+| `portal_upload_bytes` | dimensionne le bucket ; une distribution qui se décale, c'est un abus |
+| `portal_requests_completed_total` | combien de **dossiers** aboutissent — les autres comptent des fichiers |
+| `portal_rejected_upload_bytes` | de **combien** les fichiers refusés dépassent, donc si 20 Mio est le bon plafond |
+| `portal_http_request_duration_seconds` | la latence par route, base de toute alerte de disponibilité |
+
+Quatre alertes provisionnées : API injoignable, taux d'échec de dépôt > 10 % (avec un plancher de
+5 dépôts, sans lequel un seul fichier refusé sur trois donnerait 33 %), plus de 20 PIN erronés en
+5 min, dépendance injoignable. `/api/v1/metrics` est en `deny all` derrière nginx : publié, il dirait
+à qui scanne quand frapper.
+
+→ Les seuils, leur justification et le **runbook** : **`docs/observabilite.md`**
+
+---
+
+## Limites connues
+
+Sans euphémisme.
+
+- **Pas de limitation de débit sur le PIN.** Une force brute est **détectée** (l'alerte à 20 échecs
+  en 5 min) mais **pas empêchée** : ce qui borne le débit d'un attaquant est le coût d'argon2id,
+  67 ms par essai. Une limite par IP serait ici une limite globale — derrière le passthrough SNI de
+  la machine, toutes les requêtes portent la même adresse, et un attaquant enfermerait l'avocat
+  dehors.
+- **Pas d'antivirus.** La vérification de type est livrée (octets magiques, trois formats, 20 Mio) ;
+  l'antivirus, l'autre moitié de ce bonus de l'énoncé, ne l'est pas.
+- **`style-src 'unsafe-inline'`** est imposé par Chakra v3, qui injecte ses règles à l'exécution. La
+  CSP borne donc l'exfiltration, **pas** la manipulation visuelle (surcouche qui déguise un bouton,
+  faux formulaire de PIN).
+- **Les alertes sont visibles, pas poussées** : la machine n'a pas de SMTP, et pointer vers un
+  destinataire injoignable donnerait l'illusion d'une notification.
+- **L'alerte de dépendance ne distingue pas Postgres de MinIO** : il faut lire le corps de la sonde.
+- **La métrique de dépassement ne voit que 20 → 25 Mo** : nginx refuse au-delà, sur l'en-tête, avant
+  que le backend ne voie la requête. On échange l'information contre la robustesse, en connaissance
+  de cause.
+- **`linux/amd64` uniquement** : émuler arm64 sous QEMU pour compiler `argon2` ferait passer le job
+  de ~3 min à ~15 min, pour une plateforme sur laquelle personne ne déploie ici.
+- **La production épingle un tag, qui est mutable** — seul un digest identifie un contenu.
+- **Les URL pré-signées sont la voie de montée en charge, et elles ont été écartées** : elles
+  mettraient un **second** justificatif d'accès dans une URL, donc une seconde règle de masquage dans
+  les journaux — la protection dont l'échec est silencieux. Aujourd'hui les fichiers transitent par
+  l'API, en flux, sans jamais toucher son disque.
+- **`ai-logs/` n'est pas caviardé** ligne à ligne, et doit l'être avant le rendu.
+- **Densité mobile** (E2) : ouverte, et vérifiable seulement au navigateur.
+
+---
+
+## Documentation
+
+| Fichier | Contenu |
+|---|---|
+| `docs/architecture.md` | les choix backend / frontend / données, et ce qu'on a écarté |
+| `docs/exploitation.md` | `install.sh`, compose, reverse proxy, TLS, registre d'images, pièges de déploiement |
+| `docs/observabilite.md` | métriques, alertes, seuils, runbook |
+| `docs/tests-manuels.md` | la recette : critères obligatoires et attendus, une commande par case |
+| `issue_backlog.md` | le backlog dérivé de l'énoncé, et ce qui a été coupé |
+| `ai-plans/` | un plan daté par fonctionnalité : décisions, vérifications, relecture |

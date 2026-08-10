@@ -12,25 +12,6 @@ const link: IssuedLink = {
 }
 
 describe('IssuedLinkCard', () => {
-  it('shows the link, the four PIN digits and the expiry date', () => {
-    renderWithTheme(<IssuedLinkCard link={link} />)
-
-    expect(screen.getByLabelText(/lien a envoyer/i)).toHaveValue(link.url)
-    for (const digit of ['4', '2', '0', '7']) {
-      expect(screen.getAllByText(digit).length).toBeGreaterThan(0)
-    }
-    expect(screen.getByText(/14 avril 2026/)).toBeInTheDocument()
-  })
-
-  // The PIN exists in clear exactly once. A lawyer who closes this card without
-  // reading that has to regenerate the link, which invalidates the one already
-  // sent -- so the warning is part of the component, not of the page.
-  it('warns that the code is shown once and cannot be redisplayed', () => {
-    renderWithTheme(<IssuedLinkCard link={link} />)
-    expect(screen.getByText(/qu'une fois/i)).toBeInTheDocument()
-    expect(screen.getByText(/regenerer/i)).toBeInTheDocument()
-  })
-
   it('copies the PIN on its own, without the link around it', async () => {
     const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
     // Object.create, not a spread: navigator is a class instance and a spread

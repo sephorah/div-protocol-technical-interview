@@ -89,16 +89,10 @@ export class RefreshTokenService {
       return { status: 'rejected', reason: 'expired' };
     }
 
-    // Claim and successor in ONE transaction. Separately, a failed INSERT would
-    // leave the presented token revoked with no replacement: the client holds a
-    // dead cookie, and replaying it 30 s later reads as a reuse and kills a
-    // family nobody attacked. A single database hiccup would end a seven-day
-    // session.
-    //
-    // Under READ COMMITTED this makes the pair all-or-nothing; it does not fully
-    // close the millisecond in which a concurrent revokeFamily could slip
-    // between the two. Closing that would need SERIALIZABLE or a row lock on the
-    // family, for a window an attacker cannot aim at.
+    // Claim and successor in ONE transaction: separately, a failed INSERT would
+    // revoke the presented token with no replacement, and a single database
+    // hiccup would end a seven-day session. It does not close the millisecond a
+    // concurrent revokeFamily could slip into -- a window nobody can aim at.
     const successor = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.refreshToken.updateMany({
         where: { tokenHash, revokedAt: null },
@@ -140,14 +134,9 @@ export class RefreshTokenService {
 
   /**
    * Rows survive rotation -- that is what makes a reuse recognisable -- so a
-   * chain leaves one behind per renewal. Cleared at login, where the cost is
-   * paid once per session rather than by a scheduled job nobody runs.
-   *
-   * On the CEILING only, deliberately, never on idleExpiresAt: a rotated row
-   * keeps the idle deadline it was given, so on a chain renewed for a week the
-   * older links would be deleted while the session is still live -- and
-   * replaying one of them would read as 'unknown' instead of 'reused', with no
-   * revocation. Detection would silently cover only the last three days.
+   * chain leaves one behind per renewal. Purged on the CEILING only, never on
+   * idleExpiresAt: that would delete the older links of a LIVE chain, and
+   * replaying one would read as 'unknown' rather than 'reused'.
    */
   async purgeExpired(lawyerId: string): Promise<void> {
     await this.prisma.refreshToken.deleteMany({

@@ -161,32 +161,26 @@ describe('PublicService', () => {
 
   /**
    * What this block protects: the brute-force alert reads
-   * portail_unlock_attempts_total{outcome="failure"}, and it is the ONLY thing
+   * portal_unlock_attempts_total{outcome="failure"}, and it is the ONLY thing
    * standing in for the rate limiting of G1. A refusal that forgets to count
    * itself makes an attacker walking the 10 000 PINs of a revoked link
    * invisible, while the dashboard stays green.
    */
   describe('the counters', () => {
-    const refusals: LinkResolution[] = [
-      { outcome: 'unknown' },
-      { outcome: 'revoked' },
-      { outcome: 'expired' },
-    ];
+    it('counts a wrong pin on a valid link as a failed unlock', async () => {
+      links.resolve.mockResolvedValue(okResolution);
 
-    it.each(refusals)('counts %o as a failed unlock', async (resolution) => {
-      links.resolve.mockResolvedValue(resolution);
-
-      await expect(service.unlock('token', PIN, new Date())).rejects.toThrow(
+      await expect(service.unlock('token', '9999', new Date())).rejects.toThrow(
         UnauthorizedException,
       );
 
       expect(metrics.recordUnlock.mock.calls).toEqual([['failure']]);
     });
 
-    it('counts a wrong pin on a valid link as a failed unlock', async () => {
-      links.resolve.mockResolvedValue(okResolution);
+    it('counts a refused link as a failed unlock too', async () => {
+      links.resolve.mockResolvedValue({ outcome: 'revoked' });
 
-      await expect(service.unlock('token', '9999', new Date())).rejects.toThrow(
+      await expect(service.unlock('token', PIN, new Date())).rejects.toThrow(
         UnauthorizedException,
       );
 
@@ -214,17 +208,14 @@ describe('PublicService', () => {
       expect(metrics.recordExpiredLinkHit).toHaveBeenCalledTimes(1);
     });
 
-    it.each<LinkResolution>([{ outcome: 'unknown' }, { outcome: 'revoked' }])(
-      'does not count %o as an expired-link hit',
-      async (resolution) => {
-        links.resolve.mockResolvedValue(resolution);
+    it('does not count a revoked link as an expired-link hit', async () => {
+      links.resolve.mockResolvedValue({ outcome: 'revoked' });
 
-        await expect(service.unlock('token', PIN, new Date())).rejects.toThrow(
-          UnauthorizedException,
-        );
+      await expect(service.unlock('token', PIN, new Date())).rejects.toThrow(
+        UnauthorizedException,
+      );
 
-        expect(metrics.recordExpiredLinkHit).not.toHaveBeenCalled();
-      },
-    );
+      expect(metrics.recordExpiredLinkHit).not.toHaveBeenCalled();
+    });
   });
 });

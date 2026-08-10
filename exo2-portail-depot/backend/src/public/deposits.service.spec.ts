@@ -31,11 +31,15 @@ const PDF: IncomingFile = {
  */
 describe('DepositsService', () => {
   let prisma: {
-    requestedItem: { findFirst: jest.Mock };
+    requestedItem: { findFirst: jest.Mock; count: jest.Mock };
     uploadedFile: { upsert: jest.Mock };
   };
   let storage: { putObject: jest.Mock; deleteObject: jest.Mock };
-  let metrics: { recordDeposit: jest.Mock; observeUploadBytes: jest.Mock };
+  let metrics: {
+    recordDeposit: jest.Mock;
+    observeUploadBytes: jest.Mock;
+    recordRequestCompleted: jest.Mock;
+  };
   let service: DepositsService;
 
   const storedRow = {
@@ -53,14 +57,23 @@ describe('DepositsService', () => {
 
   beforeEach(() => {
     prisma = {
-      requestedItem: { findFirst: jest.fn() },
+      // Default: a piece is still missing, so the completion counter stays put
+      // unless a test says otherwise.
+      requestedItem: {
+        findFirst: jest.fn(),
+        count: jest.fn().mockResolvedValue(1),
+      },
       uploadedFile: { upsert: jest.fn().mockResolvedValue(storedRow) },
     };
     storage = {
       putObject: jest.fn().mockResolvedValue(undefined),
       deleteObject: jest.fn().mockResolvedValue(undefined),
     };
-    metrics = { recordDeposit: jest.fn(), observeUploadBytes: jest.fn() };
+    metrics = {
+      recordDeposit: jest.fn(),
+      observeUploadBytes: jest.fn(),
+      recordRequestCompleted: jest.fn(),
+    };
     service = new DepositsService(
       prisma as unknown as PrismaService,
       storage as unknown as StorageService,
@@ -70,6 +83,11 @@ describe('DepositsService', () => {
 
   const withItem = (file: { storageKey: string } | null): void => {
     prisma.requestedItem.findFirst.mockResolvedValue({ id: ITEM_ID, file });
+  };
+
+  /** How many pieces of the request are still waiting once this one is in. */
+  const missingPieces = (count: number): void => {
+    prisma.requestedItem.count.mockResolvedValue(count);
   };
 
   describe('a first deposit', () => {
@@ -362,6 +380,51 @@ describe('DepositsService', () => {
       ).rejects.toBeInstanceOf(NotFoundException);
 
       expect(metrics.recordDeposit.mock.calls).toEqual([['error'], ['error']]);
+    });
+
+    it('counts the request as completed when the last expected piece lands', async () => {
+      withItem(null);
+      missingPieces(0);
+
+      await service.deposit(REQUEST_ID, ITEM_ID, PDF);
+
+      expect(metrics.recordRequestCompleted).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves it uncounted while a piece is still missing', async () => {
+      withItem(null);
+      missingPieces(1);
+
+      await service.deposit(REQUEST_ID, ITEM_ID, PDF);
+
+      expect(metrics.recordRequestCompleted).not.toHaveBeenCalled();
+    });
+
+    // Without this, a client replacing a file would push the completed-request
+    // counter past the number of requests, and the completion rate past 100 %.
+    // A `failed` file is not a received piece: counting it would report the
+    // request as completed while the dashboard still shows it pending.
+    it('asks for pieces with no COMPLETE file, not merely with no file', async () => {
+      withItem(null);
+      missingPieces(0);
+
+      await service.deposit(REQUEST_ID, ITEM_ID, PDF);
+
+      expect(firstCall(prisma.requestedItem.count)[0]).toEqual({
+        where: {
+          requestId: REQUEST_ID,
+          NOT: { file: { is: { status: 'complete' } } },
+        },
+      });
+    });
+
+    it('does not count it again on a replacement deposit', async () => {
+      withItem({ storageKey: 'requests/x/items/y/old.pdf' });
+      missingPieces(0);
+
+      await service.deposit(REQUEST_ID, ITEM_ID, PDF);
+
+      expect(metrics.recordRequestCompleted).not.toHaveBeenCalled();
     });
   });
 });

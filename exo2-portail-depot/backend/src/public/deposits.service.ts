@@ -51,12 +51,9 @@ export class DepositsService {
   ) {}
 
   /**
-   * The one accounting point of the deposit route.
-   *
-   * Wrapping rather than five scattered calls: a branch added to `store` later
-   * is counted without anyone remembering to, and `rejected_size` is
-   * deliberately absent here -- multer refuses an oversized file before this
-   * service is ever reached, so UploadLimitFilter is what counts it.
+   * The one accounting point of the route: a branch added to `store` later is
+   * counted without anyone remembering to. `rejected_size` is absent on
+   * purpose -- multer refuses before this service is reached.
    */
   async deposit(
     requestId: string,
@@ -81,16 +78,10 @@ export class DepositsService {
   }
 
   /**
-   * Stores one file against one expected piece.
-   *
-   * The order of the steps is load-bearing, and the two that look
-   * interchangeable are not:
-   *
-   * - the ownership check comes first, so not a byte is written for a piece the
-   *   caller does not own;
-   * - the previous object is erased AFTER the new row is written. Reversed, a
-   *   putObject that fails would leave the piece with no file at all when it
-   *   had one -- a client correcting a document would lose the first.
+   * The order of the steps is load-bearing: the ownership check first, so not a
+   * byte is written for a piece the caller does not own; the previous object
+   * erased AFTER the new row is written, or a failed putObject would leave the
+   * piece with nothing where it had something.
    */
   private async store(
     requestId: string,
@@ -127,6 +118,13 @@ export class DepositsService {
 
     const stored = await this.record(itemId, storageKey, file, detected);
 
+    // Only a piece that had nothing can complete the request. Counted on the
+    // transition and not on the state after, or a replacement deposit on an
+    // already-complete request would count it a second time.
+    if (previousKey === null) {
+      await this.countIfCompleted(requestId);
+    }
+
     if (previousKey !== null && previousKey !== storageKey) {
       await this.forget(previousKey);
     }
@@ -141,12 +139,34 @@ export class DepositsService {
   }
 
   /**
-   * Upsert on requestedItemId, unique in the schema: a second deposit REPLACES,
-   * it does not version.
+   * One query, asking how many pieces are still waiting rather than comparing
+   * two counts. "Waiting" must mean the SAME thing as isReceived: no file, or a
+   * file that is not `complete` -- counting a `failed` one would report a
+   * request as completed while the dashboard still shows it pending.
    *
-   * The upsert is a read then a write, so it is NOT atomic against a concurrent
-   * one: two deposits arriving together on an empty piece both find no row and
-   * both insert. The unique index stops the second with a P2002.
+   * Swallowed on failure -- a metric must never turn an accepted deposit into
+   * a 500 the client would answer by re-sending the file.
+   */
+  private async countIfCompleted(requestId: string): Promise<void> {
+    try {
+      const stillMissing = await this.prisma.requestedItem.count({
+        where: { requestId, NOT: { file: { is: { status: 'complete' } } } },
+      });
+
+      if (stillMissing === 0) {
+        this.metrics.recordRequestCompleted();
+      }
+    } catch (error) {
+      this.logger.error(
+        `Could not tell whether request ${requestId} is complete`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * A second deposit REPLACES, it does not version. The upsert is a read then a
+   * write, so it is NOT atomic: the unique index stops the loser with a P2002.
    */
   private async record(
     itemId: string,

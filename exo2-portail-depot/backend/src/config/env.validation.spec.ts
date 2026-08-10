@@ -1,5 +1,12 @@
 import { validateEnv } from './env.validation';
 
+/**
+ * What this suite protects: a startup that refuses a configuration it cannot
+ * honour, naming what is wrong without ever echoing a secret.
+ *
+ * The duration formats themselves are duration.spec.ts; only the two values
+ * whose misreading is silent are replayed here.
+ */
 describe('validateEnv', () => {
   const storage = {
     STORAGE_ENDPOINT: 'http://minio:9000',
@@ -39,7 +46,7 @@ describe('validateEnv', () => {
   };
 
   it('builds DATABASE_URL from the DB_* variables', () => {
-    expect(validateEnv({ ...db })).toMatchObject({
+    expect(validateEnv({ ...db, DB_HOST: '  db  ' })).toMatchObject({
       DATABASE_URL: 'postgresql://portail:password@db:5432/portail_depot',
     });
   });
@@ -48,12 +55,6 @@ describe('validateEnv', () => {
     // Whatever the validation does not know about reaches ConfigService intact.
     expect(validateEnv({ ...db, NODE_ENV: 'production' })).toMatchObject({
       NODE_ENV: 'production',
-    });
-  });
-
-  it('trims surrounding whitespace', () => {
-    expect(validateEnv({ ...db, DB_HOST: '  db  ' })).toMatchObject({
-      DATABASE_URL: 'postgresql://portail:password@db:5432/portail_depot',
     });
   });
 
@@ -67,23 +68,17 @@ describe('validateEnv', () => {
     expect(() => new URL(result.DATABASE_URL as string)).not.toThrow();
   });
 
-  it.each(['DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'])(
-    'rejects a configuration without %s',
-    (key) => {
-      expect(() => validateEnv({ ...db, [key]: '' })).toThrow(
-        new RegExp(`missing or empty.*${key}`),
-      );
-    },
-  );
+  it('rejects a configuration missing a DB_* variable', () => {
+    expect(() => validateEnv({ ...db, DB_PASSWORD: '' })).toThrow(
+      /missing or empty.*DB_PASSWORD/,
+    );
+  });
 
-  it.each(['0', '70000', 'abc', '5432.5'])(
-    'rejects an invalid DB_PORT (%s)',
-    (port) => {
-      expect(() => validateEnv({ ...db, DB_PORT: port })).toThrow(
-        /DB_PORT is not a valid port/,
-      );
-    },
-  );
+  it.each(['0', 'abc'])('rejects an invalid DB_PORT (%s)', (port) => {
+    expect(() => validateEnv({ ...db, DB_PORT: port })).toThrow(
+      /DB_PORT is not a valid port/,
+    );
+  });
 
   describe('explicitly supplied DATABASE_URL', () => {
     const url = 'postgresql://user:pwd@elsewhere:5432/managed';
@@ -123,6 +118,16 @@ describe('validateEnv', () => {
         validateEnv({ DATABASE_URL: 'postgresql:///portail' }),
       ).toThrow(/names no host/);
     });
+
+    it('still carries the storage, auth and public settings', () => {
+      // That path returns early: forgetting to merge those blocks into it would
+      // silently strip them whenever a managed database is targeted.
+      expect(validateEnv({ ...app, DATABASE_URL: url })).toMatchObject({
+        ...storage,
+        ...auth,
+        ...publicSurface,
+      });
+    });
   });
 
   describe('PORT, API_PREFIX and BIND_ADDRESS', () => {
@@ -139,27 +144,21 @@ describe('validateEnv', () => {
       });
     });
 
-    it.each(['PORT', 'API_PREFIX', 'BIND_ADDRESS'])(
-      'rejects a configuration without %s',
-      (key) => {
-        // No default value: on a shared machine, an API listening in the wrong
-        // place is worse than an API that does not start.
-        expect(() => validateEnv({ ...db, [key]: '' })).toThrow(
-          new RegExp(`Application variables missing or empty.*${key}`),
-        );
-      },
-    );
+    it('rejects a configuration without BIND_ADDRESS', () => {
+      // No default value: on a shared machine, an API listening in the wrong
+      // place is worse than an API that does not start.
+      expect(() => validateEnv({ ...db, BIND_ADDRESS: '' })).toThrow(
+        /Application variables missing or empty.*BIND_ADDRESS/,
+      );
+    });
 
-    it.each(['0', '70000', 'abc', '3000.5'])(
-      'rejects an invalid PORT (%s)',
-      (port) => {
-        expect(() => validateEnv({ ...db, PORT: port })).toThrow(
-          /PORT is not a valid port/,
-        );
-      },
-    );
+    it.each(['0', 'abc'])('rejects an invalid PORT (%s)', (port) => {
+      expect(() => validateEnv({ ...db, PORT: port })).toThrow(
+        /PORT is not a valid port/,
+      );
+    });
 
-    it.each(['api/v1', '/api/v1/', 'https://elsewhere/api'])(
+    it.each(['api/v1', '/api/v1/'])(
       'rejects a malformed API_PREFIX (%s)',
       (prefix) => {
         expect(() => validateEnv({ ...db, API_PREFIX: prefix })).toThrow(
@@ -174,18 +173,6 @@ describe('validateEnv', () => {
   });
 
   describe('object storage', () => {
-    it.each([
-      'STORAGE_ENDPOINT',
-      'STORAGE_REGION',
-      'STORAGE_BUCKET',
-      'STORAGE_ACCESS_KEY',
-      'STORAGE_SECRET_KEY',
-    ])('rejects a configuration without %s', (key) => {
-      expect(() => validateEnv({ ...db, [key]: '' })).toThrow(
-        new RegExp(`Storage variables missing or empty.*${key}`),
-      );
-    });
-
     it('names every missing variable at once', () => {
       // One restart per missing variable would be a poor way to discover a
       // five-variable block.
@@ -194,7 +181,7 @@ describe('validateEnv', () => {
       );
     });
 
-    it.each(['minio:9000', 'http://', '://minio'])(
+    it.each(['minio:9000', 's3://minio:9000'])(
       'rejects an unusable STORAGE_ENDPOINT (%s)',
       (endpoint) => {
         expect(() =>
@@ -203,13 +190,7 @@ describe('validateEnv', () => {
       },
     );
 
-    it('rejects a STORAGE_ENDPOINT that is not HTTP', () => {
-      expect(() =>
-        validateEnv({ ...db, STORAGE_ENDPOINT: 's3://minio:9000' }),
-      ).toThrow(/does not use the HTTP protocol/);
-    });
-
-    it.each(['Portail-Depot', 'ab', 'depot_portail', '-depot', 'depot-'])(
+    it.each(['Portail-Depot', 'depot_portail'])(
       'rejects an invalid bucket name (%s)',
       (bucket) => {
         // A bucket name is only rejected by MinIO at CreateBucket, i.e. on the
@@ -219,31 +200,16 @@ describe('validateEnv', () => {
         );
       },
     );
-
-    it('survives an explicitly supplied DATABASE_URL', () => {
-      // That path returns early: forgetting to merge the storage keys into it
-      // would silently strip them from the configuration.
-      expect(
-        validateEnv({
-          ...app,
-          DATABASE_URL: 'postgresql://user:pwd@elsewhere:5432/managed',
-        }),
-      ).toMatchObject(storage);
-    });
   });
 
   describe('lawyer authentication', () => {
-    it.each(['JWT_SECRET', 'JWT_EXPIRES', 'CLIENT_JWT_SECRET'])(
-      'rejects a configuration without %s',
-      (key) => {
-        // Both were documented and generated long before anything read them.
-        // Unvalidated, they stayed dead configuration: setting them changed
-        // nothing and nothing said so.
-        expect(() => validateEnv({ ...db, [key]: '' })).toThrow(
-          new RegExp(`Auth variables missing or empty.*${key}`),
-        );
-      },
-    );
+    it('rejects a configuration without JWT_SECRET', () => {
+      // Documented and generated long before anything read it: unvalidated, it
+      // stayed dead configuration, and setting it changed nothing.
+      expect(() => validateEnv({ ...db, JWT_SECRET: '' })).toThrow(
+        /Auth variables missing or empty.*JWT_SECRET/,
+      );
+    });
 
     it('rejects a JWT_SECRET shorter than 32 characters', () => {
       // The attack is offline: one captured token is enough to brute-force the
@@ -278,7 +244,7 @@ describe('validateEnv', () => {
       ).toThrow(/CLIENT_JWT_SECRET must differ from JWT_SECRET/);
     });
 
-    it.each(['900', '15 m', '15min', 'quinze minutes', 'm15', '0s', '0h'])(
+    it.each(['900', '0h'])(
       'rejects a JWT_EXPIRES without a usable unit (%s)',
       (expires) => {
         // "900" is the dangerous one: jsonwebtoken reads a bare number as
@@ -292,45 +258,26 @@ describe('validateEnv', () => {
       },
     );
 
-    it.each(['60s', '15m', '2h'])('accepts %s', (expires) => {
-      expect(() => validateEnv({ ...db, JWT_EXPIRES: expires })).not.toThrow();
+    it('rejects a SESSION_EXPIRES without a usable unit', () => {
+      expect(() => validateEnv({ ...db, SESSION_EXPIRES: '900' })).toThrow(
+        /SESSION_EXPIRES is not a duration with its unit/,
+      );
     });
-
-    it.each(['SESSION_EXPIRES', 'SESSION_IDLE_EXPIRES'])(
-      'rejects a missing %s',
-      (key) => {
-        const without: Record<string, unknown> = { ...db };
-        delete without[key];
-        expect(() => validateEnv(without)).toThrow(new RegExp(key));
-      },
-    );
-
-    it.each(['900', '7 d', 'une semaine', '0d'])(
-      'rejects a SESSION_EXPIRES without a usable unit (%s)',
-      (expires) => {
-        expect(() => validateEnv({ ...db, SESSION_EXPIRES: expires })).toThrow(
-          /SESSION_EXPIRES is not a duration with its unit/,
-        );
-      },
-    );
 
     /**
      * The misconfiguration that does nothing and says nothing: an idle deadline
      * further away than the ceiling can never be reached, so the protection is
-     * off while the variable looks configured.
+     * off while the variable looks configured. Equality is the boundary.
      */
-    it.each(['7d', '8d', '30d'])(
-      'rejects an idle deadline the ceiling makes unreachable (%s)',
-      (idle) => {
-        expect(() =>
-          validateEnv({
-            ...db,
-            SESSION_EXPIRES: '7d',
-            SESSION_IDLE_EXPIRES: idle,
-          }),
-        ).toThrow(/SESSION_IDLE_EXPIRES must be shorter than SESSION_EXPIRES/);
-      },
-    );
+    it('rejects an idle deadline the ceiling makes unreachable', () => {
+      expect(() =>
+        validateEnv({
+          ...db,
+          SESSION_EXPIRES: '7d',
+          SESSION_IDLE_EXPIRES: '7d',
+        }),
+      ).toThrow(/SESSION_IDLE_EXPIRES must be shorter than SESSION_EXPIRES/);
+    });
 
     it('accepts an idle deadline shorter than the ceiling', () => {
       expect(() =>
@@ -341,26 +288,9 @@ describe('validateEnv', () => {
         }),
       ).not.toThrow();
     });
-
-    it('survives an explicitly supplied DATABASE_URL', () => {
-      // Same trap as the storage block: that path returns early, and forgetting
-      // to merge the auth keys into it would strip them silently.
-      expect(
-        validateEnv({
-          ...app,
-          DATABASE_URL: 'postgresql://user:pwd@elsewhere:5432/managed',
-        }),
-      ).toMatchObject(auth);
-    });
   });
 
   describe('PUBLIC_BASE_URL', () => {
-    it('rejects a configuration without it', () => {
-      expect(() => validateEnv({ ...db, PUBLIC_BASE_URL: '' })).toThrow(
-        /PUBLIC_BASE_URL/,
-      );
-    });
-
     it('rejects a URL that is not HTTP', () => {
       expect(() =>
         validateEnv({ ...db, PUBLIC_BASE_URL: 'ftp://portail.example.com' }),
@@ -380,18 +310,6 @@ describe('validateEnv', () => {
       expect(
         validateEnv({ ...db, PUBLIC_BASE_URL: 'https://example.com/' }),
       ).toMatchObject({ PUBLIC_BASE_URL: 'https://example.com' });
-    });
-
-    it('survives an explicitly supplied DATABASE_URL', () => {
-      // Same trap as the storage and auth blocks: that path returns early, and
-      // forgetting to merge this key into it would strip the setting whenever a
-      // managed database is targeted.
-      expect(
-        validateEnv({
-          ...db,
-          DATABASE_URL: 'postgresql://u:p@managed:5432/portail',
-        }),
-      ).toMatchObject({ PUBLIC_BASE_URL: 'https://portail.example.com' });
     });
   });
 

@@ -5,7 +5,7 @@ import {
   HttpStatus,
   PayloadTooLargeException,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { MulterError } from 'multer';
 import { MetricsService } from '../metrics/metrics.service';
 import { FILE_TOO_LARGE } from './upload.constants';
@@ -53,10 +53,28 @@ export class UploadLimitFilter implements ExceptionFilter {
     // attempt can be counted at all.
     this.metrics.recordDeposit(tooLarge ? 'rejected_size' : 'error');
 
+    if (tooLarge) {
+      this.observeDeclaredSize(host);
+    }
+
     response.status(status).json({
       message: tooLarge ? FILE_TOO_LARGE : MULTIPART_INVALID,
       error: tooLarge ? 'Payload Too Large' : 'Bad Request',
       statusCode: status,
     });
+  }
+
+  /**
+   * Multer stops reading at the ceiling, so the real size is unknown here: the
+   * only figure available is the one the client declared. It sizes the limit,
+   * it decides nothing -- an absent or unparsable header is simply not observed.
+   */
+  private observeDeclaredSize(host: ArgumentsHost): void {
+    const request = host.switchToHttp().getRequest<Request>();
+    const declared = Number(request.headers['content-length']);
+
+    if (Number.isFinite(declared) && declared > 0) {
+      this.metrics.observeRejectedUploadBytes(declared);
+    }
   }
 }

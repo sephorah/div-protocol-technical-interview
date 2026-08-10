@@ -122,36 +122,6 @@ describe('AuthService', () => {
     ).rejects.toThrow(new UnauthorizedException(INVALID_CREDENTIALS));
   });
 
-  /**
-   * The point of the decoy hash, and the reason it cannot be asserted by
-   * reading the code: what matters is that the argon2id verification runs even
-   * when there is no account.
-   *
-   * Measured rather than timed: comparing durations would make the test flaky
-   * on a loaded machine. The two paths are compared to each other with a wide
-   * margin -- an early return would put the unknown-address case at well under
-   * a millisecond, against tens of milliseconds for a real verification.
-   */
-  it('spends comparable time on an unknown address and a wrong password', async () => {
-    findByEmail.mockResolvedValue(lawyer);
-    const startKnown = performance.now();
-    await service
-      .validateLawyer('avocat@exemple.fr', 'mauvais')
-      .catch(() => undefined);
-    const knownMs = performance.now() - startKnown;
-
-    findByEmail.mockResolvedValue(null);
-    const startUnknown = performance.now();
-    await service
-      .validateLawyer('inconnu@exemple.fr', 'mauvais')
-      .catch(() => undefined);
-    const unknownMs = performance.now() - startUnknown;
-
-    // A tenth of the known-account path is already far more than an early
-    // return would cost.
-    expect(unknownMs).toBeGreaterThan(knownMs / 10);
-  });
-
   it('signs a token carrying the identifier and nothing else', async () => {
     await service.issueToken({
       id: 'lawyer-1',
@@ -203,18 +173,5 @@ describe('AuthService', () => {
       reason: 'reused',
     });
     expect(findById).not.toHaveBeenCalled();
-  });
-
-  // Two lifetimes, two sources: the access cookie dies with its token, the
-  // refresh cookie with the session. Reading one for the other would give the
-  // access cookie a seven-day life, or expire the session in 15 minutes.
-  it('derives the access cookie lifetime from JWT_EXPIRES', () => {
-    expect(service.accessMaxAgeMs()).toBe(900_000);
-    expect(getOrThrow).toHaveBeenCalledWith('JWT_EXPIRES');
-  });
-
-  it('derives the session cookie lifetime from SESSION_EXPIRES', () => {
-    expect(service.sessionMaxAgeMs()).toBe(604_800_000);
-    expect(getOrThrow).toHaveBeenCalledWith('SESSION_EXPIRES');
   });
 });

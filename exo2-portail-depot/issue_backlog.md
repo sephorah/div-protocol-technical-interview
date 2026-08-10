@@ -15,14 +15,18 @@ Légende priorité :
 
 ## Où en est le rendu — 10 août 2026
 
-**Tout le P0 et tout le P1 sont livrés, sauf le README (H1) et l'export des sessions (H3).**
+**Tout le P0 et tout le P1 sont livrés, sauf l'export des sessions (H3).** Le README (H1) est
+écrit ; un nettoyage du 10/08 l'a réduit à 233 lignes et sorti la prose d'architecture du code vers
+`docs/` — voir `ai-plans/2026-08-10-nettoyage-tests-commentaires.md`.
 
 Le sprint du 10/08 a fermé dix issues en trois pistes parallèles isolées par `git worktree` :
 **D6, C1, C2, B4b, B5, C3, G4, F1, F2** et le dernier critère d'**A8**. Plan et déroulé dans
 `ai-plans/2026-08-10-sprint-final-parallele.md` et `ai-plans/2026-08-10-b5-ecrans-avocat.md`.
 
-Vérification : **512 tests** — 341 backend (26 suites) et 171 frontend (25 suites) — dont 114 e2e
-contre un vrai Postgres et 10 contre un vrai MinIO. Les deux lints bloquants sont propres. Et le
+Vérification : **460 cas** — 240 unitaires backend, 98 e2e contre un vrai Postgres, 10 contre un
+vrai MinIO, 112 frontend. C'était 630 avant l'élagage du 10/08, qui n'a gardé que les tests qu'un
+changement plausible de *notre* code peut faire échouer, et qui a vérifié la conservation en cassant
+volontairement trois invariants de sécurité. Les deux lints bloquants sont propres. Et le
 **parcours complet joué à la main à travers nginx**, qu'aucune suite ne couvre : login → création →
 déverrouillage → dépôt d'un vrai PDF → refus 415 d'un exécutable déguisé → tableau de bord →
 téléchargement **octet pour octet identique** → 401 en anonyme, jeton absent des journaux.
@@ -31,24 +35,51 @@ téléchargement **octet pour octet identique** → 401 en anonyme, jeton absent
 
 | Reste | Nature |
 |---|---|
-| **H1** | README à compléter — observabilité, justification des métriques, limites |
 | **H3** | Export des sessions IA et **caviardage**, à faire ligne à ligne |
-| **Passe navigateur** | Charte, densité, points de rupture, survol, violations CSP. jsdom ne calcule aucun style : 512 tests verts n'en disent **rien** — voir D5 |
+| **B4b**, écran | **Nouveau, 10/08.** L'API de téléchargement répond, **aucun écran n'y mène** : l'avocat ne peut pas récupérer les pièces déposées. Le plus grave de ce qu'a trouvé la passe navigateur |
+| ~~**E2** + passe navigateur~~ | **Passe faite le 10/08** — survol mesuré, CSP à zéro violation, aucun débordement à 375 ni 1440, parcours client rejoué sur mobile. Reste la densité du bouton de dépôt (190×40 contre 156×36) et les cibles tactiles à 18–21 px. Voir `ai-plans/2026-08-10-passe-navigateur-playwright.md` |
 | **D1** | La suite d'intégration du seed, seule case encore ouverte |
+
+### Nettoyage du 10/08, et ce qu'il change au rendu
+
+Une passe distincte du sprint, consignée dans
+`ai-plans/2026-08-10-nettoyage-tests-commentaires.md` :
+
+- **Un défaut corrigé** : une demande complète basculait en *expirée* au passage de l'échéance, donc
+  un dossier abouti ressemblait à un dossier abandonné. La complétude l'emporte désormais sur
+  l'expiration ; le lien, lui, reste fermé.
+- **Les métriques passent de `portail_` à `portal_`**, et deux questions sans réponse sont couvertes :
+  combien de **demandes** aboutissent, et de **combien** les fichiers refusés dépassent. Le job
+  Prometheus suit, et Prometheus doit être redémarré pour le prendre en compte.
+- **630 cas de test ramenés à 460**, sur un critère écrit et vérifié par sabotage.
+- **4 722 lignes de commentaires ramenées à 3 742**, la prose d'architecture partant dans `docs/`.
+  Les configurations réécrites ont été comparées **directive à directive** avec leur version
+  précédente : identiques.
 
 ### Ce qui a été coupé, et pourquoi
 
 Le budget était de 7 h ; les 22 issues ouvertes en représentaient environ 22. Le périmètre a donc été
-arrêté au **P0 + P1**, et les huit issues P2 restantes sont écartées — **toutes classées *bonus* par
-l'énoncé**, donc leur absence ne retire aucun point éliminatoire ni aucun critère de différenciation.
+arrêté au **P0 + P1**, et les huit issues P2 restantes sont écartées.
+
+**Une exception, et elle corrige une erreur de classement.** L'énoncé a **cinq** bonus — antivirus ou
+vérification de type, URLs pré-signées S3, journal d'audit, CI automatisé, limitation de débit sur le
+PIN.
+
+- **E2** (densité mobile) : « respect de la charte graphique DIV » est **attendu**, au même rang que
+  les tests Jest et la pile Prometheus + Grafana. Coupée sur un P2 écrit à tort → repasse en **P1**.
+
+Les sept autres coupées sont bien des bonus (ou de l'outillage hors énoncé), donc leur absence ne
+retire aucun point éliminatoire.
 
 - **G1** (limite de débit sur le PIN) — le seul regret. Compensé par la métrique
-  `portail_unlock_attempts_total` et son alerte, qui **détectent** un brute force sans l'**empêcher**.
+  `portal_unlock_attempts_total` et son alerte, qui **détectent** un brute force sans l'**empêcher**.
   À nommer explicitement dans les limites du README.
 - **C4** (antivirus), **G2** (audit), **G3** (URLs pré-signées), **B1b** (sessions avocat) — bonus.
-- **D3** (CI), **D4** (messages homogènes), **D5** (tests de rendu), **E2** (densité mobile) —
-  qualité et outillage. **D4 est devenue plus visible** : le client API cite désormais le corps d'un
-  400, donc les messages anglais du `ValidationPipe` peuvent atteindre l'écran.
+- **D3** (CI), **D4** (messages homogènes), **D5** (tests de rendu) — qualité et outillage.
+  **D4 est devenue plus visible** : le client API cite désormais le corps d'un 400, donc les
+  messages anglais du `ValidationPipe` peuvent atteindre l'écran.
+- **E2** (densité mobile) — **remise au périmètre**, voir ci-dessus. Elle se fait pendant la passe
+  navigateur, qui ouvre déjà chaque écran.
 
 Le socle (scaffold NestJS + Vite/Chakra, `install.sh`, docker compose + proxy nginx, lint bloquant
 des deux côtés) était déjà en place avant tout ça et sert de base.
@@ -141,7 +172,7 @@ L'énoncé impose `infra/` (compose, Prometheus, Grafana, reverse proxy). Les de
 
 Le déplacement n'est pas un `git mv` : compose déduit son **répertoire de projet** du dossier du
 premier `-f`, donc son `.env` et son nom de projet. D'où deux ajouts, documentés dans
-`infra/README.md` :
+`docs/exploitation.md` :
 
 - `--env-file .env` sur chaque appel — le `.env` reste à la racine, où `pnpm dev` le lit aussi ;
 - `name:` explicite dans chaque fichier, sans quoi le projet s'appellerait `infra` et tous les
@@ -429,7 +460,18 @@ paramètre de requête inconnu. Détail dans `ai-plans/2026-08-09-b4-dashboard.m
 
 Dépendances : B2.
 
-### B4b. Téléchargement des pièces déposées — P0 — **fait**
+### B4b. Téléchargement des pièces déposées — P0 — **API faite, écran manquant**
+
+> **Rouvert le 10/08 par la passe navigateur.** Les trois critères ci-dessous portent tous sur
+> l'API, et ils tiennent : la route répond 200 et rend le fichier **octet pour octet identique**
+> (SHA-256 concordant, vérifié à travers nginx). Mais **aucun écran n'y mène** — le détail d'une
+> demande n'a ni bouton, ni lien, ni le mot « télécharger » ; ses seuls boutons sont « Se
+> déconnecter », « Régénérer le lien », « Révoquer l'accès ». Un avocat ne peut donc pas récupérer
+> les pièces de son client, ce qui est la finalité du produit. Cocher l'issue « faite » sur ses
+> critères d'API était exact au niveau technique et faux au niveau du produit — c'est précisément
+> le genre d'écart qu'aucune suite ne voit, les tests e2e appelant la route directement.
+>
+> - [ ] **Une action de téléchargement sur chaque pièce reçue de l'écran de détail**
 
 - [x] L'avocat récupère un fichier déposé — **flux à travers l'API**, `GET
       /requests/:id/items/:itemId/file`, servi en `StreamableFile` sur `getObjectStream`
@@ -609,10 +651,12 @@ plutôt que gardé par un identifiant que personne ne peut produire.
 
 Dépendances : C1, C2, E1.
 
-### C4. Antivirus sur les pièces déposées — P2
+### C4. Antivirus sur les pièces déposées — P2 (bonus)
 
-L'énoncé range l'antivirus dans les **bonus** — d'où P2 et non P1. Le contrôle du type réel, lui,
-est remonté en C2 : c'est la validation qui rend l'allowlist effective, pas un supplément.
+L'énoncé range « antivirus ou vérification de type sur les fichiers déposés » dans les **bonus** —
+d'où P2 et non P1. La **vérification de type est livrée** par C2 (octets magiques, allowlist de trois
+formats, plafond de 20 Mio, `Content-Disposition` en RFC 5987) : cette moitié du bonus est donc déjà
+tenue, et c'est la validation qui rend l'allowlist effective, pas un supplément.
 
 - [ ] Scan antivirus (ClamAV conteneurisé) avant mise à disposition de l'avocat
 - [ ] Fichier rejeté : statut visible côté client et côté avocat
@@ -714,13 +758,23 @@ variantes par défaut — et non `base` seul. Cela aurait attrapé les trois.
 
 Ce qui reste hors de portée :
 
-- [ ] **L'inversion au survol du bouton primaire** — la signature d'interaction de la charte. Elle
-      est vérifiée à la main (mesuré : `#F7F6FF`, texte violet, contour intérieur, même gabarit
-      153×40 à la même position, donc aucun décalage d'un pixel)
+- [x] **L'inversion au survol du bouton primaire** — la signature d'interaction de la charte.
+      **Mesurée dans un vrai Chromium** le 10/08, plus seulement constatée à l'œil : fond
+      `#5100FF` → `#F7F6FF`, texte `#FFFFFF` → `#5100FF`, contour
+      `#5100FF 0 0 0 1px **inset**` (aucune bordure), boîte du bouton **643.69, 565.14 — 152.63 × 40
+      avant comme pendant**, et surtout **rectangle du libellé identique au centième de pixel**
+      (668.69, 575.14 — 102.63 × 20). C'est cette dernière valeur qui prouve le critère : une
+      bordure au survol l'aurait décalé
 - [ ] Décider du moyen : **Vitest en mode navigateur** (donc un Chromium téléchargé en CI, ce qui
       alourdit D3) ou un test de bout en bout piloté par navigateur, qui couvrirait aussi le
-      parcours à travers nginx — aujourd'hui la seule chose qu'aucun étage de tests ne traverse
-- [ ] Trancher **avant** B5 et C3 : plus il y a d'écrans, plus la vérification à la main coûte
+      parcours à travers nginx — aujourd'hui la seule chose qu'aucun étage de tests ne traverse.
+      **Toujours ouvert** : la passe du 10/08 a démontré que le bout-en-bout navigateur fonctionne
+      contre la pile réelle (parcours complet joué à travers nginx, styles calculés relevés, CSP
+      contrôlée), mais elle a été **jouée, pas versionnée** — donc rien n'est rejouable et la
+      prochaine régression de charte repassera sous une suite verte
+- [~] Trancher **avant** B5 et C3 : plus il y a d'écrans, plus la vérification à la main coûte.
+      **Raté** : les deux issues sont livrées et le moyen n'est toujours pas tranché. Le coût annoncé
+      s'est matérialisé — la passe du 10/08 a dû couvrir six écrans au lieu de deux
 
 Dépendances : D2. Articulation avec D3 : le choix décide du temps de CI.
 
@@ -797,12 +851,28 @@ les variantes livrées avec Chakra l'emportent sur le `base` d'une recette (titr
 contre 11 px écrits) ; un `textStyle` l'emporte sur un `fontSize` voisin ; `Stack` étire ses
 enfants, donc un bouton y perd son gabarit.
 
-### E2. Densité UI constante mobile / desktop — P2 (l'énoncé la cite parmi les critères de design)
+### E2. Densité UI constante mobile / desktop — **P1, critère ATTENDU**
 
-- [ ] Mêmes espacements et même densité d'information aux deux tailles
-- [ ] Parcours client vérifié sur mobile (c'est le contexte d'usage réel)
+**Pas un bonus.** L'énoncé range « respect de la charte graphique DIV » dans les critères *attendus*,
+au même rang que les tests Jest et la pile Prometheus + Grafana. E1 a posé le thème ; E2 est ce qui
+vérifie qu'il tient aux deux tailles. Classée P2 par erreur jusqu'ici, et coupée sur cette erreur.
 
-Dépendances : E1.
+- [~] Mêmes espacements et même densité d'information aux deux tailles — **mesuré à 375 et 1440 px**
+      dans la passe navigateur du 10/08 : hauteurs de composants **identiques** sur les quatre écrans
+      avocat, seul le retrait latéral passe de 24 px à 16 px, **aucun débordement horizontal** et
+      aucun texte tronqué. Une exception, d'où le `~` : le bouton de dépôt du client fait
+      **190 × 40 à 375 px contre 156 × 36 à 1440**. L'écart va dans le bon sens (cible plus grande au
+      doigt) mais contredit littéralement le critère, donc il se tranche plutôt qu'il ne se coche
+- [x] Parcours client vérifié sur mobile (c'est le contexte d'usage réel) — rejoué **entièrement à
+      375 px** dans un contexte navigateur vierge, dépôt réel compris : écran PIN, déverrouillage,
+      dépôt d'un PDF, passage de la pièce à *reçue*
+
+Relevé par la même passe, hors critères ci-dessus : **cibles tactiles sous le minimum WCAG 2.2 AA
+(24 × 24 px)** — « Gerer le lien → » à **21 px** de haut sur chaque carte du tableau de bord, et
+« ← Retour au tableau de bord » à **18 px**. Les boutons (40 px) et les champs (42 px) passent l'AA,
+sous les 44 px des guides mobiles.
+
+Dépendances : E1. Compte rendu complet : `ai-plans/2026-08-10-passe-navigateur-playwright.md`.
 
 ---
 
@@ -814,9 +884,9 @@ Dépendances : E1.
       garde global fermerait tout sinon) plus un `location = /api/v1/metrics { deny all; }`, même
       forme que la sonde de santé. Publié, il dirait à un scanner combien de demandes existent, quand
       les dépôts ont lieu et quelle dépendance est en panne. **Vérifié en conditions réelles : 403**
-- [x] Métriques métier — `portail_deposits_total{outcome}`,
-      `portail_unlock_attempts_total{outcome}`, `portail_expired_link_hits_total`,
-      `portail_upload_bytes`, `portail_http_request_duration_seconds{method,route,status}`
+- [x] Métriques métier — `portal_deposits_total{outcome}`,
+      `portal_unlock_attempts_total{outcome}`, `portal_expired_link_hits_total`,
+      `portal_upload_bytes`, `portal_http_request_duration_seconds{method,route,status}`
 - [x] Scrape configuré dans `infra/prometheus/prometheus.yml`, service sur le réseau interne,
       **aucun port publié**
 
@@ -845,7 +915,8 @@ prouvée.
 - [x] Quatre alertes : API injoignable ; taux d'échec de dépôt > 10 % sur 5 min, **avec un plancher
       de 5 dépôts** sans lequel un seul fichier refusé sur trois donnerait 33 % et alerterait pour
       rien ; plus de 20 PIN erronés sur 5 min ; dépendance injoignable, lue sur les 503 de la sonde
-- [ ] README : périmètre d'observabilité et justification de chaque métrique — **reste à écrire, H1**
+- [x] README : périmètre d'observabilité et justification de chaque métrique — fait, et le détail
+      des seuils avec le runbook est dans `docs/observabilite.md`
 
 **L'alerte force brute est ce qui remplace G1**, coupée du périmètre : 20 échecs / 5 min est hors de
 portée d'un client qui se trompe et très en dessous de ce qu'un attaquant doit tenir pour balayer les
@@ -947,14 +1018,19 @@ Dépendances : aucune. À faire avant H1, la politique retenue étant à documen
 
 ## Épique H — Livrables
 
-### H1. README complet — P0
+### H1. README complet — P0 — **fait (10/08)**
 
-- [ ] URL HTTPS du sous-domaine
-- [ ] Setup, architecture, choix justifiés (dont le « pas de Next.js »)
-- [ ] Modèle de données, stratégie de tests
-- [ ] Périmètre d'observabilité et justification des métriques
-- [ ] **Identifiants de démo avocat + demande seedée**
-- [ ] Limites connues
+- [x] URL HTTPS du sous-domaine
+- [x] Setup, architecture, choix justifiés (dont le « pas de Next.js »)
+- [x] Modèle de données, stratégie de tests — y compris ce qui n'est vérifié qu'au navigateur
+- [x] Périmètre d'observabilité et justification de chaque métrique
+- [x] **Identifiants de démo** — imprimés par `install.sh` à la fin de son déroulé, jamais écrits
+      dans le dépôt : ils sont générés par machine
+- [x] Limites connues, sans euphémisme
+
+233 lignes. Le raisonnement long est dans `docs/` — `architecture.md`, `exploitation.md`,
+`observabilite.md`, `tests-manuels.md` — et chaque section du README y renvoie. `infra/README.md` a
+été absorbé par `docs/exploitation.md` puis supprimé : deux documents d'exploitation divergent.
 
 ### H2. Seed de démonstration — P0 — **fait (par B1)**
 

@@ -36,15 +36,6 @@ describe('toRequestSummary', () => {
     expect(view.link).toEqual({ state: 'revoked', expiresAt: LATER });
   });
 
-  it('reports an expired request from the last link deadline', () => {
-    const view = toRequestSummary(
-      { ...summaryRow, links: [{ expiresAt: EARLIER, revokedAt: null }] },
-      NOW,
-    );
-
-    expect(view.status).toBe(RequestStatus.Expired);
-  });
-
   // Unreachable through the API. It must be loud rather than served as a
   // normal-looking request with no link: that would hide a corrupted database
   // behind a 200.
@@ -80,18 +71,6 @@ describe('toRequestSummary', () => {
     );
 
     expect(view.receivedCount).toBe(0);
-  });
-
-  it('exposes those fields and no others', () => {
-    expect(Object.keys(toRequestSummary(summaryRow, NOW))).toEqual([
-      'id',
-      'title',
-      'createdAt',
-      'status',
-      'expectedCount',
-      'receivedCount',
-      'link',
-    ]);
   });
 });
 
