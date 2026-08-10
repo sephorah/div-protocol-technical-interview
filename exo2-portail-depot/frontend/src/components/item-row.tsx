@@ -1,4 +1,5 @@
 import { Badge, Box, Stack, Text } from '@chakra-ui/react'
+import type { ReactNode } from 'react'
 import type { ReceivedFile } from '../api/requests'
 import { formatBytes, formatDate, safeFileName } from '../format'
 
@@ -75,11 +76,22 @@ export const ItemRow = ({
   state,
   file = null,
   progress = 0,
+  note,
+  action,
 }: {
   label: string
   state: ItemState
   file?: ReceivedFile | null
   progress?: number
+  /**
+   * The explanatory line of the current state, when the caller knows better
+   * than the default wording. C3 puts the server's own refusal there --
+   * "Format refuse. PDF, JPG ou PNG uniquement." says what to do, where
+   * "Le client doit le deposer a nouveau" only says that something is wrong.
+   */
+  note?: string
+  /** The client's deposit control (C3). The lawyer's screens pass nothing. */
+  action?: ReactNode
 }) => {
   // Never rendered raw, and never in an href: `originalName` is supplied by an
   // anonymous client, and the invisible direction overrides it may carry are
@@ -129,7 +141,7 @@ export const ItemRow = ({
                     {SEPARATOR}
                   </>
                 )}
-                {TEXT.uploading}
+                {note ?? TEXT.uploading}
               </Text>
               <ProgressBar value={progress} />
             </Stack>
@@ -141,15 +153,21 @@ export const ItemRow = ({
                 {name === null ? TEXT.failed : name}
               </Text>
               <Text fontSize="12px" color="fg.error">
-                {TEXT.redo}
+                {note ?? TEXT.redo}
               </Text>
             </Stack>
           ) : null}
         </Stack>
       </Stack>
 
-      {state === 'pending' ? <Badge variant="pending">{TEXT.pending}</Badge> : null}
-      {state === 'failed' ? <Badge variant="expired">{TEXT.failed}</Badge> : null}
+      {/* One right-hand column: the badge and the client's deposit button are
+          two facts about the same piece, and stacking them keeps the row
+          readable when both are present. */}
+      <Stack direction="row" gap="8px" align="center" flexShrink="0">
+        {state === 'pending' ? <Badge variant="pending">{TEXT.pending}</Badge> : null}
+        {state === 'failed' ? <Badge variant="expired">{TEXT.failed}</Badge> : null}
+        {action}
+      </Stack>
     </Stack>
   )
 }

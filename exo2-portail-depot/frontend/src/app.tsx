@@ -1,15 +1,24 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { LawyerArea } from './auth/lawyer-area'
 import { RequireSession } from './auth/require-session'
-import { SessionProvider } from './auth/session-provider'
 import { DashboardPage } from './pages/dashboard-page'
+import { DepositPage } from './pages/deposit-page'
 import { LoginPage } from './pages/login-page'
 import { NewRequestPage } from './pages/new-request-page'
 import { RequestDetailPage } from './pages/request-detail-page'
 
 export const App = () => (
   <BrowserRouter>
-    <SessionProvider>
-      <Routes>
+    <Routes>
+      {/* The client's route, OUTSIDE the lawyer session provider: an anonymous
+          visitor must not have /auth/me called from their browser. Its path is
+          not ours to pick -- the backend composes it (DEPOSIT_PATH in
+          backend/src/requests/public-url.ts) and nginx redacts that exact
+          prefix from its access log, so /deposit only moves if all three move
+          together. */}
+      <Route path="/deposit/:token" element={<DepositPage />} />
+
+      <Route element={<LawyerArea />}>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route
@@ -20,9 +29,8 @@ export const App = () => (
             </RequireSession>
           }
         />
-        {/* Declared BEFORE /requests/:id, which arrives with the detail
-            screen: read as an identifier, "new" would make the creation
-            screen unreachable. */}
+        {/* Declared BEFORE /requests/:id: read as an identifier, "new" would
+            make the creation screen unreachable. */}
         <Route
           path="/requests/new"
           element={
@@ -39,16 +47,10 @@ export const App = () => (
             </RequireSession>
           }
         />
-        {/* The client route arrives with C1. Its path is NOT ours to pick:
-            the backend composes it (DEPOSIT_PATH in
-            backend/src/requests/public-url.ts) and nginx redacts that exact
-            prefix from its logs, so it stays /depot until all three change
-            together. Lawyer-side paths are English.
-
-            Until then an unknown address goes to the dashboard, which sends
-            an anonymous visitor to the login. */}
+        {/* An unknown address goes to the dashboard, which sends an anonymous
+            visitor to the login. */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
-    </SessionProvider>
+      </Route>
+    </Routes>
   </BrowserRouter>
 )

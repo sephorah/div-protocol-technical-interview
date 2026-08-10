@@ -60,4 +60,29 @@ describe('ItemRow', () => {
     expect(screen.queryByText(/termine/i)).not.toBeInTheDocument()
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100')
   })
+
+  // C3 passes the server's own refusal here -- "Format refuse. PDF, JPG ou PNG
+  // uniquement." says what to do, where the default only says something broke.
+  it('prefers the caller note to the default wording of a state', () => {
+    renderWithTheme(
+      <ItemRow
+        label="Facture EDF"
+        state="failed"
+        file={file('facture.gif')}
+        note="Format refuse. PDF, JPG ou PNG uniquement."
+      />,
+    )
+    expect(screen.getByText('Format refuse. PDF, JPG ou PNG uniquement.')).toBeInTheDocument()
+    expect(screen.queryByText(/deposer a nouveau/i)).not.toBeInTheDocument()
+  })
+
+  // The client's deposit button sits beside the badge, not under the row: two
+  // facts about the same piece, one right-hand column.
+  it('renders the action beside the state badge', () => {
+    renderWithTheme(
+      <ItemRow label="Attestation" state="pending" action={<button>Deposer</button>} />,
+    )
+    expect(screen.getByRole('button', { name: 'Deposer' })).toBeInTheDocument()
+    expect(screen.getByText(/en attente/i)).toBeInTheDocument()
+  })
 })
