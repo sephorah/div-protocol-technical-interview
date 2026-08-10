@@ -13,7 +13,7 @@ const ORIGIN = 'https://portail.example.test';
  * received" assertion as strong as it was.
  */
 const tokenFrom = (url: string): string =>
-  decodeURIComponent(url.slice(`${ORIGIN}/depot/`.length));
+  decodeURIComponent(url.slice(`${ORIGIN}/deposit/`.length));
 
 /**
  * What this suite protects: that no secret reaches the database in clear. The
@@ -79,7 +79,7 @@ describe('RequestsService.create', () => {
 
     // 43 characters: 32 random bytes in base64url.
     expect(view.link.url).toMatch(
-      new RegExp(`^${ORIGIN}/depot/[A-Za-z0-9_-]{43}$`),
+      new RegExp(`^${ORIGIN}/deposit/[A-Za-z0-9_-]{43}$`),
     );
   });
 

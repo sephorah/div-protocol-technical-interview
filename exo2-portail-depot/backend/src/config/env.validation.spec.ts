@@ -348,7 +348,7 @@ describe('validateEnv', () => {
     });
 
     it('rejects an origin carrying a path', () => {
-      // A base ending in /portail would produce https://host/portail/depot/<t>,
+      // A base ending in /portail would produce https://host/portail/deposit/<t>,
       // which the SPA does not serve -- and the lawyer would only find out from
       // a client's 404.
       expect(() =>
