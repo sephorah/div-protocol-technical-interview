@@ -35,6 +35,10 @@ process.env.STORAGE_SECRET_KEY = 'test';
 process.env.PUBLIC_BASE_URL = 'https://portail.example.test';
 // 32 characters minimum, enforced by validateEnv.
 process.env.JWT_SECRET = 'test-jwt-secret-for-the-e2e-suites';
+// A DIFFERENT value, and validateEnv refuses them equal: the client session and
+// the lawyer session are separated by their signing key, so a suite sharing one
+// secret would let a forged token pass and prove the opposite of what it claims.
+process.env.CLIENT_JWT_SECRET = 'test-client-jwt-secret-for-the-e2e-suites';
 // The production values, so that the cookie lifetimes asserted by
 // auth.e2e-spec.ts are the ones a real deployment produces.
 process.env.JWT_EXPIRES = '15m';

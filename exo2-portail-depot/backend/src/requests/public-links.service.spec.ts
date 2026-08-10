@@ -185,7 +185,7 @@ describe('PublicLinksService.regenerate', () => {
     expect(link.tokenHash).toMatch(/^[0-9a-f]{64}$/);
     expect(link.tokenHash).toBe(
       hashPublicToken(
-        decodeURIComponent(issued.url.slice(`${ORIGIN}/depot/`.length)),
+        decodeURIComponent(issued.url.slice(`${ORIGIN}/deposit/`.length)),
       ),
     );
     await expect(verifySecret(issued.pin, link.pinHash)).resolves.toBe(true);

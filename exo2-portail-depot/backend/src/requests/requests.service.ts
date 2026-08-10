@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Readable } from 'node:stream';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   generatePin,
@@ -8,6 +9,7 @@ import {
 } from '../crypto/secrets';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { ListRequestsDto } from './dto/list-requests.dto';
 import { buildDepositUrl } from './public-url';
@@ -43,11 +45,28 @@ const LAST_LINK = {
   // 'desc' to string, which it rejects too.
 } satisfies Prisma.DepositRequest$linksArgs;
 
+/**
+ * Same 404 for a piece that carries no file and for one whose file was
+ * rejected. The lawyer already knows the request is theirs, so nothing leaks
+ * here -- what the single wording buys is that C4 marking a file `failed` does
+ * not need a second answer invented for it.
+ */
+const fileNotAvailable = (): NotFoundException =>
+  new NotFoundException("Aucun fichier n'est disponible pour cette pièce.");
+
+/** A deposited file on its way out: the bytes plus what names them. */
+export interface DownloadableFile {
+  stream: Readable;
+  mimeType: string;
+  originalName: string;
+}
+
 @Injectable()
 export class RequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly storage: StorageService,
   ) {}
 
   async create(
@@ -135,7 +154,9 @@ export class RequestsService {
           id: true,
           title: true,
           createdAt: true,
-          items: { select: { file: { select: { id: true } } } },
+          // `status` and not `id`: since C2 a file can be `failed`, and only a
+          // `complete` one counts as received.
+          items: { select: { file: { select: { status: true } } } },
           links: LAST_LINK,
         },
       }),
@@ -184,6 +205,7 @@ export class RequestsService {
                 originalName: true,
                 mimeType: true,
                 sizeBytes: true,
+                status: true,
                 createdAt: true,
               },
             },
@@ -197,5 +219,57 @@ export class RequestsService {
       throw requestNotFound();
     }
     return toRequestDetail(row, new Date());
+  }
+
+  /**
+   * One deposited file, streamed rather than handed over as a pre-signed URL.
+   *
+   * The pre-signed URL is workable (an nginx location onto MinIO), and it was
+   * weighed and dropped: it puts a second bearer credential in a URL, so a
+   * second entry in infra/nginx/log-redact.conf -- the one protection here
+   * whose failure is silent. Streaming reuses getObjectStream, which
+   * storage.int-spec.ts already drives against a real MinIO under the
+   * restricted policy.
+   *
+   * ONE findFirst carrying the piece, its request and the owner: no branch in
+   * which the ownership check can be forgotten, and a request belonging to
+   * another practice is indistinguishable from one that does not exist.
+   *
+   * `status === 'complete'` is the decision B4b was left to make. A `failed`
+   * file must never be served: C4 will mark one that the antivirus refused, and
+   * serving it anyway would hand the lawyer exactly the file the portal had
+   * just rejected.
+   */
+  async streamFile(
+    requestId: string,
+    itemId: string,
+    lawyerId: string,
+  ): Promise<DownloadableFile> {
+    const item = await this.prisma.requestedItem.findFirst({
+      where: { id: itemId, requestId, request: { lawyerId } },
+      select: {
+        file: {
+          select: {
+            storageKey: true,
+            originalName: true,
+            mimeType: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (item === null) {
+      throw requestNotFound();
+    }
+    if (item.file === null || item.file.status !== 'complete') {
+      throw fileNotAvailable();
+    }
+
+    return {
+      stream: await this.storage.getObjectStream(item.file.storageKey),
+      mimeType: item.file.mimeType,
+      originalName: item.file.originalName,
+    };
   }
 }

@@ -19,6 +19,7 @@ describe('validateEnv', () => {
 
   const auth = {
     JWT_SECRET: 'a'.repeat(32),
+    CLIENT_JWT_SECRET: 'b'.repeat(32),
     JWT_EXPIRES: '15m',
     SESSION_EXPIRES: '7d',
     SESSION_IDLE_EXPIRES: '3d',
@@ -232,7 +233,7 @@ describe('validateEnv', () => {
   });
 
   describe('lawyer authentication', () => {
-    it.each(['JWT_SECRET', 'JWT_EXPIRES'])(
+    it.each(['JWT_SECRET', 'JWT_EXPIRES', 'CLIENT_JWT_SECRET'])(
       'rejects a configuration without %s',
       (key) => {
         // Both were documented and generated long before anything read them.
@@ -256,6 +257,25 @@ describe('validateEnv', () => {
       expect(() =>
         validateEnv({ ...db, JWT_SECRET: 'a'.repeat(32) }),
       ).not.toThrow();
+    });
+
+    it('rejects a CLIENT_JWT_SECRET shorter than 32 characters', () => {
+      expect(() =>
+        validateEnv({ ...db, CLIENT_JWT_SECRET: 'a'.repeat(31) }),
+      ).toThrow(/CLIENT_JWT_SECRET is shorter than 32 characters/);
+    });
+
+    // The two populations must not share a key: with one secret, a deposit
+    // session presented to the lawyer's guard would pass the signature check
+    // and the boundary would hold on an application test alone (RFC 8725 3.8).
+    it('rejects a CLIENT_JWT_SECRET equal to JWT_SECRET', () => {
+      expect(() =>
+        validateEnv({
+          ...db,
+          JWT_SECRET: 'a'.repeat(32),
+          CLIENT_JWT_SECRET: 'a'.repeat(32),
+        }),
+      ).toThrow(/CLIENT_JWT_SECRET must differ from JWT_SECRET/);
     });
 
     it.each(['900', '15 m', '15min', 'quinze minutes', 'm15', '0s', '0h'])(
@@ -348,7 +368,7 @@ describe('validateEnv', () => {
     });
 
     it('rejects an origin carrying a path', () => {
-      // A base ending in /portail would produce https://host/portail/depot/<t>,
+      // A base ending in /portail would produce https://host/portail/deposit/<t>,
       // which the SPA does not serve -- and the lawyer would only find out from
       // a client's 404.
       expect(() =>
@@ -382,6 +402,7 @@ describe('validateEnv', () => {
         DB_PORT: '',
         DB_PASSWORD: 'VerySecretPassword',
         JWT_SECRET: 'VerySecretToken',
+        CLIENT_JWT_SECRET: 'VerySecretClientToken',
         STORAGE_BUCKET: 'INVALID',
         STORAGE_SECRET_KEY: 'VerySecretStorageKey',
       }),

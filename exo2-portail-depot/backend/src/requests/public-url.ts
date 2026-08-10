@@ -3,10 +3,12 @@
  *
  * Frozen by the exercise statement, which places the token in the PATH
  * (POST /public/:token/unlock). That choice has a cost -- a path is written to
- * nginx's access log -- so the same segment also appears in the log-redaction
- * rule, infra/nginx/log-redact.conf. Moving it here means moving it there.
+ * nginx's access log -- so the same segment is repeated in the log-redaction
+ * map, infra/nginx/log-redact.conf, and in the SPA's route. Moving it here
+ * without moving it there breaks nothing visible: the portal keeps answering
+ * and the token reappears IN CLEAR in access.log.
  */
-export const DEPOSIT_PATH = '/depot';
+export const DEPOSIT_PATH = '/deposit';
 
 /**
  * The address handed to the client, built from a CONFIGURED origin rather than

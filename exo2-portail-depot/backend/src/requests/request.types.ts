@@ -1,4 +1,8 @@
-import { DepositRequest, RequestedItem } from '../generated/prisma/client';
+import {
+  DepositRequest,
+  RequestedItem,
+  UploadStatus,
+} from '../generated/prisma/client';
 import { deriveStatus, RequestStatus } from './request-status';
 
 /**
@@ -11,6 +15,24 @@ export interface RequestedItemView {
   label: string;
   received: boolean;
 }
+
+/** The one column of UploadedFile that decides whether a piece counts. */
+export type FileStatusRow = { status: UploadStatus } | null | undefined;
+
+/**
+ * A piece is received when a file hangs off it AND that file is complete.
+ *
+ * The `status === 'complete'` half arrived with C2: until then nothing could
+ * write `failed`, so presence alone was exact. It no longer is -- a rejected
+ * file counted as received would show a request as COMPLETE while a piece is
+ * still missing, on the lawyer's dashboard and in the client's own progress.
+ *
+ * One definition, used by the three read paths (creation, dashboard, client
+ * view): written three times, they could drift and each would look right on its
+ * own.
+ */
+export const isReceived = (file: FileStatusRow): boolean =>
+  file?.status === 'complete';
 
 /**
  * The link, IN CLEAR.
@@ -44,12 +66,12 @@ export interface CreatedRequestView {
  * `file` is optional rather than required: the creation does not join it, and
  * B4 will. Absent means "not received", which is exactly true at creation.
  */
-type ItemRow = RequestedItem & { file?: { id: string } | null };
+type ItemRow = RequestedItem & { file?: { status: UploadStatus } | null };
 
 const toItemView = (item: ItemRow): RequestedItemView => ({
   id: item.id,
   label: item.label,
-  received: item.file != null,
+  received: isReceived(item.file),
 });
 
 /**
@@ -69,7 +91,8 @@ export const toCreatedRequest = (
     {
       expiresAt: link.expiresAt,
       expectedCount: request.items.length,
-      receivedCount: request.items.filter((item) => item.file != null).length,
+      receivedCount: request.items.filter((item) => isReceived(item.file))
+        .length,
     },
     now,
   ),
@@ -130,8 +153,11 @@ export interface RequestPageView {
 /** The columns of the last link the dashboard queries select, and no others. */
 type LinkRow = { expiresAt: Date; revokedAt: Date | null };
 
-/** Only the presence of a file matters to a count. */
-type CountedItemRow = { file: unknown };
+/**
+ * Only the file's status matters to a count -- `unknown` was enough while
+ * presence was the whole rule, and a `failed` file would now be counted in.
+ */
+type CountedItemRow = { file: { status: UploadStatus } | null };
 
 type SummaryRow = {
   id: string;
@@ -149,6 +175,7 @@ type DetailRow = Omit<SummaryRow, 'items'> & {
       originalName: string;
       mimeType: string;
       sizeBytes: number;
+      status: UploadStatus;
       createdAt: Date;
     } | null;
   }[];
@@ -175,7 +202,7 @@ const toLinkView = (links: LinkRow[], requestId: string): LinkView => {
 };
 
 const countReceived = (items: CountedItemRow[]): number =>
-  items.filter((item) => item.file != null).length;
+  items.filter((item) => isReceived(item.file)).length;
 
 /** Field by field, for the same reason as toCreatedRequest above. */
 export const toRequestSummary = (
@@ -218,9 +245,10 @@ export const toRequestDetail = (
   items: row.items.map((item) => ({
     id: item.id,
     label: item.label,
-    received: item.file != null,
-    // `== null` and not `=== null`, like toItemView: an absent `file` would
-    // otherwise take the branch that reads originalName off undefined.
+    received: isReceived(item.file),
+    // The file is still described when it is not `complete`: `received` is
+    // false, and the lawyer can still see WHAT failed rather than an empty
+    // line. B4b is what refuses to serve its bytes.
     file:
       item.file == null
         ? null

@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
 import {
+  DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadBucketCommand,
@@ -176,6 +177,28 @@ describe('StorageService', () => {
       send.mockResolvedValue({});
 
       await expect(service.getObjectStream('k')).rejects.toThrow('no body');
+    });
+  });
+
+  describe('deleteObject', () => {
+    it('deletes the exact key it was given', async () => {
+      send.mockResolvedValue({});
+
+      await service.deleteObject('requests/r1/items/i1/dead-old.pdf');
+
+      const commands = sentCommands();
+      expect(commands[0].type).toBe(DeleteObjectCommand.name);
+      expect(commands[0].input).toMatchObject({
+        Bucket: bucket,
+        Key: 'requests/r1/items/i1/dead-old.pdf',
+      });
+    });
+
+    it('refuses an empty key', async () => {
+      // An empty Key is not a no-op on every S3 implementation, and it would
+      // arrive here from a row whose storageKey was never read.
+      await expect(service.deleteObject('')).rejects.toThrow('non-empty');
+      expect(send).not.toHaveBeenCalled();
     });
   });
 

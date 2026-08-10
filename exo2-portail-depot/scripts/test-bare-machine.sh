@@ -135,13 +135,13 @@ fi
 # ecrite juste a cote. Le conteneur frontend est teste aussi : serve journalise
 # l URL de chaque requete, et ses logs atterrissent au meme endroit.
 T=JETON-DE-TEST-MASQUAGE-4242
-curl -s -o /dev/null --max-time 10 "http://127.0.0.1:@@PORT@@/depot/$T" || true
+curl -s -o /dev/null --max-time 10 "http://127.0.0.1:@@PORT@@/deposit/$T" || true
 sleep 1
 logs=$(docker compose -f infra/docker-compose.yml --env-file .env logs --since 60s proxy frontend 2>/dev/null || true)
 if printf %s "$logs" | grep -q "$T"; then
   echo "  [KO] masquage du jeton    -> le jeton apparait EN CLAIR dans les journaux"
   fail=1
-elif printf %s "$logs" | grep -q "/depot/\[redacted\]"; then
+elif printf %s "$logs" | grep -q "/deposit/\[redacted\]"; then
   echo "  [OK] masquage du jeton    -> [redacted], aucune trace en clair"
 else
   echo "  [KO] masquage du jeton    -> ni jeton ni [redacted] : la requete n a pas ete journalisee ?"

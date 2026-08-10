@@ -6,6 +6,7 @@ import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { LawyersModule } from './lawyers/lawyers.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { PublicModule } from './public/public.module';
 import { RequestsModule } from './requests/requests.module';
 import { StorageModule } from './storage/storage.module';
 
@@ -37,6 +38,7 @@ import { StorageModule } from './storage/storage.module';
     // only way out. A new controller is therefore born closed.
     AuthModule,
     RequestsModule,
+    PublicModule,
   ],
 })
 export class AppModule {}

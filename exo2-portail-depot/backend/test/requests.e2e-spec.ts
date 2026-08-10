@@ -123,7 +123,7 @@ describe('Requests (e2e)', () => {
     // The origin comes from PUBLIC_BASE_URL (test/setup-env.ts), followed by
     // 32 bytes in base64url -- 43 characters over a URL-safe alphabet.
     expect(body.link.url).toMatch(
-      /^https:\/\/portail\.example\.test\/depot\/[A-Za-z0-9_-]{43}$/,
+      /^https:\/\/portail\.example\.test\/deposit\/[A-Za-z0-9_-]{43}$/,
     );
     // The bare token no longer travels: it exists only inside the URL. A field
     // reappearing here would be one more place for a bearer credential to leak.
@@ -263,7 +263,7 @@ describe('Requests (e2e)', () => {
 
       const body = response.body as { url: string; pin: string };
       expect(body.url).toMatch(
-        /^https:\/\/portail\.example\.test\/depot\/[A-Za-z0-9_-]{43}$/,
+        /^https:\/\/portail\.example\.test\/deposit\/[A-Za-z0-9_-]{43}$/,
       );
       expect(body.pin).toMatch(/^\d{4}$/);
       expect(body.url).not.toBe(created.link.url);

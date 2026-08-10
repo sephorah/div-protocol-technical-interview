@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
 import {
+  DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadBucketCommand,
@@ -126,6 +127,28 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
     }
 
     return response.Body as Readable;
+  }
+
+  /**
+   * Deletes ONE object, by its exact key.
+   *
+   * The counterpart of deleteByPrefix, for the one case where the key is still
+   * known: replacing a deposited file. There the row that carried the previous
+   * key is about to be overwritten, so this is the last moment the old object
+   * can be named at all -- afterwards nothing in the database points at it and
+   * it would stay in the bucket forever.
+   *
+   * DeleteObject is idempotent on S3: an already-absent key answers 204, so a
+   * retry after a partial failure is safe.
+   */
+  async deleteObject(key: string): Promise<void> {
+    if (key.length === 0) {
+      throw new Error('deleteObject requires a non-empty key');
+    }
+
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
   }
 
   /**

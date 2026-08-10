@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { verifySecret } from '../crypto/secrets';
 import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
 import { RequestStatus } from './request-status';
 import { RequestsService } from './requests.service';
 
@@ -13,7 +14,7 @@ const ORIGIN = 'https://portail.example.test';
  * received" assertion as strong as it was.
  */
 const tokenFrom = (url: string): string =>
-  decodeURIComponent(url.slice(`${ORIGIN}/depot/`.length));
+  decodeURIComponent(url.slice(`${ORIGIN}/deposit/`.length));
 
 /**
  * What this suite protects: that no secret reaches the database in clear. The
@@ -25,7 +26,9 @@ describe('RequestsService.create', () => {
   const create = jest.fn();
   const prisma = { depositRequest: { create } } as unknown as PrismaService;
   const config = { getOrThrow: () => ORIGIN } as unknown as ConfigService;
-  const service = new RequestsService(prisma, config);
+  // create() never reaches the bucket; the double only satisfies the
+  // constructor.
+  const service = new RequestsService(prisma, config, {} as StorageService);
 
   const body = {
     title: 'Dossier Martin, pieces 2026',
@@ -79,7 +82,7 @@ describe('RequestsService.create', () => {
 
     // 43 characters: 32 random bytes in base64url.
     expect(view.link.url).toMatch(
-      new RegExp(`^${ORIGIN}/depot/[A-Za-z0-9_-]{43}$`),
+      new RegExp(`^${ORIGIN}/deposit/[A-Za-z0-9_-]{43}$`),
     );
   });
 
