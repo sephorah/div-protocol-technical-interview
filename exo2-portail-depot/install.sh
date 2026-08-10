@@ -454,6 +454,11 @@ set_env_default STORAGE_ACCESS_KEY "$(random_hex 16)"
 set_env_default STORAGE_SECRET_KEY "$(random_hex 32)"
 set_env_default MINIO_ROOT_USER "$(random_hex 16)"
 set_env_default MINIO_ROOT_PASSWORD "$(random_hex 32)"
+# Compte admin de Grafana (F2). Meme regle que les autres : genere une fois.
+# Grafana ne lit ce mot de passe qu'a l'initialisation de son volume, donc un
+# secret regenere a chaque execution ne changerait rien au conteneur et
+# afficherait simplement a l'evaluateur un mot de passe qui n'ouvre plus rien.
+set_env_default GRAFANA_ADMIN_PASSWORD "$(random_hex 24)"
 # Compte avocat de demonstration. Le mot de passe est le seul des trois a etre
 # genere : les deux autres sont des valeurs d'affichage, posees par
 # .env.example. 12 octets, soit 24 caracteres hexadecimaux — assez court pour
@@ -878,14 +883,19 @@ fi
 if [ "$TLS" = 1 ]; then
   URLS="   Portail   https://$DOMAIN
      API       https://$DOMAIN/api
+     Grafana   https://$DOMAIN/grafana/  (admin / GRAFANA_ADMIN_PASSWORD du .env)
      (le port $HTTP_PORT redirige desormais vers HTTPS)"
   # Surtout pas de renvoi vers `pnpm stack:down` ici : ces scripts ne portent
   # que le compose de base, donc ils laisseraient certbot en marche et
   # remonteraient le proxy en clair. Les commandes ci-dessus sont completes.
   HINT="   (depuis la racine du depot)"
 else
+  # Grafana n'a AUCUN port publie : cette adresse est celle du proxy, pas la
+  # sienne. C'est le seul chemin d'acces, et il faut le donner, sans quoi un
+  # tableau de bord provisionne reste introuvable.
   URLS="   Portail   http://127.0.0.1:$HTTP_PORT
-     API       http://127.0.0.1:$HTTP_PORT/api"
+     API       http://127.0.0.1:$HTTP_PORT/api
+     Grafana   http://127.0.0.1:$HTTP_PORT/grafana/  (admin / GRAFANA_ADMIN_PASSWORD du .env)"
   # Le port est lie a la boucle locale EXPRES (machine partagee), donc en
   # session SSH cette adresse designe le poste de l'utilisateur et non le
   # serveur. On ne peut pas afficher l'IP de la machine a la place : rien

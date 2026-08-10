@@ -1,0 +1,27 @@
+# Fournisseur de tableaux de bord (F2).
+#
+# Ce fichier ne contient PAS le tableau de bord : il dit a Grafana d'aller lire
+# les JSON de /etc/grafana/dashboards, monte depuis infra/grafana/dashboards/.
+# C'est ce qui remplit le critere de l'issue — « dashboard provisionne, pas
+# clique a la main ». Un tableau de bord clique vit dans le volume grafana_data
+# et disparait avec lui, sans qu'aucun fichier du depot ne signale la perte.
+
+apiVersion: 1
+
+providers:
+  - name: portail
+    orgId: 1
+    folder: Portail
+    type: file
+    # Interdit la suppression depuis l'interface : le fichier est la source de
+    # verite, une suppression manuelle reviendrait au prochain demarrage et
+    # laisserait croire a un bug.
+    disableDeletion: true
+    # Les modifications faites dans l'interface ne sont PAS conservees. C'est
+    # deliberement le sens choisi : autoriser l'inverse ferait diverger le JSON
+    # du depot de ce que la machine affiche, sans rien pour les comparer.
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false

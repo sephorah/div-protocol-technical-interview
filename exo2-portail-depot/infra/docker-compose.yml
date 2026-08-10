@@ -274,6 +274,99 @@ services:
     # de demandes existent, quand les depots ont lieu et quelle dependance est
     # en panne. F2 y accedera par nginx, derriere Grafana.
 
+  grafana:
+    # Tag fige, et l'image OSS explicitement : `grafana/grafana` embarque les
+    # fonctions Enterprise non licenciees, `grafana-oss` est la distribution
+    # Apache. Un `latest` ferait changer de version majeure sans qu'une ligne de
+    # ce depot ne bouge, alors que le format de provisionnement des alertes est
+    # justement ce qui a le plus bouge d'une majeure a l'autre.
+    image: grafana/grafana-oss:13.0.2
+    init: true
+    environment:
+      # Grafana est servi SOUS UN SOUS-CHEMIN, /grafana/. Les deux variables
+      # vont ensemble : sans serve_from_sub_path, Grafana continue de generer
+      # ses redirections et les URL de ses assets a la racine, l'interface
+      # repond 200 et reste blanche — il n'y a aucune erreur a lire.
+      #
+      # L'origine vient de PUBLIC_BASE_URL, la meme que celle des liens client :
+      # elle vaut http://127.0.0.1:21600 sur la machine de l'evaluateur et
+      # https://$DOMAIN des qu'install.sh active HTTPS. Ecrite en dur ici, elle
+      # serait fausse dans l'un des deux cas.
+      GF_SERVER_ROOT_URL: ${PUBLIC_BASE_URL:?definir PUBLIC_BASE_URL dans .env}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
+      GF_SECURITY_ADMIN_USER: admin
+      # Genere par install.sh a la premiere installation, jamais regenere.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?definir GRAFANA_ADMIN_PASSWORD dans .env}
+      # La machine est PARTAGEE : personne ne doit pouvoir se creer un compte ni
+      # entrer sans en avoir un. L'anonyme est desactive par defaut, il est
+      # ecrit ici pour que le rouvrir soit une decision et non un oubli.
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      # Aucun appel sortant : Grafana verifie sinon les mises a jour et remonte
+      # des statistiques d'usage. Sur une machine partagee qui heberge les
+      # pieces des clients d'un avocat, la position du projet est qu'aucun
+      # composant ne contacte de tiers — c'est deja ce qui a fait auto-heberger
+      # la police du frontend.
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      # Meme motif, et un effet mesure : par defaut Grafana 13 telecharge cinq
+      # greffons au demarrage (exploretraces, metricsdrilldown, elasticsearch,
+      # lokiexplore, pyroscope). Aucun ne sert ici, ils supposent un acces
+      # internet, et l'un d'eux echouait de toute facon en level=error sur
+      # « permission denied » a chaque demarrage — un bruit permanent qui
+      # apprend a ignorer les erreurs de ce conteneur.
+      GF_PLUGINS_PREINSTALL_DISABLED: 'true'
+    volumes:
+      # Tout est PROVISIONNE : sources de donnees, tableau de bord et alertes
+      # sont des fichiers du depot. Ce qui serait clique dans l'interface vivrait
+      # dans grafana_data seul, et disparaitrait avec le volume sans que rien ne
+      # le signale.
+      # Les trois sous-repertoires sont montes UN PAR UN, et non le
+      # /etc/grafana/provisioning entier : l'image en fournit d'autres
+      # (plugins/, access-control/, notifiers/), et les recouvrir d'un seul
+      # montage les fait disparaitre. Grafana journalise alors
+      # « Failed to read plugin provisioning files from directory » en level=error
+      # a chaque demarrage — un bruit permanent qui apprend a ignorer les erreurs
+      # de provisionnement, celles-la memes qui comptent ici.
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
+      # Chemin reference par provisioning/dashboards/portail.yml ; les deux se
+      # suivent.
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        # La source de donnees provisionnee pointe sur ce service. Grafana
+        # demarrerait quand meme, mais le premier coup d'oeil au tableau de bord
+        # afficherait des panneaux en erreur.
+        condition: service_healthy
+    healthcheck:
+      # curl est present dans l'image alpine de Grafana (contrairement aux
+      # images node du portail, qui passent par `node -e fetch`).
+      #
+      # Le chemin porte /grafana/, et c'est ce qui rend la sonde utile : mesure
+      # sur l'image, un Grafana SANS serve_from_sub_path repond 302 sur
+      # /grafana/api/health, que `curl -fsS` (sans -L) traite en echec. Le
+      # conteneur devient donc unhealthy si le sous-chemin est mal configure,
+      # au lieu de laisser decouvrir une interface blanche par le navigateur.
+      # (Les deux chemins repondent 200 quand la configuration est bonne : c'est
+      # bien le cas d'erreur qui departage, pas le cas nominal.)
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:3000/grafana/api/health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # Grafana applique tout son provisionnement au demarrage : 30 s comme les
+      # autres, avec le meme start_interval de 1 s, faute de quoi la boucle
+      # d'attente d'install.sh perd un intervalle entier sur ce seul service.
+      start_period: 30s
+      start_interval: 1s
+    restart: unless-stopped
+    # Aucun port publie, et ici c'est plus qu'une habitude : Grafana est une
+    # interface d'ADMINISTRATION, sur une machine partagee avec d'autres
+    # candidats. Le seul chemin d'acces est la `location /grafana/` du proxy,
+    # derriere le mot de passe admin genere par install.sh.
+
   proxy:
     image: nginx:alpine
     ports:
@@ -324,6 +417,14 @@ services:
         condition: service_healthy
       frontend:
         condition: service_healthy
+      grafana:
+        # `service_started` et NON service_healthy, et la nuance est le contrat
+        # du portail : nginx resout `grafana` au chargement de sa configuration,
+        # donc le conteneur doit exister ou nginx refuse de demarrer sur
+        # « host not found in upstream ». Il lui suffit d'exister. Attendre qu'il
+        # soit sain retarderait la reponse du PORTAIL le temps que son tableau de
+        # bord soit pret, ce qui inverse les priorites.
+        condition: service_started
     restart: unless-stopped
 
 volumes:
@@ -337,3 +438,8 @@ volumes:
   # nettoyage de developpement ne doit pas pouvoir atteindre les pieces reelles.
   minio_data:
   prometheus_data:
+  # Base interne de Grafana (utilisateurs, sessions, etat des alertes). Le
+  # tableau de bord, les alertes et la source de donnees n'y sont PAS : ils sont
+  # provisionnes depuis des fichiers, precisement pour survivre a la perte de ce
+  # volume.
+  grafana_data:

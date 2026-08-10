@@ -1,0 +1,281 @@
+# Les quatre alertes du portail (F2), PROVISIONNEES.
+#
+# Meme raison que pour le tableau de bord : une alerte creee dans l'interface
+# vit dans le volume grafana_data. Elle disparait avec lui, et une alerte
+# disparue ne se signale jamais — c'est exactement le mode de defaillance
+# qu'une alerte est censee couvrir.
+#
+# CE QUI N'EST PAS FAIT, ET IL FAUT LE DIRE : aucun point de contact n'est
+# configure. La machine n'a pas de SMTP, et pointer les alertes vers un
+# destinataire injoignable donnerait l'illusion d'une notification. Les alertes
+# sont donc VISIBLES dans Grafana (Alerting > Alert rules), elles ne sont pas
+# POUSSEES. Ajouter un webhook Slack ou un SMTP se fait par un fichier
+# `contactPoints:` a cote de celui-ci, sans toucher aux regles.
+#
+# FORME DES REGLES : chaque regle est en deux temps. Le refId A est une requete
+# Prometheus instantanee ; le refId C est une expression de seuil de Grafana qui
+# la compare. Un seul refId ne suffit pas — Grafana exige que la condition porte
+# sur une expression, pas sur une requete brute.
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: portail
+    folder: Portail
+    # Cadence d'evaluation. 30 s, et le choix n'est PAS libre : Grafana refuse
+    # tout intervalle qui n'est pas un multiple de la periode de base de son
+    # ordonnanceur, 10 s. Un 15 s — la valeur naturelle, celle du
+    # scrape_interval de Prometheus — fait echouer TOUT le provisionnement et le
+    # conteneur sort en erreur :
+    #   invalid alert rule: interval (15s) should be non-zero and divided
+    #   exactly by scheduler interval: 10
+    # Verifie en demarrant l'image, pas suppose. 30 s est le premier multiple
+    # au-dessus du scrape : evaluer plus souvent que Prometheus ne collecte ne
+    # ferait que relire deux fois le meme echantillon.
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------
+      # 1. API injoignable
+      # ------------------------------------------------------------------
+      # SEUIL : up < 1 pendant 1 minute.
+      # Pourquoi 1 minute et pas immediatement : le scrape est toutes les 15 s,
+      # donc 1 min = QUATRE scrapes rates d'affilee. En dessous, chaque mise a
+      # jour d'image (`docker compose up -d` recree le conteneur) declencherait
+      # l'alerte pour rien, et le start_period du healthcheck backend est deja
+      # de 60 s. Au-dessus, on laisse le portail muet plus d'une minute sans
+      # rien dire.
+      - uid: portail-api-down
+        title: API injoignable
+        condition: C
+        for: 1m
+        # Pas de donnee = la cible a disparu, ce qui est precisement la panne
+        # surveillee. La traiter en « OK » rendrait l'alerte silencieuse au pire
+        # moment.
+        noDataState: Alerting
+        execErrState: Alerting
+        labels:
+          severite: critique
+        annotations:
+          summary: "L'API du portail ne repond plus aux scrapes Prometheus."
+          description: >-
+            Aucun depot ni aucune connexion avocat n'est possible.
+            Verifier : docker compose -f infra/docker-compose.yml --env-file .env logs backend
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: portail-prometheus
+            model:
+              refId: A
+              expr: up{job="portail-backend"}
+              instant: true
+              intervalMs: 15000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [1]
+
+      # ------------------------------------------------------------------
+      # 2. Taux d'echec de depot > 10 % sur 5 min
+      # ------------------------------------------------------------------
+      # SEUIL : plus de 10 % des depots echouent, ET au moins 5 depots dans la
+      # fenetre.
+      #
+      # Le 10 % : un `rejected_type` isole est une erreur d'utilisateur normale
+      # (un .docx envoye a la place d'un PDF). Au-dela d'un depot sur dix, ce
+      # n'est plus une erreur individuelle : soit l'allowlist n'est pas comprise
+      # par les clients, soit le stockage refuse les ecritures.
+      #
+      # Le plancher de 5 depots est ce qui rend le seuil utilisable sur un
+      # portail a faible trafic, et c'est le piege a ne pas rouvrir : sans lui,
+      # UN SEUL fichier refuse sur trois donne 33 %, donc une alerte critique
+      # pour un client qui s'est trompe de fichier. Le `and` de PromQL ne rend
+      # la valeur de gauche que si la condition de droite est vraie ; en dessous
+      # de 5 depots la requete ne rend rien, et noDataState: OK fait le reste.
+      #
+      # `outcome!="success"` plutot qu'une enumeration : un outcome ajoute plus
+      # tard entre dans le calcul sans qu'on ait a y penser.
+      - uid: portail-deposit-failure-rate
+        title: Taux d'echec de depot superieur a 10 %
+        condition: C
+        # 5 min : la fenetre de rate() est deja de 5 min, ce `for` exige en plus
+        # que le taux se maintienne, donc qu'il ne s'agisse pas d'une rafale.
+        for: 5m
+        # Aucun depot dans la fenetre n'est pas un incident : c'est la nuit.
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severite: majeure
+        annotations:
+          summary: 'Plus de 10 % des depots echouent sur les 5 dernieres minutes.'
+          description: >-
+            Repartir les echecs par outcome (rejected_type, rejected_size, error)
+            sur le tableau de bord Portail. `error` en tete pointe le stockage,
+            `rejected_type` pointe l'interface qui laisse choisir un format refuse.
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: portail-prometheus
+            model:
+              refId: A
+              expr: >-
+                (
+                  sum(rate(portail_deposits_total{outcome!="success"}[5m]))
+                  /
+                  sum(rate(portail_deposits_total[5m]))
+                )
+                and
+                (sum(increase(portail_deposits_total[5m])) >= 5)
+              instant: true
+              intervalMs: 15000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.1]
+
+      # ------------------------------------------------------------------
+      # 3. Plus de 20 PIN errones sur 5 min — force brute
+      # ------------------------------------------------------------------
+      # C'EST L'ALERTE QUI REMPLACE G1 (limitation de debit sur
+      # /public/:token/unlock), coupe du perimetre. Elle DETECTE, elle
+      # n'EMPECHE pas : ce qui borne le debit d'un attaquant reste le cout
+      # d'argon2id (67 ms mesures par essai). Le README doit le dire tel quel.
+      #
+      # SEUIL : 20 echecs en 5 min, soit 4 par minute.
+      # Le PIN a 4 chiffres, donc 10 000 combinaisons. Un vrai client se trompe
+      # une a trois fois, jamais vingt : le seuil est hors de portee d'un usage
+      # normal. Il est aussi tres en dessous de ce qu'un attaquant doit tenir
+      # pour aboutir — a 4 essais par minute, balayer 10 000 combinaisons prend
+      # 42 heures — donc l'alerte se declenche des les premieres minutes d'une
+      # attaque, pas apres.
+      #
+      # `increase()` et non `rate()` : le seuil est un NOMBRE d'essais, pas une
+      # frequence, et increase() sait deja rattraper une remise a zero du
+      # compteur au redemarrage du backend.
+      - uid: portail-pin-brute-force
+        title: Force brute sur le PIN d'un lien de depot
+        condition: C
+        # 0 s : c'est un signal de securite. La fenetre de 5 min lisse deja le
+        # bruit ; attendre en plus, c'est retarder la seule detection qui existe.
+        for: 0s
+        # Aucune tentative n'est pas une attaque.
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severite: securite
+        annotations:
+          summary: 'Plus de 20 codes PIN refuses en 5 minutes.'
+          description: >-
+            Signature d'une attaque par force brute sur les 10 000 combinaisons
+            d'un PIN a 4 chiffres. Le portail n'a PAS de limitation de debit
+            (G1 hors perimetre) : la reponse est manuelle — revoquer le lien
+            concerne avec DELETE /api/v1/requests/:id/link, puis le regenerer.
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: portail-prometheus
+            model:
+              refId: A
+              expr: sum(increase(portail_unlock_attempts_total{outcome="failure"}[5m]))
+              instant: true
+              intervalMs: 15000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [20]
+
+      # ------------------------------------------------------------------
+      # 4. MinIO injoignable (sonde de sante en echec)
+      # ------------------------------------------------------------------
+      # LE SIGNAL, ET SA LIMITE. Prometheus ne scrape pas MinIO : ses metriques
+      # demandent une authentification, et prometheus.yml ne declare que le
+      # backend. Ce qui reste visible est la sonde /health, qui repond 503 des
+      # que MinIO OU Postgres ne repond pas — et l'intercepteur de latence
+      # compte cette reponse comme n'importe quelle autre.
+      #
+      # Ce qui la fait battre en continu est le healthcheck docker du backend,
+      # qui appelle /health toutes les 30 s depuis son propre conteneur. Le
+      # retirer du compose rendrait cette alerte silencieuse sans rien casser de
+      # visible.
+      #
+      # SEUIL : une seule reponse 503 sur 5 min suffit. Il n'y a pas de taux
+      # acceptable — un backend qui ne sait plus stocker fait echouer chaque
+      # depot. `for: 1m` ecarte le hoquet isole (deux sondes consecutives) sans
+      # attendre davantage.
+      #
+      # La regle ne distingue pas Postgres de MinIO. Pour trancher, lire le
+      # corps de la sonde, qui nomme les deux :
+      #   docker compose -f infra/docker-compose.yml --env-file .env exec backend \
+      #     node -e "fetch('http://127.0.0.1:21610/api/v1/health').then(r=>r.text()).then(console.log)"
+      #
+      # Le `route=~` couvre les deux formes possibles de l'etiquette selon la
+      # facon dont Express rend la route appariee. Un `route=` exact qui tombe a
+      # cote ne produirait aucune erreur : l'alerte ne se declencherait
+      # simplement jamais, et le silence est precisement ce qu'une alerte de
+      # disponibilite ne doit pas pouvoir faire.
+      - uid: portail-storage-down
+        title: Dependance injoignable (MinIO ou Postgres)
+        condition: C
+        for: 1m
+        # Pas de donnee ici veut dire que le backend ne scrape plus du tout :
+        # c'est l'alerte 1 qui couvre ce cas, inutile de doubler la notification.
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severite: critique
+        annotations:
+          summary: 'La sonde de sante du backend repond 503.'
+          description: >-
+            MinIO ou Postgres ne repond plus. Tant que dure la panne, aucun
+            depot n'aboutit. Lire le corps de la sonde pour savoir laquelle des
+            deux dependances est en cause.
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: portail-prometheus
+            model:
+              refId: A
+              expr: >-
+                sum(increase(portail_http_request_duration_seconds_count{route=~"(/api/v1)?/health",status="503"}[5m]))
+              instant: true
+              intervalMs: 15000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
