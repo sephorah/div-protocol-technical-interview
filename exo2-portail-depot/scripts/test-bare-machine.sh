@@ -128,6 +128,16 @@ else
   fail=1
 fi
 
+# La CSP borne ce qu une dependance frontend compromise peut atteindre. Son mode
+# d echec est muet des deux cotes : sans elle la page s affiche pareil, et un
+# add_header pose plus tard dans un location l annule sans erreur au demarrage.
+if curl -sI --max-time 10 "http://127.0.0.1:@@PORT@@/" | grep -qi "^Content-Security-Policy:.*default-src"; then
+  echo "  [OK] CSP sur /            -> presente"
+else
+  echo "  [KO] CSP sur /            -> absente (server-hardening.conf n est peut-etre pas monte)"
+  fail=1
+fi
+
 # Le masquage du jeton dans les journaux, et l assertion est NEGATIVE a dessein.
 # Son mode d echec est une ligne EN TROP, pas une ligne manquante : nginx cumule
 # les access_log d un meme niveau, et l image en declare deja un. Verifier la
