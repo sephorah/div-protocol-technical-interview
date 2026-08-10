@@ -234,6 +234,75 @@ partir de l'en-tête `Host` de la requête**. Cet en-tête est fourni par l'appe
 ferait renvoyer par l'API un lien pointant vers le domaine d'un attaquant, que l'avocat transmettrait
 lui-même à son client.
 
+### Ce qui est stocké, et ce qui ne l'est pas
+
+Le jeton en clair **n'entre jamais dans la base**. À la création, dans cet ordre :
+
+1. `generatePublicToken()` tire **32 octets** du générateur du système et les encode en base64url —
+   43 caractères, 256 bits d'entropie.
+2. `hashPublicToken()` en calcule le **SHA-256**. C'est cette empreinte, et elle seule, qui part dans
+   la colonne `tokenHash`.
+3. La valeur en clair repart dans la **réponse HTTP**, composée en URL, et le serveur l'oublie.
+
+Elle n'est pas non plus journalisée : nginx la remplace par `[redacted]` dans `access.log`, et
+l'option de journalisation du serveur de fichiers statiques est désactivée pour la même raison. Elle
+existe donc en clair à deux endroits seulement — l'écran de l'avocat, et le courriel qu'il envoie.
+
+**Deux algorithmes, parce que les deux secrets ne posent pas le même problème.**
+
+| | Jeton de lien | PIN |
+|---|---|---|
+| Entropie | 256 bits | ~13 bits (4 chiffres) |
+| Stocké en | SHA-256 | argon2id, salé |
+| Sert à | **retrouver** la ligne | **vérifier** une saisie |
+
+Le jeton doit être **cherché** : quand un client se présente, on hache ce qu'il apporte et on
+interroge `WHERE tokenHash = …`, en une lecture indexée. Cela exige un hachage **déterministe** — la
+même entrée donne toujours la même sortie. argon2 est **salé** : deux hachages d'une même valeur
+diffèrent, donc la recherche par égalité est impossible et il faudrait tester le jeton contre toutes
+les lignes de la table. Le PIN, lui, n'a jamais à être cherché : on a déjà la ligne, on vérifie une
+saisie contre son empreinte — c'est exactement le cas d'usage d'argon2id.
+
+Et la lenteur d'argon2 n'apporterait rien au jeton : elle existe pour rendre coûteuse l'attaque d'un
+secret **devinable**. 256 bits ne se devinent pas, à n'importe quelle vitesse.
+
+**SHA-256 est à sens unique.** Des 64 caractères hexadécimaux stockés on ne remonte pas aux 43
+d'origine. Ce n'est pas un chiffrement : il n'y a pas de clé, et rien à déchiffrer. Un vol de base
+livre donc des empreintes inexploitables — **c'est le hachage du jeton qui rend une fuite sans
+valeur**, pas celui du PIN (voir les limites connues, où le chiffre est donné).
+
+**D'où l'affichage unique — qui n'est pas une protection, mais une conséquence.** On ne réaffiche pas
+ce qu'on ne conserve pas. Et **régénérer n'est pas non plus une protection : c'est la réparation** que
+cette conséquence rend nécessaire. Le gain de sécurité tient en deux mots — *jeton haché* et
+*révocation* ; l'affichage unique et la régénération en sont le prix ergonomique, assumé.
+
+**Régénérer ne réaffiche pas, ça remplace.** L'ancien jeton est perdu pour tout le monde,
+définitivement. La régénération en tire un neuf, révoque l'ancien, et l'affiche une fois — comme à la
+création. Conséquence à connaître avant de cliquer : **si le client avait déjà reçu l'ancien lien, il
+cesse de fonctionner**, et il faut lui envoyer le nouveau. C'est pourquoi l'interface demande
+confirmation en nommant cette conséquence, et pourquoi l'action de la carte s'appelle « Gérer le
+lien » et non « Copier le lien » — ce dernier mot conduirait l'avocat à casser un lien en service.
+
+**Ce qui protège réellement un dépôt, par ordre de poids réel.** La liste est souvent lue comme quatre
+protections empilées ; elle ne l'est pas.
+
+1. **Le jeton de 256 bits non devinable.** C'est *lui* le contrôle d'accès. Rien d'autre n'approche.
+2. **L'expiration**, qui borne la fenêtre sans intervention humaine.
+3. **La révocation**, seul moyen d'*arrêter* immédiatement un accès. Un lien parti par courriel
+   échappe à tout contrôle — transfert, boîte compromise, mauvais destinataire — et « il expirera dans
+   douze jours » ne répond pas à ça.
+4. **Le hachage au repos**, qui protège contre une fuite de base, pas contre une interception.
+5. **Le PIN à 4 chiffres**, le maillon faible — voir les limites connues.
+
+**Le PIN ne protège pas contre qui lit le courriel.** L'avocat collera vraisemblablement le lien *et*
+le code dans le même message ; le PIN ne défend alors que contre celui qui trouve l'URL **sans** le
+message — un journal, un historique de navigateur, une passerelle antispam. Le dire vaut mieux que
+laisser croire à une double authentification. C'est aussi pourquoi l'interface offre **deux boutons
+« Copier » séparés** et **aucun `mailto:` prérempli** : réunir les deux secrets d'un geste
+encouragerait exactement ce qu'on décrit ici.
+
+### Régénérer et révoquer
+
 **`POST /requests/:id/link` est l'appel de l'avocat** pour en obtenir un nouveau. Cette route n'est
 pas dans l'énoncé, qui encadre sa liste par « à titre indicatif […] le découpage exact est ton choix,
 on regardera comment tu le justifies ». Voici la justification.
@@ -394,10 +463,15 @@ de validation. L'allowlist et la taille maximale (20 Mo) vivent dans la configur
 - **Le nom de fichier d'origine est restitué tel que le client l'a envoyé.** Il n'est jamais utilisé
   comme chemin — la clé de stockage est composée à partir des identifiants — mais l'interface qui
   l'affichera (B5) devra l'échapper comme n'importe quelle donnée venue de l'extérieur.
-- **Le PIN à 4 chiffres n'est protégé par aucune limitation de débit.** 10 000 combinaisons, et seul
-  le coût d'argon2id (~67 ms mesurés) borne un attaquant. C'est **G1**, par jeton de lien, et B3 ne
-  le règle pas — le dire vaut mieux que le laisser croire réglé. Quatre chiffres viennent de
-  l'énoncé ; l'expiration du lien borne la fenêtre d'attaque, elle ne la ferme pas.
+- **Le PIN à 4 chiffres n'est protégé par aucune limitation de débit, et son hachage n'est pas un
+  rempart.** 10 000 combinaisons. **En ligne**, seul le coût d'argon2id (~67 ms mesurés) borne un
+  attaquant : c'est **G1**, par jeton de lien, et B3 ne le règle pas — le dire vaut mieux que le
+  laisser croire réglé. **Hors ligne**, après une fuite de base, ces mêmes 67 ms font
+  10 000 × 67 ms ≈ **11 minutes** pour casser **un** PIN sur un cœur, quelques secondes en parallèle.
+  Le hachage du PIN est donc de la défense en profondeur, pas une barrière ; ce qui rend une base
+  volée inexploitable est le hachage **du jeton**, sans lequel les PIN retrouvés n'ouvrent rien.
+  Quatre chiffres viennent de l'énoncé ; l'expiration du lien borne la fenêtre d'attaque, elle ne la
+  ferme pas. **C'est la limite la plus sérieuse du modèle actuel.**
 - **Le jeton survit hors de nos journaux.** Le masquage dans `access.log` ne couvre que notre disque :
   l'adresse reste dans l'historique du navigateur du client, dans le courriel qui la transporte et
   dans toute passerelle antispam qui l'aura ouvert. C'est la conséquence assumée d'un jeton dans le
@@ -437,9 +511,6 @@ de validation. L'allowlist et la taille maximale (20 Mo) vivent dans la configur
 - **Le compte de démonstration existe aussi sur le domaine public**, avec une adresse devinable et
   aucune limitation de débit devant lui. C'est son mot de passe tiré au sort qui le protège, seul.
   Un déploiement réel devrait le supprimer.
-- **PIN à 4 chiffres = 10 000 combinaisons.** Le hachage protège la base en cas de fuite, mais
-  seul un verrouillage après N échecs protège du bruteforce en ligne — il n'existe pas encore.
-  C'est la limite la plus sérieuse du modèle actuel.
 - **Pas de versionnage des fichiers** : un fichier par pièce attendue, un nouveau dépôt écrase le
   précédent, objet MinIO compris.
 - **Pas d'historique conservé au-delà des liens** : supprimer une demande détruit en cascade ses
