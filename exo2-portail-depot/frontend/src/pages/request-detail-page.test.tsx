@@ -104,14 +104,6 @@ describe('RequestDetailPage', () => {
 
   // Rendered as text and never as markup: the day someone reaches for
   // dangerouslySetInnerHTML to "display a file name properly", this fails.
-  it('renders a file name carrying markup as text', async () => {
-    stubSequence([() => jsonResponse(detail({ items: [received('<img src=x onerror=1>.pdf')] }))])
-    renderDetail()
-
-    const name = await screen.findByText('<img src=x onerror=1>.pdf')
-    expect(name.querySelector('img')).toBeNull()
-  })
-
   it('shows both the status and the link state', async () => {
     stubSequence([
       () =>

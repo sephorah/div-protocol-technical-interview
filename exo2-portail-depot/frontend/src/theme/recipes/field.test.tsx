@@ -20,32 +20,4 @@ describe('field recipe', () => {
     expect(screen.getByText('Identifiants refuses.')).toBeInTheDocument()
   })
 
-  it('sets the label at the charter 12px / 600', () => {
-    const base = system.getSlotRecipe('field').base as
-      | Record<string, Record<string, unknown>>
-      | undefined
-    expect(base?.label).toMatchObject({ fontSize: '12px', fontWeight: 600 })
-  })
-
-  // A ring, not a wider border: widening the border on focus shifts the next
-  // line by a pixel every time the field is entered.
-  it('rings the input on focus instead of thickening its border', () => {
-    const base = system.getRecipe('input').base as Record<string, unknown> | undefined
-    const focus = base?._focusVisible as Record<string, unknown> | undefined
-    expect(focus?.boxShadow).toContain('brand-solid')
-    expect(focus?.borderWidth).toBeUndefined()
-    expect(base?.borderRadius).toBe('l2')
-  })
-
-  // Chakra's default `outline` variant sets a transparent background, and a
-  // variant beats `base`. On white it looked right; it would only diverge once
-  // a field sat on the tinted card header.
-  it('paints the input white in the variant the screens actually get', () => {
-    const recipe = system.getRecipe('input')
-    const variants = recipe.variants as
-      | Record<string, Record<string, Record<string, unknown>>>
-      | undefined
-    const defaults = (recipe.defaultVariants ?? {}) as Record<string, string>
-    expect(variants?.variant?.[defaults.variant]?.bg).toBe('bg')
-  })
 })

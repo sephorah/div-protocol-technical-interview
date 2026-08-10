@@ -138,9 +138,13 @@ Les trois sujets nommés par l'énoncé — expiration du lien, vérification du
 
 **C'est ici que se joue la seule vérification qui n'a aucun filet automatique.** jsdom ne calcule
 aucun style : les tests frontend disent qu'un bouton existe, jamais qu'il est violet, ni qu'il
-s'inverse au survol, ni que la densité tient sur mobile. Les cases ci-dessous sont **la seule preuve
-de la charte** — et c'est pourquoi les tests de recettes de thème ont été retirés : ils en donnaient
-l'illusion sans la fournir.
+s'inverse au survol, ni que la densité tient sur mobile.
+
+C'est pourquoi les **35 cas du dossier `theme/`** ont été retirés : ils relisaient des jetons de
+style et donnaient l'illusion de couvrir la charte sans rien en prouver. Deux ont été gardés, et
+seulement parce qu'ils portent un vrai piège Chakra : `badge.test.tsx` (une variante `size` divisait
+la marge par deux en silence) et `field.test.tsx` (l'étiquette liée à son champ, qui est de
+l'accessibilité, pas du style). **Les cases ci-dessous sont donc la seule preuve de la charte.**
 
 - [ ] Survol du bouton principal → **inversion** des couleurs, et le libellé **ne bouge pas d'un
       pixel** (l'anneau est un `box-shadow: inset`, pas une bordure ; une bordure décalerait le

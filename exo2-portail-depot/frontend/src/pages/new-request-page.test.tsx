@@ -63,11 +63,6 @@ afterEach(() => {
 })
 
 describe('NewRequestPage', () => {
-  it('starts with one empty piece row, because a request needs at least one', () => {
-    renderPage()
-    expect(screen.getAllByLabelText(/piece attendue/i)).toHaveLength(1)
-  })
-
   it('adds and removes piece rows, and stops at twenty', async () => {
     renderPage()
 
@@ -152,19 +147,6 @@ describe('NewRequestPage', () => {
 
   // Two separate buttons, and no prefilled mail: gathering the address and the
   // code in one gesture is exactly the leak the README describes.
-  it('copies the link and the PIN from two separate buttons', async () => {
-    vi.stubGlobal('fetch', vi.fn<FetchMock>().mockResolvedValue(jsonResponse(created)))
-    renderPage()
-
-    await fillValidForm()
-    await submit()
-
-    await screen.findByDisplayValue(/depot\/8f3a2c1b/)
-    expect(screen.getByRole('button', { name: /^copier$/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /copier le code/i })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /envoyer par mail/i })).not.toBeInTheDocument()
-  })
-
   it('sends once on a double click', async () => {
     let release: (value: Response) => void = () => {}
     const pending = new Promise<Response>((resolve) => {

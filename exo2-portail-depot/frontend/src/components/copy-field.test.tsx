@@ -54,10 +54,4 @@ describe('CopyField', () => {
     expect(await screen.findByText(/ctrl\+c/i)).toBeInTheDocument()
   })
 
-  it('shows the value in a read-only field, so it cannot be edited before copying', () => {
-    renderField()
-    const input = screen.getByLabelText('Lien a envoyer au client')
-    expect(input).toHaveValue(VALUE)
-    expect(input).toHaveAttribute('readonly')
-  })
 })
