@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { RequestsModule } from '../requests/requests.module';
 import { CLIENT_SESSION_TTL_MS } from './client-session';
 import { ClientSessionGuard } from './client-session.guard';
+import { DepositsService } from './deposits.service';
 import { PublicController } from './public.controller';
 import { PublicService } from './public.service';
 
@@ -33,6 +34,7 @@ import { PublicService } from './public.service';
     }),
   ],
   controllers: [PublicController],
-  providers: [PublicService, ClientSessionGuard],
+  // StorageService is @Global like PrismaService, hence no StorageModule import.
+  providers: [PublicService, DepositsService, ClientSessionGuard],
 })
 export class PublicModule {}

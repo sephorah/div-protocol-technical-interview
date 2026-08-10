@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -8,10 +9,15 @@ import {
   Post,
   Req,
   Res,
+  UploadedFile,
+  UseFilters,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 // `import type` is required, not stylistic: with isolatedModules and
 // emitDecoratorMetadata, a type named in a @Req()/@Res() signature would
 // otherwise be emitted as a runtime import (TS1272).
@@ -24,8 +30,12 @@ import {
 } from './client-session';
 import type { ClientRequest, ClientSessionPayload } from './client-session';
 import { ClientSessionGuard } from './client-session.guard';
+import { DepositsService } from './deposits.service';
 import { PublicService } from './public.service';
-import type { PublicRequestView } from './public.types';
+import type { DepositedFileView, PublicRequestView } from './public.types';
+import { UploadLimitFilter } from './upload-limit.filter';
+import { MAX_FILE_BYTES, NO_FILE } from './upload.constants';
+import { DepositFileDto } from './dto/deposit-file.dto';
 import { UnlockDto } from './dto/unlock.dto';
 
 /**
@@ -40,6 +50,7 @@ export class PublicController {
 
   constructor(
     private readonly clients: PublicService,
+    private readonly deposits: DepositsService,
     // PublicModule's JwtService, signed with CLIENT_JWT_SECRET -- not
     // AuthModule's.
     private readonly jwt: JwtService,
@@ -92,5 +103,46 @@ export class PublicController {
       request.clientSession.requestId,
       request.clientSession.expiresAt,
     );
+  }
+
+  /**
+   * Deposits one file against one expected piece.
+   *
+   * The guard runs BEFORE the interceptor (Nest's order is guards, then
+   * interceptors), so a caller with no session is refused without twenty
+   * megabytes ever being read.
+   *
+   * memoryStorage, explicitly: it is also multer's default, but writing it down
+   * is what keeps A3's promise checkable -- the API's disk never holds a
+   * client's document, not even briefly. Adding `dest` here would break that
+   * with nothing to say so.
+   *
+   * `files: 1` alongside fileSize: without it, ten parts of twenty megabytes
+   * each pass the per-file limit one by one.
+   */
+  @UseGuards(ClientSessionGuard)
+  @UseFilters(UploadLimitFilter)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { files: 1, fileSize: MAX_FILE_BYTES },
+    }),
+  )
+  @Post('files')
+  deposit(
+    @Req() request: ClientRequest,
+    @Body() body: DepositFileDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ): Promise<DepositedFileView> {
+    if (file === undefined) {
+      throw new BadRequestException(NO_FILE);
+    }
+
+    // requestId comes from the session the guard rebuilt from the database,
+    // never from the body: it is what makes the piece check meaningful.
+    return this.deposits.deposit(request.clientSession.requestId, body.itemId, {
+      originalName: file.originalname,
+      buffer: file.buffer,
+    });
   }
 }
