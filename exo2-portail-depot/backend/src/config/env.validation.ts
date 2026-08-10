@@ -49,6 +49,7 @@ const REQUIRED_STORAGE_KEYS = [
 
 const REQUIRED_AUTH_KEYS = [
   'JWT_SECRET',
+  'CLIENT_JWT_SECRET',
   'JWT_EXPIRES',
   'SESSION_EXPIRES',
   'SESSION_IDLE_EXPIRES',
@@ -197,6 +198,28 @@ const inspectAuth = (
     );
   }
 
+  // The anonymous client's session is signed with its own key (RFC 8725 / BCP
+  // 225 section 3.8): shared with the lawyer's, a deposit token presented to
+  // the lawyer's guard would clear the signature check and the boundary would
+  // rest on an application test alone. Rotating this one also closes every
+  // deposit session without logging a single lawyer out.
+  const clientSecret = readString(raw, 'CLIENT_JWT_SECRET');
+  if (
+    !missing.includes('CLIENT_JWT_SECRET') &&
+    clientSecret.length < JWT_SECRET_MIN_LENGTH
+  ) {
+    issues.push(
+      `CLIENT_JWT_SECRET is shorter than ${JWT_SECRET_MIN_LENGTH} characters.`,
+    );
+  }
+  // Set to the same value, the two keys look configured and separate nothing.
+  if (clientSecret.length > 0 && clientSecret === secret) {
+    issues.push(
+      'CLIENT_JWT_SECRET must differ from JWT_SECRET, otherwise the two ' +
+        'session types are cryptographically interchangeable.',
+    );
+  }
+
   const expires = readString(raw, 'JWT_EXPIRES');
   if (!missing.includes('JWT_EXPIRES') && !DURATION_PATTERN.test(expires)) {
     issues.push(
@@ -235,6 +258,7 @@ const inspectAuth = (
 
   return {
     JWT_SECRET: secret,
+    CLIENT_JWT_SECRET: clientSecret,
     JWT_EXPIRES: expires,
     SESSION_EXPIRES: session,
     SESSION_IDLE_EXPIRES: idle,
