@@ -46,7 +46,12 @@ HEALTH_TIMEOUT=300        # secondes d'attente maximale des healthchecks
 # ferait patienter le script jusqu'au HEALTH_TIMEOUT sur un conteneur qui a
 # parfaitement fait son travail. L'attente sur backend le couvre deja, puisque
 # le backend en depend (service_completed_successfully).
-SERVICES="db minio backend frontend proxy"
+#
+# prometheus et grafana en font partie : le contrat du script est « sortie 0
+# veut dire que le portail repond », et /grafana/ est une de ses adresses. Sans
+# eux, le script rendait la main pendant que Grafana appliquait encore son
+# provisionnement, et la premiere visite tombait sur un 502.
+SERVICES="db minio backend frontend proxy prometheus grafana"
 
 # Toutes les commandes docker passent par $DOCKER : selon la machine, ce sera
 # `docker` ou `sudo docker` (voir la cascade d'installation plus bas).

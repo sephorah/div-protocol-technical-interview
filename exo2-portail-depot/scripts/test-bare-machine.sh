@@ -117,6 +117,14 @@ code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://127.0.0.1:@@
 if [ "$code" = 403 ]; then echo "  [OK] sonde /api/v1/health -> 403 (deny voulu)"
 else echo "  [KO] sonde /api/v1/health -> $code (attendu 403 : notre nginx.conf n est peut-etre pas monte)"; fail=1; fi
 
+# Meme regle, autre route, et elle merite sa propre assertion : /metrics dit a
+# qui scanne combien de demandes existent, quand les depots ont lieu et combien
+# de PIN ont ete refuses. C est un `location =` distinct dans
+# portal-locations.conf, donc le deny de /health ne prouve rien pour celui-la.
+code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://127.0.0.1:@@PORT@@/api/v1/metrics" || echo 000)
+if [ "$code" = 403 ]; then echo "  [OK] scrape /api/v1/metrics -> 403 (deny voulu)"
+else echo "  [KO] scrape /api/v1/metrics -> $code (attendu 403 : les metriques sont exposees)"; fail=1; fi
+
 # Le jeton de depot voyage dans l URL : sans cet en-tete, il part dans le
 # Referer vers tout domaine tiers que chargerait la page client. Il vient de
 # portal-locations.conf, donc c est aussi un second temoin que notre conf est
