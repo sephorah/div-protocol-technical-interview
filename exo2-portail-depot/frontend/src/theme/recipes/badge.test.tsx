@@ -51,6 +51,18 @@ describe('badge recipe', () => {
     expect(resolvedVariant('revoked')).toEqual(resolvedVariant('expired'))
   })
 
+  // Chakra ships its own `size` variant for the badge and it wins over our
+  // `base`: the charter's 12px horizontal padding rendered at 6px, silently.
+  it('keeps the charter box on the variant a screen actually renders', () => {
+    expect(resolvedVariant('pending')).toMatchObject({
+      paddingInline: '12px',
+      paddingBlock: '6px',
+      // Spelled out rather than a token: `xs` happens to be 12px today, so a
+      // retuned scale would move the pastille with nothing to signal it.
+      fontSize: '12px',
+    })
+  })
+
   it('pairs every status with its own surface, so none reads as another', () => {
     const variants = badgeVariants()
     const surfaces = ['pending', 'complete', 'expired', 'info'].map((n) => variants[n]?.bg)
