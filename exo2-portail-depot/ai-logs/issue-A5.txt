@@ -1,0 +1,1685 @@
+ ▐▛███▜▌   Claude Code v2.1.224
+▝▜█████▛▘  Opus 5 · Claude Pro
+  ▘▘ ▝▝    ~/delivery/div-protocol-internship/exo2-portail-depot
+
+
+❯ /clear                                                                        
+
+❯ Effectue l'issue A5                                                           
+
+● I'll start by reading the backlog to see what A5 is.
+
+  Searched for 2 patterns, read 8 files, listed 1 directory, ran 4 shell commands (ctrl+o to expand)
+
+● I have what I need. Two things the exploration turned up that change the shape
+  of this issue:
+
+  - Compose resolves .env and the project name from the compose file's directory
+  (verified: --project-directory /tmp made interpolation fail even with .env in
+  cwd). Moving the file to infra/ therefore breaks .env lookup and renames the
+  project to infra.
+  - Both compose files currently share the project name exo2-portail-depot
+  (verified via docker compose ls / config). pnpm db:up while the prod stack is
+  up would recreate prod's db/minio with dev config and a dev volume. A5 is the
+  natural place to fix that.
+
+● Updated plan
+  ⎿  /plan to preview
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ A5 — Réorganisation infra/                                              │
+     │                                                                         │
+     │ Contexte                                                                │
+     │                                                                         │
+     │ L'énoncé impose un répertoire infra/ regroupant l'infrastructure :      │
+     │ compose, reverse proxy,                                                 │
+     │ Prometheus, Grafana. Aujourd'hui docker-compose.yml,                    │
+     │ docker-compose.dev.yml et nginx.conf sont                               │
+     │ à la racine ; seul infra/minio/ respecte déjà la convention. A6 (images │
+     │ tirées d'un registre) et                                                │
+     │ A7 (HTTPS) dépendent de cette réorganisation, et F1/F2 y déposeront     │
+     │ prometheus/ et grafana/.                                                │
+     │                                                                         │
+     │ Le déplacement n'est pas un git mv : docker compose déduit le           │
+     │ répertoire de projet, et donc le                                        │
+     │ .env et le nom du projet, du dossier du premier fichier -f. Vérifié sur │
+     │ cette machine (Compose                                                  │
+     │ v2.29.7) :                                                              │
+     │                                                                         │
+     │ ┌─────────────────────────────────────────────┬──────────────────────── │
+     │ ───┐                                                                    │
+     │ │                  Commande                   │         Résultat        │
+     │   │                                                                     │
+     │ ├─────────────────────────────────────────────┼──────────────────────── │
+     │ ───┤                                                                    │
+     │ │ cd /tmp && docker compose -f                │ OK — .env lu à la       │
+     │ racine, │                                                               │
+     │ │ <racine>/docker-compose.yml config          │  name:                  │
+     │ exo2-portail-depot │                                                    │
+     │ ├─────────────────────────────────────────────┼──────────────────────── │
+     │ ───┤                                                                    │
+     │ │ docker compose --project-directory /tmp -f  │ échec required variable │
+     │   │                                                                     │
+     │ │ docker-compose.yml config (cwd = racine,    │ DB_NAME is missing a    │
+     │   │                                                                     │
+     │ │ qui a .env)                                 │ value                   │
+     │   │                                                                     │
+     │ └─────────────────────────────────────────────┴──────────────────────── │
+     │ ───┘                                                                    │
+     │                                                                         │
+     │ Donc, tel quel, docker compose -f infra/docker-compose.yml up           │
+     │ chercherait infra/.env (absent →                                        │
+     │ échec sur ${VAR:?}) et nommerait le projet infra.                       │
+     │                                                                         │
+     │ Second constat, indépendant mais réparé ici : docker compose ls montre  │
+     │ que les deux fichiers                                                   │
+     │ compose partagent le nom de projet exo2-portail-depot. Un pnpm db:up    │
+     │ alors que la stack de                                                   │
+     │ production tourne recrée donc db, minio et minio-init avec la           │
+     │ configuration de dev — volumes                                          │
+     │ _dev vides et ports 21632/21690/21691 publiés sur une machine partagée  │
+     │ — pendant que backend                                                   │
+     │ continue de tourner contre eux, et considère backend/frontend/proxy     │
+     │ comme orphelins.                                                        │
+     │                                                                         │
+     │ Résultat attendu : infra/ contient toute l'infrastructure, ./install.sh │
+     │ reste one-click, et les                                                 │
+     │ deux stacks ne peuvent plus se marcher dessus.                          │
+     │                                                                         │
+     │ Décisions                                                               │
+     │                                                                         │
+     │ Où va le .env — il reste à la racine                                    │
+     │                                                                         │
+     │ Option: .env déplacé dans infra/                                        │
+     │ Verdict: Non. pnpm dev fait tourner l'API sur la machine, et            │
+     │ app.module.ts                                                           │
+     │ résout .env depuis __dirname deux niveaux au-dessus, c'est-à-dire la    │
+     │ racine.                                                                 │
+     │ Deux .env ou un chemin de plus à connaître, pour rien. install.sh écrit │
+     │ et                                                                      │
+     │ chmod 600 celui de la racine                                            │
+     │ ────────────────────────────────────────                                │
+     │ Option: --project-directory ..                                          │
+     │ Verdict: Non. Le .env et les chemins relatifs redeviennent ceux de la   │
+     │ racine,                                                                 │
+     │ mais le fichier compose contiendrait alors ./backend et                 │
+     │ ./infra/nginx/nginx.conf — des chemins qui ne correspondent pas à son   │
+     │ propre                                                                  │
+     │ emplacement. Piège pour le lecteur, et casse au moindre appel sans le   │
+     │ drapeau                                                                 │
+     │ ────────────────────────────────────────                                │
+     │ Option: --env-file .env, projet = infra/                                │
+     │ Verdict: Retenu. Les chemins du fichier sont relatifs à lui-même        │
+     │ (../backend,                                                            │
+     │ ./nginx/nginx.conf), ce qui est ce que tout lecteur attend, et c'est    │
+     │ aussi la                                                                │
+     │  forme que prendra le déploiement A6 (seul infra/ + .env sur la machine │
+     │ de                                                                      │
+     │ prod)                                                                   │
+     │                                                                         │
+     │ Écarté aussi : COMPOSE_FILE= dans le .env de la racine pour permettre   │
+     │ un docker compose up nu.                                                │
+     │ Le test ci-dessus montre que l'interpolation ne lit pas le .env du cwd  │
+     │ — le nom du fichier                                                     │
+     │ serait trouvé mais les variables manquantes. Trop malin pour ce que ça  │
+     │ rapporte.                                                               │
+     │                                                                         │
+     │ Conséquence assumée : la commande canonique devient                     │
+     │ docker compose -f infra/docker-compose.yml --env-file .env <cmd>,       │
+     │ depuis la racine. Elle est                                              │
+     │ écrite dans un seul endroit par consommateur : une variable dans        │
+     │ install.sh, les scripts                                                 │
+     │ stack:* du package.json, la bannière de fin, le README.                 │
+     │                                                                         │
+     │ Nom de projet explicite dans les deux fichiers                          │
+     │                                                                         │
+     │ name: exo2-portail-depot (prod) et name: exo2-portail-depot-dev (dev),  │
+     │ au niveau racine du                                                     │
+     │ fichier compose.                                                        │
+     │                                                                         │
+     │ - Rend le nom indépendant du dossier de checkout — nécessaire pour      │
+     │ A6/A7, où la machine de prod ne                                         │
+     │ clonera pas forcément dans un dossier de ce nom, et où un nom qui bouge │
+     │ veut dire des volumes                                                   │
+     │ orphelins et des données invisibles.                                    │
+     │ - Sépare enfin les deux stacks. Conserver exo2-portail-depot côté prod  │
+     │ plutôt que portail-depot                                                │
+     │ est délibéré : c'est le nom actuel, donc aucun volume de production     │
+     │ orphelin, aucune donnée à                                               │
+     │ reprendre, et install.sh reste rejouable sur une machine déjà           │
+     │ installée. Seuls les volumes de                                         │
+     │ dev (exo2-portail-depot_pgdata_dev, _minio_data_dev) deviennent         │
+     │ orphelins ; ils sont                                                    │
+     │ jetables (pnpm db:up && pnpm db:migrate reconstruit), et la ligne de    │
+     │ nettoyage est donnée en                                                 │
+     │ vérification.                                                           │
+     │ - Les clés de volume dev gardent leur suffixe _dev : redondant avec le  │
+     │ nom de projet, mais le                                                  │
+     │ renommer détruirait des volumes pour un gain nul.                       │
+     │                                                                         │
+     │ Arborescence                                                            │
+     │                                                                         │
+     │ infra/                                                                  │
+     │   README.md              # nouveau — layout, commande canonique,        │
+     │ pourquoi --env-file                                                     │
+     │   docker-compose.yml                                                    │
+     │   docker-compose.dev.yml                                                │
+     │   nginx/nginx.conf                                                      │
+     │   minio/                 # inchangé                                     │
+     │                                                                         │
+     │ nginx/ en sous-dossier, comme minio/ : A7 y ajoutera la conf TLS et les │
+     │ certificats, F1/F2                                                      │
+     │ créeront prometheus/ et grafana/ au même niveau. Un infra/nginx.conf à  │
+     │ plat obligerait à                                                       │
+     │ déplacer une deuxième fois.                                             │
+     │                                                                         │
+     │ Mise en œuvre                                                           │
+     │                                                                         │
+     │ Tous les déplacements en git mv, pour garder l'historique.              │
+     │                                                                         │
+     │ 1. infra/docker-compose.yml (déplacé)                                   │
+     │                                                                         │
+     │ - name: exo2-portail-depot en tête.                                     │
+     │ - build: ./backend → ../backend, build: ./frontend → ../frontend.       │
+     │ - ./infra/minio:/infra:ro → ./minio:/infra:ro.                          │
+     │ - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro →                      │
+     │ ./nginx/nginx.conf:....                                                 │
+     │ - Commentaire d'en-tête : la commande canonique, et pourquoi --env-file │
+     │ (le .env vit à la                                                       │
+     │ racine parce que pnpm dev le lit aussi).                                │
+     │                                                                         │
+     │ 2. infra/docker-compose.dev.yml (déplacé)                               │
+     │                                                                         │
+     │ - name: exo2-portail-depot-dev, avec le pourquoi en commentaire (le     │
+     │ scénario de collision décrit                                            │
+     │ en contexte, pas « nom distinct »).                                     │
+     │ - ./infra/minio:/infra:ro → ./minio:/infra:ro.                          │
+     │ - L'exemple en tête devient docker compose -f                           │
+     │ infra/docker-compose.dev.yml --env-file .env up -d.                     │
+     │                                                                         │
+     │ 3. infra/nginx/nginx.conf (déplacé, contenu inchangé)                   │
+     │                                                                         │
+     │ Seule retouche : le commentaire donnant la commande de lecture manuelle │
+     │ de /health reprend la                                                   │
+     │ forme complète avec les drapeaux.                                       │
+     │                                                                         │
+     │ 4. infra/README.md (nouveau, court)                                     │
+     │                                                                         │
+     │ Ce que contient chaque sous-dossier, la commande canonique, et les deux │
+     │ pièges non devinables : le                                              │
+     │ répertoire de projet déduit du fichier -f, et le name: explicite.       │
+     │                                                                         │
+     │ 5. install.sh                                                           │
+     │                                                                         │
+     │ - Une variable unique près de SERVICES :                                │
+     │ COMPOSE="-f infra/docker-compose.yml --env-file .env", utilisée à tous  │
+     │ les sites d'appel                                                       │
+     │ (compose ps -q proxy, compose build, compose up --build -d, compose ps  │
+     │ -q "$1",                                                                │
+     │ compose ps, compose logs, compose exec -T backend) sous la forme        │
+     │ $DOCKER compose $COMPOSE ... — $DOCKER vaut parfois sudo docker, le     │
+     │ non-quotage existant                                                    │
+     │ est conservé volontairement.                                            │
+     │ - Le cd "$(dirname "$0")" de la ligne 17 rend ces chemins relatifs      │
+     │ corrects quel que soit le cwd                                           │
+     │ de l'appelant : rien à changer là.                                      │
+     │ - Garde à côté de celle sur .env.example :                              │
+     │ [ -f infra/docker-compose.yml ] || die "... le dépôt est incomplet.".   │
+     │ - Bannière finale : docker compose -f infra/docker-compose.yml          │
+     │ --env-file .env down et                                                 │
+     │ ... logs -f. C'est la seule sortie que le correcteur lit, et install.sh │
+     │ n'installe plus ni                                                      │
+     │ Node ni pnpm — la bannière doit donc rester en docker pur, pas en pnpm  │
+     │ stack:down.                                                             │
+     │                                                                         │
+     │ 6. package.json (racine)                                                │
+     │                                                                         │
+     │ - db:up / db:down : -f infra/docker-compose.dev.yml --env-file .env.    │
+     │ - Ajout de stack:up, stack:down, stack:logs sur le compose de           │
+     │ production — la commande est                                            │
+     │ longue, et c'est le seul moyen de ne pas la voir recopiée de mémoire, à │
+     │ moitié, dans un terminal.                                               │
+     │                                                                         │
+     │ 7. Documentation                                                        │
+     │                                                                         │
+     │ - CLAUDE.md : liste des fichiers du dépôt, § Docker (chemins des        │
+     │ montages, contextes de build,                                           │
+     │ commande canonique), § install.sh, § Ports (les trois fichiers à        │
+     │ changer ensemble), § Object                                             │
+     │ storage (infra/minio monté en ./minio). Ajouter les deux pièges         │
+     │ vérifiés ici : répertoire de                                            │
+     │ projet déduit du -f, et nom de projet figé par name:.                   │
+     │ - README.md : docker compose down (ligne 18) et la mention nginx.conf   │
+     │ (ligne 46) →                                                            │
+     │ infra/nginx/nginx.conf.                                                 │
+     │ - .env.example : les commentaires citant docker-compose.yml,            │
+     │ docker-compose.dev.yml et                                               │
+     │ docker compose down -v (lignes ~13-15, 22-23, 34-35, 43, 56-57, 88).    │
+     │ - issue_backlog.md : A5 cochée, avec la note sur le nom de projet — ce  │
+     │ n'était pas au périmètre                                                │
+     │ initial de l'issue.                                                     │
+     │ - ai-plans/2026-08-08-a5-reorganisation-infra.md : plan suivi,          │
+     │ décisions, vérification, revue.                                         │
+     │                                                                         │
+     │ Sécurité                                                                │
+     │                                                                         │
+     │ - Aucune surface nouvelle : aucun port publié n'est ajouté ni modifié,  │
+     │ le bind 127.0.0.1:21600                                                 │
+     │ et l'absence de port MinIO en production sont inchangés.                │
+     │ - Le risque réel du déplacement est silencieux : si le montage de       │
+     │ nginx.conf pointe à côté,                                               │
+     │ nginx sert sa page d'accueil par défaut, wget / répond 200, le          │
+     │ healthcheck proxy passe et                                              │
+     │ install.sh conclut « le portail répond ». Le portail serait pourtant    │
+     │ mort et /api/v1/health                                                  │
+     │ redeviendrait public. La vérification ci-dessous teste donc             │
+     │ explicitement le 403, pas seulement                                     │
+     │ le 200 de la racine.                                                    │
+     │ - .env reste à la racine, en chmod 600, gitignoré (.env et .env.*) ;    │
+     │ --env-file ne                                                           │
+     │ sert qu'à l'interpolation et n'injecte rien de plus dans les            │
+     │ conteneurs. Ne pas créer                                                │
+     │ infra/.env : il serait couvert par .gitignore, mais deux fichiers de    │
+     │ secrets dont un seul                                                    │
+     │ est renseigné par install.sh est exactement le genre d'écart qui ne se  │
+     │ voit qu'en production.                                                  │
+     │ - Risque résiduel : le nom de projet est désormais écrit dans le        │
+     │ fichier compose ; deux                                                  │
+     │ déploiements sur la même machine partageraient le nom et donc les       │
+     │ volumes. Sans objet ici (une                                            │
+     │ seule stack par machine), à revoir en A6.                               │
+     │                                                                         │
+     │ Vérification                                                            │
+     │                                                                         │
+     │ Depuis la racine, dans l'ordre.                                         │
+     │                                                                         │
+     │ 1. Rendu statique, sans rien démarrer :                                 │
+     │ docker compose -f infra/docker-compose.yml --env-file .env config       │
+     │ → name: exo2-portail-depot, contextes de build résolus sur              │
+     │ <racine>/backend et                                                     │
+     │ <racine>/frontend, montages sur <racine>/infra/nginx/nginx.conf et      │
+     │ <racine>/infra/minio.                                                   │
+     │ Idem pour le fichier de dev → name: exo2-portail-depot-dev.             │
+     │ 2. One-click depuis une stack arrêtée : docker compose ... down, puis   │
+     │ time ./install.sh                                                       │
+     │ → exit 0, bannière, temps comparable au 1 min 06 s mesuré après A3      │
+     │ (images en cache).                                                      │
+     │ 3. Le proxy sert bien notre configuration — le point qui fait échouer   │
+     │ silencieusement ce                                                      │
+     │ déplacement :                                                           │
+     │   - curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:21600/ →    │
+     │ 200                                                                     │
+     │   - curl -s -o /dev/null -w '%{http_code}'                              │
+     │ http://127.0.0.1:21600/api/v1/health → 403                              │
+     │ (la règle deny all s'applique ⇒ le fichier monté est le nôtre)          │
+     │   - curl -i http://127.0.0.1:21600/api/v1/ → réponse de Nest, pas de    │
+     │ nginx.                                                                  │
+     │ 4. Le provisionnement MinIO est toujours monté : docker compose ...     │
+     │ logs minio-init se termine                                              │
+     │ sur son message de succès, et backend est healthy (donc                 │
+     │ assertBucketExists a répondu).                                          │
+     │ 5. Isolation des deux stacks : stack de production démarrée, puis pnpm  │
+     │ db:up                                                                   │
+     │ → docker compose ... ps (prod) montre les cinq conteneurs inchangés     │
+     │ (mêmes identifiants,                                                    │
+     │ docker compose ls liste bien deux projets). Puis pnpm db:down.          │
+     │ Nettoyage des volumes de dev orphelins :                                │
+     │ docker volume rm exo2-portail-depot_pgdata_dev                          │
+     │ exo2-portail-depot_minio_data_dev, puis                                 │
+     │ pnpm db:up && pnpm db:migrate reconstruit.                              │
+     │ 6. Rejouabilité : second ./install.sh d'affilée → exit 0 en quelques    │
+     │ secondes, et la                                                         │
+     │ vérification du port ne s'accuse pas elle-même (port_is_ours interroge  │
+     │ le bon projet).                                                         │
+     │ 7. pnpm dev intact : pnpm db:up && pnpm dev → API sur :21610, front sur │
+     │ :5173,                                                                  │
+     │ .env de la racine toujours lu.                                          │
+     │ 8. Non-régression outillage : pnpm lint, pnpm test, pnpm test:e2e       │
+     │ (aucun ne touche au                                                     │
+     │ compose, mais le coût est nul et l'affirmation « rien d'autre n'a bougé │
+     │ » doit être vérifiée, pas                                               │
+     │ supposée).                                                              │
+     │ 9. Machine vierge (le chemin qui pourrit le plus vite, car jamais       │
+     │ exercé autrement) :                                                     │
+     │ docker run --rm --privileged -v /var/lib/docker -v "$PWD:/src:ro"       │
+     │ ubuntu:24.04 bash -c '...',                                             │
+     │ forme déjà documentée dans CLAUDE.md § install.sh.                      │
+     │                                                                         │
+     │ Puis, conformément aux conventions du dépôt : revue de code du diff     │
+     │ complet avec les findings                                               │
+     │ classés par gravité, ai-plans/ écrit, backlog coché, et fusion sur      │
+     │ main.                                                                   │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+  Recalled 1 memory (ctrl+o to expand)
+
+● La règle existe déjà en mémoire (plan-comparatif-et-resume, point 3) — c'est
+  moi qui l'ai omise. Je la renforce et j'ajoute la section.
+
+  Wrote 1 memory (ctrl+o to expand)
+
+● Updated plan
+  ⎿  /plan to preview
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ A5 — Réorganisation infra/                                              │
+     │                                                                         │
+     │ Contexte                                                                │
+     │                                                                         │
+     │ L'énoncé impose un répertoire infra/ regroupant l'infrastructure :      │
+     │ compose, reverse proxy,                                                 │
+     │ Prometheus, Grafana. Aujourd'hui docker-compose.yml,                    │
+     │ docker-compose.dev.yml et nginx.conf sont                               │
+     │ à la racine ; seul infra/minio/ respecte déjà la convention. A6 (images │
+     │ tirées d'un registre) et                                                │
+     │ A7 (HTTPS) dépendent de cette réorganisation, et F1/F2 y déposeront     │
+     │ prometheus/ et grafana/.                                                │
+     │                                                                         │
+     │ Le déplacement n'est pas un git mv : docker compose déduit le           │
+     │ répertoire de projet, et donc le                                        │
+     │ .env et le nom du projet, du dossier du premier fichier -f. Vérifié sur │
+     │ cette machine (Compose                                                  │
+     │ v2.29.7) :                                                              │
+     │                                                                         │
+     │ ┌─────────────────────────────────────────────┬──────────────────────── │
+     │ ───┐                                                                    │
+     │ │                  Commande                   │         Résultat        │
+     │   │                                                                     │
+     │ ├─────────────────────────────────────────────┼──────────────────────── │
+     │ ───┤                                                                    │
+     │ │ cd /tmp && docker compose -f                │ OK — .env lu à la       │
+     │ racine, │                                                               │
+     │ │ <racine>/docker-compose.yml config          │  name:                  │
+     │ exo2-portail-depot │                                                    │
+     │ ├─────────────────────────────────────────────┼──────────────────────── │
+     │ ───┤                                                                    │
+     │ │ docker compose --project-directory /tmp -f  │ échec required variable │
+     │   │                                                                     │
+     │ │ docker-compose.yml config (cwd = racine,    │ DB_NAME is missing a    │
+     │   │                                                                     │
+     │ │ qui a .env)                                 │ value                   │
+     │   │                                                                     │
+     │ └─────────────────────────────────────────────┴──────────────────────── │
+     │ ───┘                                                                    │
+     │                                                                         │
+     │ Donc, tel quel, docker compose -f infra/docker-compose.yml up           │
+     │ chercherait infra/.env (absent →                                        │
+     │ échec sur ${VAR:?}) et nommerait le projet infra.                       │
+     │                                                                         │
+     │ Second constat, indépendant mais réparé ici : docker compose ls montre  │
+     │ que les deux fichiers                                                   │
+     │ compose partagent le nom de projet exo2-portail-depot. Un pnpm db:up    │
+     │ alors que la stack de                                                   │
+     │ production tourne recrée donc db, minio et minio-init avec la           │
+     │ configuration de dev — volumes                                          │
+     │ _dev vides et ports 21632/21690/21691 publiés sur une machine partagée  │
+     │ — pendant que backend                                                   │
+     │ continue de tourner contre eux, et considère backend/frontend/proxy     │
+     │ comme orphelins.                                                        │
+     │                                                                         │
+     │ Résultat attendu : infra/ contient toute l'infrastructure, ./install.sh │
+     │ reste one-click, et les                                                 │
+     │ deux stacks ne peuvent plus se marcher dessus.                          │
+     │                                                                         │
+     │ Décisions                                                               │
+     │                                                                         │
+     │ Où va le .env — il reste à la racine                                    │
+     │                                                                         │
+     │ Option: .env déplacé dans infra/                                        │
+     │ Verdict: Non. pnpm dev fait tourner l'API sur la machine, et            │
+     │ app.module.ts                                                           │
+     │ résout .env depuis __dirname deux niveaux au-dessus, c'est-à-dire la    │
+     │ racine.                                                                 │
+     │ Deux .env ou un chemin de plus à connaître, pour rien. install.sh écrit │
+     │ et                                                                      │
+     │ chmod 600 celui de la racine                                            │
+     │ ────────────────────────────────────────                                │
+     │ Option: --project-directory ..                                          │
+     │ Verdict: Non. Le .env et les chemins relatifs redeviennent ceux de la   │
+     │ racine,                                                                 │
+     │ mais le fichier compose contiendrait alors ./backend et                 │
+     │ ./infra/nginx/nginx.conf — des chemins qui ne correspondent pas à son   │
+     │ propre                                                                  │
+     │ emplacement. Piège pour le lecteur, et casse au moindre appel sans le   │
+     │ drapeau                                                                 │
+     │ ────────────────────────────────────────                                │
+     │ Option: --env-file .env, projet = infra/                                │
+     │ Verdict: Retenu. Les chemins du fichier sont relatifs à lui-même        │
+     │ (../backend,                                                            │
+     │ ./nginx/nginx.conf), ce qui est ce que tout lecteur attend, et c'est    │
+     │ aussi la                                                                │
+     │  forme que prendra le déploiement A6 (seul infra/ + .env sur la machine │
+     │ de                                                                      │
+     │ prod)                                                                   │
+     │                                                                         │
+     │ Écarté aussi : COMPOSE_FILE= dans le .env de la racine pour permettre   │
+     │ un docker compose up nu.                                                │
+     │ Le test ci-dessus montre que l'interpolation ne lit pas le .env du cwd  │
+     │ — le nom du fichier                                                     │
+     │ serait trouvé mais les variables manquantes. Trop malin pour ce que ça  │
+     │ rapporte.                                                               │
+     │                                                                         │
+     │ Conséquence assumée : la commande canonique devient                     │
+     │ docker compose -f infra/docker-compose.yml --env-file .env <cmd>,       │
+     │ depuis la racine. Elle est                                              │
+     │ écrite dans un seul endroit par consommateur : une variable dans        │
+     │ install.sh, les scripts                                                 │
+     │ stack:* du package.json, la bannière de fin, le README.                 │
+     │                                                                         │
+     │ Nom de projet explicite dans les deux fichiers                          │
+     │                                                                         │
+     │ name: exo2-portail-depot (prod) et name: exo2-portail-depot-dev (dev),  │
+     │ au niveau racine du                                                     │
+     │ fichier compose.                                                        │
+     │                                                                         │
+     │ - Rend le nom indépendant du dossier de checkout — nécessaire pour      │
+     │ A6/A7, où la machine de prod ne                                         │
+     │ clonera pas forcément dans un dossier de ce nom, et où un nom qui bouge │
+     │ veut dire des volumes                                                   │
+     │ orphelins et des données invisibles.                                    │
+     │ - Sépare enfin les deux stacks. Conserver exo2-portail-depot côté prod  │
+     │ plutôt que portail-depot                                                │
+     │ est délibéré : c'est le nom actuel, donc aucun volume de production     │
+     │ orphelin, aucune donnée à                                               │
+     │ reprendre, et install.sh reste rejouable sur une machine déjà           │
+     │ installée. Seuls les volumes de                                         │
+     │ dev (exo2-portail-depot_pgdata_dev, _minio_data_dev) deviennent         │
+     │ orphelins ; ils sont                                                    │
+     │ jetables (pnpm db:up && pnpm db:migrate reconstruit), et la ligne de    │
+     │ nettoyage est donnée en                                                 │
+     │ vérification.                                                           │
+     │ - Les clés de volume dev gardent leur suffixe _dev : redondant avec le  │
+     │ nom de projet, mais le                                                  │
+     │ renommer détruirait des volumes pour un gain nul.                       │
+     │                                                                         │
+     │ Arborescence                                                            │
+     │                                                                         │
+     │ infra/                                                                  │
+     │   README.md              # nouveau — layout, commande canonique,        │
+     │ pourquoi --env-file                                                     │
+     │   docker-compose.yml                                                    │
+     │   docker-compose.dev.yml                                                │
+     │   nginx/nginx.conf                                                      │
+     │   minio/                 # inchangé                                     │
+     │                                                                         │
+     │ nginx/ en sous-dossier, comme minio/ : A7 y ajoutera la conf TLS et les │
+     │ certificats, F1/F2                                                      │
+     │ créeront prometheus/ et grafana/ au même niveau. Un infra/nginx.conf à  │
+     │ plat obligerait à                                                       │
+     │ déplacer une deuxième fois.                                             │
+     │                                                                         │
+     │ Mise en œuvre                                                           │
+     │                                                                         │
+     │ Tous les déplacements en git mv, pour garder l'historique.              │
+     │                                                                         │
+     │ 1. infra/docker-compose.yml (déplacé)                                   │
+     │                                                                         │
+     │ - name: exo2-portail-depot en tête.                                     │
+     │ - build: ./backend → ../backend, build: ./frontend → ../frontend.       │
+     │ - ./infra/minio:/infra:ro → ./minio:/infra:ro.                          │
+     │ - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro →                      │
+     │ ./nginx/nginx.conf:....                                                 │
+     │ - Commentaire d'en-tête : la commande canonique, et pourquoi --env-file │
+     │ (le .env vit à la                                                       │
+     │ racine parce que pnpm dev le lit aussi).                                │
+     │                                                                         │
+     │ 2. infra/docker-compose.dev.yml (déplacé)                               │
+     │                                                                         │
+     │ - name: exo2-portail-depot-dev, avec le pourquoi en commentaire (le     │
+     │ scénario de collision décrit                                            │
+     │ en contexte, pas « nom distinct »).                                     │
+     │ - ./infra/minio:/infra:ro → ./minio:/infra:ro.                          │
+     │ - L'exemple en tête devient docker compose -f                           │
+     │ infra/docker-compose.dev.yml --env-file .env up -d.                     │
+     │                                                                         │
+     │ 3. infra/nginx/nginx.conf (déplacé, contenu inchangé)                   │
+     │                                                                         │
+     │ Seule retouche : le commentaire donnant la commande de lecture manuelle │
+     │ de /health reprend la                                                   │
+     │ forme complète avec les drapeaux.                                       │
+     │                                                                         │
+     │ 4. infra/README.md (nouveau, court)                                     │
+     │                                                                         │
+     │ Ce que contient chaque sous-dossier, la commande canonique, et les deux │
+     │ pièges non devinables : le                                              │
+     │ répertoire de projet déduit du fichier -f, et le name: explicite.       │
+     │                                                                         │
+     │ 5. install.sh                                                           │
+     │                                                                         │
+     │ - Une variable unique près de SERVICES :                                │
+     │ COMPOSE="-f infra/docker-compose.yml --env-file .env", utilisée à tous  │
+     │ les sites d'appel                                                       │
+     │ (compose ps -q proxy, compose build, compose up --build -d, compose ps  │
+     │ -q "$1",                                                                │
+     │ compose ps, compose logs, compose exec -T backend) sous la forme        │
+     │ $DOCKER compose $COMPOSE ... — $DOCKER vaut parfois sudo docker, le     │
+     │ non-quotage existant                                                    │
+     │ est conservé volontairement.                                            │
+     │ - Le cd "$(dirname "$0")" de la ligne 17 rend ces chemins relatifs      │
+     │ corrects quel que soit le cwd                                           │
+     │ de l'appelant : rien à changer là.                                      │
+     │ - Garde à côté de celle sur .env.example :                              │
+     │ [ -f infra/docker-compose.yml ] || die "... le dépôt est incomplet.".   │
+     │ - Bannière finale : docker compose -f infra/docker-compose.yml          │
+     │ --env-file .env down et                                                 │
+     │ ... logs -f. C'est la seule sortie que le correcteur lit, et install.sh │
+     │ n'installe plus ni                                                      │
+     │ Node ni pnpm — la bannière doit donc rester en docker pur, pas en pnpm  │
+     │ stack:down.                                                             │
+     │                                                                         │
+     │ 6. package.json (racine)                                                │
+     │                                                                         │
+     │ - db:up / db:down : -f infra/docker-compose.dev.yml --env-file .env.    │
+     │ - Ajout de stack:up, stack:down, stack:logs sur le compose de           │
+     │ production — la commande est                                            │
+     │ longue, et c'est le seul moyen de ne pas la voir recopiée de mémoire, à │
+     │ moitié, dans un terminal.                                               │
+     │                                                                         │
+     │ 7. Documentation                                                        │
+     │                                                                         │
+     │ - CLAUDE.md : liste des fichiers du dépôt, § Docker (chemins des        │
+     │ montages, contextes de build,                                           │
+     │ commande canonique), § install.sh, § Ports (les trois fichiers à        │
+     │ changer ensemble), § Object                                             │
+     │ storage (infra/minio monté en ./minio). Ajouter les deux pièges         │
+     │ vérifiés ici : répertoire de                                            │
+     │ projet déduit du -f, et nom de projet figé par name:.                   │
+     │ - README.md : docker compose down (ligne 18) et la mention nginx.conf   │
+     │ (ligne 46) →                                                            │
+     │ infra/nginx/nginx.conf.                                                 │
+     │ - .env.example : les commentaires citant docker-compose.yml,            │
+     │ docker-compose.dev.yml et                                               │
+     │ docker compose down -v (lignes ~13-15, 22-23, 34-35, 43, 56-57, 88).    │
+     │ - issue_backlog.md : A5 cochée, avec la note sur le nom de projet — ce  │
+     │ n'était pas au périmètre                                                │
+     │ initial de l'issue.                                                     │
+     │ - ai-plans/2026-08-08-a5-reorganisation-infra.md : plan suivi,          │
+     │ décisions, vérification, revue.                                         │
+     │                                                                         │
+     │ Sécurité                                                                │
+     │                                                                         │
+     │ - Aucune surface nouvelle : aucun port publié n'est ajouté ni modifié,  │
+     │ le bind 127.0.0.1:21600                                                 │
+     │ et l'absence de port MinIO en production sont inchangés.                │
+     │ - Le risque réel du déplacement est silencieux : si le montage de       │
+     │ nginx.conf pointe à côté,                                               │
+     │ nginx sert sa page d'accueil par défaut, wget / répond 200, le          │
+     │ healthcheck proxy passe et                                              │
+     │ install.sh conclut « le portail répond ». Le portail serait pourtant    │
+     │ mort et /api/v1/health                                                  │
+     │ redeviendrait public. La vérification ci-dessous teste donc             │
+     │ explicitement le 403, pas seulement                                     │
+     │ le 200 de la racine.                                                    │
+     │ - .env reste à la racine, en chmod 600, gitignoré (.env et .env.*) ;    │
+     │ --env-file ne                                                           │
+     │ sert qu'à l'interpolation et n'injecte rien de plus dans les            │
+     │ conteneurs. Ne pas créer                                                │
+     │ infra/.env : il serait couvert par .gitignore, mais deux fichiers de    │
+     │ secrets dont un seul                                                    │
+     │ est renseigné par install.sh est exactement le genre d'écart qui ne se  │
+     │ voit qu'en production.                                                  │
+     │ - Risque résiduel : le nom de projet est désormais écrit dans le        │
+     │ fichier compose ; deux                                                  │
+     │ déploiements sur la même machine partageraient le nom et donc les       │
+     │ volumes. Sans objet ici (une                                            │
+     │ seule stack par machine), à revoir en A6.                               │
+     │                                                                         │
+     │ Vérification                                                            │
+     │                                                                         │
+     │ Depuis la racine, dans l'ordre.                                         │
+     │                                                                         │
+     │ 1. Rendu statique, sans rien démarrer :                                 │
+     │ docker compose -f infra/docker-compose.yml --env-file .env config       │
+     │ → name: exo2-portail-depot, contextes de build résolus sur              │
+     │ <racine>/backend et                                                     │
+     │ <racine>/frontend, montages sur <racine>/infra/nginx/nginx.conf et      │
+     │ <racine>/infra/minio.                                                   │
+     │ Idem pour le fichier de dev → name: exo2-portail-depot-dev.             │
+     │ 2. One-click depuis une stack arrêtée : docker compose ... down, puis   │
+     │ time ./install.sh                                                       │
+     │ → exit 0, bannière, temps comparable au 1 min 06 s mesuré après A3      │
+     │ (images en cache).                                                      │
+     │ 3. Le proxy sert bien notre configuration — le point qui fait échouer   │
+     │ silencieusement ce                                                      │
+     │ déplacement :                                                           │
+     │   - curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:21600/ →    │
+     │ 200                                                                     │
+     │   - curl -s -o /dev/null -w '%{http_code}'                              │
+     │ http://127.0.0.1:21600/api/v1/health → 403                              │
+     │ (la règle deny all s'applique ⇒ le fichier monté est le nôtre)          │
+     │   - curl -i http://127.0.0.1:21600/api/v1/ → réponse de Nest, pas de    │
+     │ nginx.                                                                  │
+     │ 4. Le provisionnement MinIO est toujours monté : docker compose ...     │
+     │ logs minio-init se termine                                              │
+     │ sur son message de succès, et backend est healthy (donc                 │
+     │ assertBucketExists a répondu).                                          │
+     │ 5. Isolation des deux stacks : stack de production démarrée, puis pnpm  │
+     │ db:up                                                                   │
+     │ → docker compose ... ps (prod) montre les cinq conteneurs inchangés     │
+     │ (mêmes identifiants,                                                    │
+     │ docker compose ls liste bien deux projets). Puis pnpm db:down.          │
+     │ Nettoyage des volumes de dev orphelins :                                │
+     │ docker volume rm exo2-portail-depot_pgdata_dev                          │
+     │ exo2-portail-depot_minio_data_dev, puis                                 │
+     │ pnpm db:up && pnpm db:migrate reconstruit.                              │
+     │ 6. Rejouabilité : second ./install.sh d'affilée → exit 0 en quelques    │
+     │ secondes, et la                                                         │
+     │ vérification du port ne s'accuse pas elle-même (port_is_ours interroge  │
+     │ le bon projet).                                                         │
+     │ 7. pnpm dev intact : pnpm db:up && pnpm dev → API sur :21610, front sur │
+     │ :5173,                                                                  │
+     │ .env de la racine toujours lu.                                          │
+     │ 8. Non-régression outillage : pnpm lint, pnpm test, pnpm test:e2e       │
+     │ (aucun ne touche au                                                     │
+     │ compose, mais le coût est nul et l'affirmation « rien d'autre n'a bougé │
+     │ » doit être vérifiée, pas                                               │
+     │ supposée).                                                              │
+     │ 9. Machine vierge (le chemin qui pourrit le plus vite, car jamais       │
+     │ exercé autrement) :                                                     │
+     │ docker run --rm --privileged -v /var/lib/docker -v "$PWD:/src:ro"       │
+     │ ubuntu:24.04 bash -c '...',                                             │
+     │ forme déjà documentée dans CLAUDE.md § install.sh.                      │
+     │                                                                         │
+     │ Puis, conformément aux conventions du dépôt : revue de code du diff     │
+     │ complet avec les findings                                               │
+     │ classés par gravité, ai-plans/ écrit, backlog coché, et fusion sur      │
+     │ main.                                                                   │
+     │                                                                         │
+     │ Résumé                                                                  │
+     │                                                                         │
+     │ Ce qui change. Les deux fichiers compose et nginx.conf passent sous     │
+     │ infra/                                                                  │
+     │ (infra/nginx/nginx.conf), en git mv. Leurs chemins relatifs deviennent  │
+     │ relatifs à eux-mêmes                                                    │
+     │ (../backend, ./minio, ./nginx/nginx.conf). Chaque fichier reçoit un     │
+     │ name: explicite —                                                       │
+     │ exo2-portail-depot et exo2-portail-depot-dev. La commande canonique     │
+     │ devient                                                                 │
+     │ docker compose -f infra/docker-compose.yml --env-file .env <cmd>,       │
+     │ depuis la racine, écrite une                                            │
+     │ seule fois par consommateur : install.sh, les scripts stack:* et db:*   │
+     │ du package.json, la                                                     │
+     │ bannière finale, infra/README.md (nouveau). Documentation mise à jour : │
+     │ CLAUDE.md, README.md,                                                   │
+     │ .env.example, issue_backlog.md, ai-plans/.                              │
+     │                                                                         │
+     │ Ce qui est écarté. Déplacer .env dans infra/ (il est aussi lu par pnpm  │
+     │ dev depuis la                                                           │
+     │ racine). --project-directory .. (le fichier compose contiendrait des    │
+     │ chemins qui ne sont pas les                                             │
+     │ siens). COMPOSE_FILE dans le .env de la racine pour garder un docker    │
+     │ compose up nu :                                                         │
+     │ l'interpolation ne lit pas le .env du cwd, c'est vérifié.               │
+     │                                                                         │
+     │ Ce que ça coûte. Une commande plus longue à taper, compensée par pnpm   │
+     │ stack:up|down|logs. Les                                                 │
+     │ deux volumes de développement deviennent orphelins et sont à supprimer  │
+     │ puis reconstruits                                                       │
+     │ (pnpm db:up && pnpm db:migrate) ; les volumes de production, eux, sont  │
+     │ conservés — c'est la raison                                             │
+     │ du choix de exo2-portail-depot comme nom de projet. Un fichier de plus  │
+     │ à maintenir                                                             │
+     │ (infra/README.md).                                                      │
+     │                                                                         │
+     │ Hors périmètre initial de l'issue, réparé ici : les deux stacks         │
+     │ partageaient le même nom de                                             │
+     │ projet, si bien qu'un pnpm db:up pendant que la production tourne       │
+     │ recréait db et minio avec la                                            │
+     │ configuration de dev, volumes vides et ports publiés compris.           │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+✻ Brewed for 5m 22s
+
+❯ /superpowers:executing-plans                                                  
+
+● I'm using the executing-plans skill to implement this plan.
+
+  Ran 1 shell command (ctrl+o to expand)
+● Workspace: feature branch in the existing checkout, not a git worktree —
+  verification here needs the gitignored .env and the already-provisioned MinIO
+  volume. A worktree would generate fresh MINIO_ROOT_* secrets that no longer
+  match the existing volume's root user, so minio-init would fail for reasons
+  unrelated to the change. A1–A4 used the same in-place branch workflow.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now the compose file edits.
+
+● Update(infra/docker-compose.yml)
+  ⎿  Added 15 lines
+       1  # Production. En dev, on lance `pnpm dev` a la racine, avec la 
+          base seule
+       2  # montee par docker-compose.dev.yml.
+       3  #
+       4 +#   docker compose -f infra/docker-compose.yml --env-file .env 
+         +up -d                                                          
+       5 +#                                                              
+       6 +# Depuis la RACINE du depot, et les deux drapeaux sont necessai
+         +res :                                                          
+       7 +#                                                              
+       8 +# - `--env-file .env` : compose cherche son .env dans le repert
+         +oire de projet,                                                
+       9 +#   qu'il deduit du dossier du premier `-f` — donc infra/ ici. 
+         +Or le .env vit a                                               
+      10 +#   la racine, parce que `pnpm dev` fait tourner l'API sur la m
+         +achine et que                                                  
+      11 +#   app.module.ts l'y resout depuis __dirname. Sans ce drapeau,
+         + toutes les                                                    
+      12 +#   variables sont manquantes et `${VAR:?}` fait echouer le dem
+         +arrage.                                                        
+      13 +# - `name:` ci-dessous : sans lui, le nom du projet serait « in
+         +fra » (le dossier                                              
+      14 +#   du fichier), et tous les volumes existants deviendraient or
+         +phelins.                                                       
+      15 +#                                                              
+      16 +# Les chemins relatifs de ce fichier sont donc relatifs a infra
+         +/, pas a la                                                    
+      17 +# racine. `pnpm stack:up` / `stack:down` / `stack:logs` evitent
+         + de la retaper.                                                
+      18 +#                                                              
+      19  # PORT et API_PREFIX viennent du .env et valent la meme chose i
+          ci que sur la
+      20  # machine : 21610 est dans la plage attribuee (21600-21699), do
+          nc rien
+      21  # n'oblige a une valeur differente en conteneur, et une valeur 
+          unique supprime
+
+● Update(infra/docker-compose.yml)
+  ⎿  Added 9 lines
+      22  # une source d'erreur. Ils sont aussi ecrits en dur dans nginx.
+          conf (qui ne lit
+      23  # pas l'environnement) et dans le healthcheck ci-dessous : les 
+          changer suppose
+      24  # de changer ces trois endroits ensemble.
+      25 +#                                                              
+      26 +# Nom fige, et non deduit du dossier : il l'etait, et changer d
+         +e dossier de                                                   
+      27 +# checkout — ce que fera la machine de production en A6 — aurai
+         +t suffi a rendre                                               
+      28 +# invisibles les volumes de la stack precedente. Distinct de ce
+         +lui de                                                         
+      29 +# docker-compose.dev.yml : les deux fichiers partageaient le me
+         +me, si bien qu'un                                              
+      30 +# `pnpm db:up` pendant que la production tourne recreait db et 
+         +minio avec la                                                  
+      31 +# configuration de dev (volumes vides, ports publies) sous le n
+         +ez du backend.                                                 
+      32 +name: exo2-portail-depot                                       
+      33 +                                                               
+      34  services:
+      35    db:
+      36      image: postgres:17-alpine
+
+● Update(infra/docker-compose.yml)
+  ⎿  Added 1 line, removed 1 line
+      106        STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:?definir STORAG
+           E_ACCESS_KEY dans .env}
+      107        STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:?definir STORAG
+           E_SECRET_KEY dans .env}
+      108      volumes:
+      109 -      - ./infra/minio:/infra:ro                               
+      109 +      - ./minio:/infra:ro                                     
+      110      entrypoint: ['/bin/bash', '/infra/provision.sh']
+      111      restart: 'no'
+      112  
+
+● Update(infra/docker-compose.yml)
+  ⎿  Added 1 line, removed 1 line
+      89      # docker-compose.dev.yml publie, sur 127.0.0.1.
+      90  
+      91    # Provisionne le stockage (bucket, policy, utilisateur restre
+          int) puis sort.
+      92 -  # Le detail et sa justification sont dans infra/minio/provisi
+         -on.sh.                                                         
+      92 +  # Le detail et sa justification sont dans minio/provision.sh.
+      93    #
+      94    # `restart: "no"` est indispensable : la valeur par defaut re
+          lancerait en
+      95    # boucle un conteneur qui a reussi.
+
+● Update(infra/docker-compose.yml)
+  ⎿  Added 2 lines, removed 1 line
+      111      restart: 'no'
+      112  
+      113    backend:
+      114 -    build: ./backend                                          
+      114 +    # Contexte relatif a ce fichier, donc a infra/ : voir l'en
+          +-tete.                                                        
+      115 +    build: ../backend                                         
+      116      init: true
+      117      environment:
+      118        NODE_ENV: production
+
+● Update(infra/docker-compose.yml)
+  ⎿  Added 1 line, removed 1 line
+      180      # Aucun port publie : seul le proxy joint les services, pa
+           r le reseau interne.
+      181  
+      182    frontend:
+      183 -    build: ./frontend                                         
+      183 +    build: ../frontend                                        
+      184      init: true
+      185      healthcheck:
+      186        # Meme technique que le backend : l'image n'a ni curl ni
+            wget, node 22
+
+● Update(infra/docker-compose.yml)
+  ⎿  Added 1 line, removed 1 line
+      213        # sur :8080.
+      214        - '127.0.0.1:21600:80'
+      215      volumes:
+      216 -      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro        
+      216 +      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro  
+      217      healthcheck:
+      218        # busybox wget est present dans nginx:alpine. Le proxy e
+           n bonne sante est
+      219        # la seule chose qui prouve que le portail repond a l'ex
+           terieur : c'est
+
+● Now the dev compose file.
+
+● Update(infra/docker-compose.dev.yml)
+  ⎿  Added 13 lines, removed 1 line
+       3  # L'API et le front continuent de tourner sur la machine via `p
+          npm dev`, pour
+       4  # garder le rechargement a chaud. Il n'y a deliberement pas d'i
+          mage de dev.
+       5  #
+       6 -#   docker compose -f docker-compose.dev.yml up -d             
+       6 +#   pnpm db:up      # docker compose -f infra/docker-compose.de
+         +v.yml --env-file .env up -d                                    
+       7  #   pnpm dev
+       8  #
+       9 +# Les deux drapeaux sont necessaires et l'en-tete de docker-com
+         +pose.yml dit                                                   
+      10 +# pourquoi : le .env vit a la racine, compose le chercherait da
+         +ns infra/.                                                     
+      11 +#                                                              
+      12  # Le volume porte un nom distinct de celui de la production : u
+          ne base de
+      13  # developpement et une base de production sur le meme volume, c
+          'est un
+      14  # `migrate reset` de trop.
+      15 +#                                                              
+      16 +# Le nom de projet aussi, et c'etait le vrai trou : les deux fi
+         +chiers compose                                                 
+      17 +# etant a la racine, ils heritaient du MEME nom de projet. Un `
+         +pnpm db:up`                                                    
+      18 +# pendant que la production tournait ne montait donc pas une se
+         +conde stack — il                                               
+      19 +# recreait db, minio et minio-init de la production avec cette 
+         +configuration-ci,                                              
+      20 +# soit des volumes _dev vides et deux ports publies, pendant qu
+         +e le backend de                                                
+      21 +# production continuait de tourner contre eux.                 
+      22 +name: exo2-portail-depot-dev                                   
+      23 +                                                               
+      24  services:
+      25    db:
+      26      image: postgres:17-alpine
+
+● Update(infra/docker-compose.dev.yml)
+  ⎿  Added 1 line, removed 1 line
+      86        STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:?definir STORAGE
+          _ACCESS_KEY dans .env}
+      87        STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:?definir STORAGE
+          _SECRET_KEY dans .env}
+      88      volumes:
+      89 -      - ./infra/minio:/infra:ro                                
+      89 +      - ./minio:/infra:ro                                      
+      90      entrypoint: ['/bin/bash', '/infra/provision.sh']
+      91      restart: 'no'
+      92  
+
+● Update(infra/nginx/nginx.conf)
+  ⎿  Added 2 lines, removed 1 line
+      19      # consommateurs sont sur le reseau interne — le `healthchec
+          k` docker du
+      20      # backend, qui tape 127.0.0.1:21610/api/v1/health dans son 
+          propre
+      21      # conteneur, et plus tard Prometheus (F1). Pour la consulte
+          r a la main :
+      22 -    #   docker compose exec backend node -e "fetch('http://127.
+         -0.0.1:21610/api/v1/health').then(r=>r.text()).then(console.log)
+         -"                                                              
+      22 +    #   docker compose -f infra/docker-compose.yml --env-file .
+         +env exec backend \                                             
+      23 +    #     node -e "fetch('http://127.0.0.1:21610/api/v1/health'
+         +).then(r=>r.text()).then(console.log)"                         
+      24      #
+      25      # `= /api/v1/health` : correspondance exacte, evaluee avant
+           les prefixes.
+      26      # Ce chemin doit suivre API_PREFIX : le desynchroniser ne c
+          asse rien de
+
+● Update(infra/nginx/nginx.conf)
+  ⎿  Added 1 line, removed 1 line
+      32  
+      33      # Le prefixe et le port sont ecrits en dur ici : nginx ne l
+          it pas
+      34      # l'environnement. Ils doivent rester alignes sur API_PREFI
+          X et PORT
+      35 -    # du .env — voir la note en tete de docker-compose.yml.    
+      35 +    # du .env — voir la note en tete de infra/docker-compose.ym
+         +l.                                                             
+      36      location /api/ {
+      37          # PAS de barre finale : le backend sert lui-meme sous /
+          api/v1
+      38          # (app.setGlobalPrefix), donc le chemin doit lui parven
+          ir intact. Une
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● All paths resolve correctly and the project names are now distinct. Task 1
+  done — on to install.sh and package.json.
+● Update(install.sh)
+  ⎿  Added 8 lines
+      29  # `docker` ou `sudo docker` (voir la cascade d'installation plu
+          s bas).
+      30  DOCKER="docker"
+      31  
+      32 +# Et toutes les commandes compose par `$DOCKER compose $COMPOSE
+         +`. Les deux                                                    
+      33 +# drapeaux sont indissociables du deplacement des fichiers sous
+         + infra/ :                                                      
+      34 +# compose deduit son repertoire de projet du dossier du premier
+         + `-f`, donc il                                                 
+      35 +# chercherait infra/.env, qui n'existe pas — le .env vit a la r
+         +acine, ou                                                      
+      36 +# `pnpm dev` le lit aussi. Le `cd` ci-dessus rend ces deux chem
+         +ins relatifs                                                   
+      37 +# valides quel que soit le repertoire d'ou le script est appele
+         +.                                                              
+      38 +COMPOSE="-f infra/docker-compose.yml --env-file .env"          
+      39 +                                                               
+      40  die() { printf '\nErreur : %s\n' "$*" >&2; exit 1; }
+      41  step() { printf '\n==> %s\n' "$*"; }
+      42  info() { printf '    %s\n' "$*"; }
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Update(install.sh)
+  ⎿  Added 1 line, removed 1 line
+      298  # tenu par notre propre proxy n'est pas un conflit — compose r
+           ecree le
+      299  # conteneur — sinon un second ./install.sh echouerait sur lui-
+           meme.
+      300  port_is_ours() {
+      301 -  local ids; ids="$($DOCKER compose ps -q proxy 2>/dev/null ||
+          - true)"                                                       
+      301 +  local ids; ids="$($DOCKER compose $COMPOSE ps -q proxy 2>/de
+          +v/null || true)"                                              
+      302    [ -n "$ids" ]
+      303  }
+      304  
+
+● Update(install.sh)
+  ⎿  Added 1 line, removed 1 line
+      341  # ------------------------------------------------------------
+           --------------
+      342  if [ "$BUILD_ONLY" = 1 ]; then
+      343    step "Construction des images"
+      344 -  $DOCKER compose build                                       
+      344 +  $DOCKER compose $COMPOSE build                              
+      345    step "Build termine."
+      346    exit 0
+      347  fi
+
+● Update(install.sh)
+  ⎿  Added 1 line, removed 1 line
+      348  
+      349  step "Construction des images et demarrage de la stack"
+      350  info "Le premier appel construit deux images : comptez quelque
+           s minutes."
+      351 -$DOCKER compose up --build -d                                 
+      351 +$DOCKER compose $COMPOSE up --build -d                        
+      352  
+      353  # ------------------------------------------------------------
+           --------------
+      354  # Attente
+
+● Update(install.sh)
+  ⎿  Added 1 line, removed 1 line
+      357  # et « l'application repond ». Les migrations sont jouees par 
+           l'entrypoint du
+      358  # backend : un backend healthy signifie qu'elles sont passees.
+      359  health_of() {
+      360 -  local id; id="$($DOCKER compose ps -q "$1" 2>/dev/null || tr
+          -ue)"                                                          
+      360 +  local id; id="$($DOCKER compose $COMPOSE ps -q "$1" 2>/dev/n
+          +ull || true)"                                                 
+      361    [ -n "$id" ] || { echo "absent"; return; }
+      362    $DOCKER inspect --format '{{if .State.Health}}{{.State.Healt
+           h.Status}}{{else}}{{.State.Status}}{{end}}' "$id" 2>/dev/null 
+           || echo absent
+      363  }
+
+● Update(install.sh)
+  ⎿  Added 2 lines, removed 2 lines
+      376  
+      377    if [ "$waited" -ge "$HEALTH_TIMEOUT" ]; then
+      378      printf '\n'
+      379 -    $DOCKER compose ps                                        
+      379 +    $DOCKER compose $COMPOSE ps                               
+      380      for service in $pending; do
+      381        printf '\n--- %s ---\n' "$service"
+      382 -      $DOCKER compose logs --tail=50 "$service"               
+      382 +      $DOCKER compose $COMPOSE logs --tail=50 "$service"      
+      383      done
+      384      die "services toujours pas prets apres ${HEALTH_TIMEOUT}s 
+           :$pending"
+      385    fi
+
+● Update(install.sh)
+  ⎿  Added 2 lines, removed 2 lines
+      410  # Seed du compte avocat de demonstration et d'une demande. Le 
+           script reste muet
+      411  # tant que le seed n'existe pas dans l'image (issues A2/B1) : 
+           il n'y a rien a
+      412  # faire pour l'utilisateur, donc rien a afficher.
+      413 -if $DOCKER compose exec -T backend sh -c '[ -f dist/seed.js ]'
+          - 2>/dev/null; then                                            
+      413 +if $DOCKER compose $COMPOSE exec -T backend sh -c '[ -f dist/s
+          +eed.js ]' 2>/dev/null; then                                   
+      414    step "Donnees de demonstration"
+      415 -  $DOCKER compose exec -T backend node dist/seed.js           
+      415 +  $DOCKER compose $COMPOSE exec -T backend node dist/seed.js  
+      416  fi
+      417  
+      418  cat <<BANNER
+
+● Now the repo-completeness guard and the banner.
+
+● Update(install.sh)
+  ⎿  Added 4 lines
+      251  
+      252  step "Configuration (.env)"
+      253  [ -f .env.example ] || die ".env.example est introuvable — le 
+           depot est incomplet."
+      254 +# Verifie avant le build : sinon l'absence du fichier compose 
+          +ne se signalerait                                             
+      255 +# qu'au premier appel a `docker compose`, apres l'etape de con
+          +figuration, avec                                              
+      256 +# un message qui parle de chemins et pas du depot.            
+      257 +[ -f infra/docker-compose.yml ] || die "infra/docker-compose.y
+          +ml est introuvable — le depot est incomplet."                 
+      258  # umask avant toute ecriture : set_env_value passe par un fich
+           ier temporaire qui
+      259  # contiendrait le mot de passe en clair et lisible par tous, m
+           eme une fraction
+      260  # de seconde.
+
+● Update(install.sh)
+  ⎿  Added 4 lines, removed 2 lines
+      427       Portail   http://127.0.0.1:$HTTP_PORT
+      428       API       http://127.0.0.1:$HTTP_PORT/api
+      429  
+      430 -   Arreter :   docker compose down                            
+      431 -   Journaux :  docker compose logs -f                         
+      430 +   Arreter :   docker compose $COMPOSE down                   
+      431 +   Journaux :  docker compose $COMPOSE logs -f                
+      432 +                                                              
+      433 +   (depuis la racine du depot ; ou pnpm stack:down / pnpm stac
+          +k:logs)                                                       
+      434    ============================================================
+      435  
+      436  BANNER
+
+● Update(package.json)
+  ⎿  Added 5 lines, removed 2 lines
+       5    "description": "Orchestration des deux applications (backend 
+          NestJS, frontend Vite).",
+       6    "scripts": {
+       7      "install:all": "pnpm -C backend install && pnpm -C frontend
+           install",
+       8 -    "db:up": "docker compose -f docker-compose.dev.yml up -d", 
+       9 -    "db:down": "docker compose -f docker-compose.dev.yml down",
+       8 +    "db:up": "docker compose -f infra/docker-compose.dev.yml --
+         +env-file .env up -d",                                          
+       9 +    "db:down": "docker compose -f infra/docker-compose.dev.yml 
+         +--env-file .env down",                                         
+      10 +    "stack:up": "docker compose -f infra/docker-compose.yml --e
+         +nv-file .env up --build -d",                                   
+      11 +    "stack:down": "docker compose -f infra/docker-compose.yml -
+         +-env-file .env down",                                          
+      12 +    "stack:logs": "docker compose -f infra/docker-compose.yml -
+         +-env-file .env logs -f",                                       
+      13      "db:migrate": "pnpm -C backend run db:migrate",
+      14      "build": "pnpm run build:backend && pnpm run build:frontend
+          ",
+      15      "build:backend": "pnpm -C backend run build",
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now the docs.
+
+● Write(infra/README.md)
+  ⎿  Wrote 60 lines to infra/README.md
+       1 # `infra/`
+       3 Toute l'infrastructure du portail. Aucun code applicatif ici : l
+         e code vit dans `backend/` et
+         machine de production (A6).
+       5 
+       7 |---|---|
+       8 | `docker-compose.yml` | la stack de production : `db`, `minio`,
+       9 | `docker-compose.dev.yml` | la base et le stockage seuls, pour 
+         `pnpm dev` (il n'y a pas d'image de dev) |
+         ublic |
+     … +82 lines (ctrl+o to expand)
+
+● Now the README, .env.example comments, and CLAUDE.md.
+
+● Update(README.md)
+  ⎿  Added 10 lines, removed 1 line
+      15  Le portail est alors sur **http://127.0.0.1:21600**.
+      16  
+      17  Comptez ~2 min si Docker est déjà présent, ~4 min sinon. Les ap
+          pels suivants prennent quelques
+      18 -secondes. `docker compose down` arrête tout.                   
+      18 +secondes.                                                      
+      19  
+      20 +L'infrastructure vit dans `infra/` (compose, reverse proxy, pro
+         +visionnement du stockage). Les                                 
+      21 +fichiers compose n'étant pas à la racine, la commande porte deu
+         +x drapeaux — `infra/README.md`                                 
+      22 +explique pourquoi aucun des deux n'est facultatif :            
+      23 +                                                               
+      24 +```bash                                                        
+      25 +docker compose -f infra/docker-compose.yml --env-file .env down
+         +     # ou pnpm stack:down                                      
+      26 +docker compose -f infra/docker-compose.yml --env-file .env logs
+         + -f  # ou pnpm stack:logs                                      
+      27 +```                                                            
+      28 +                                                               
+      29  ## Développement
+      30  
+      31  `install.sh` ne sert pas au développement quotidien : il monte 
+          la stack de production. Pour
+
+● Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      52  
+      53  | Variable | Secret | Défaut | Rôle |
+      54  |---|---|---|---|
+      55 -| `PORT`, `API_PREFIX` | non | `21610`, `/api/v1` | écrites **a
+         -ussi en dur** dans `nginx.conf` et le healthcheck du compose : 
+         -les changer suppose de changer les trois ensemble |            
+      55 +| `PORT`, `API_PREFIX` | non | `21610`, `/api/v1` | écrites **a
+         +ussi en dur** dans `infra/nginx/nginx.conf` et le healthcheck d
+         +u compose : les changer suppose de changer les trois ensemble |
+      56  | `BIND_ADDRESS` | non | `127.0.0.1` | interface d'écoute. Le c
+          ompose la surcharge à `0.0.0.0` dans le conteneur, dont le rése
+          au est isolé |
+      57  | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | m
+          ot de passe | — | l'URL de connexion est **assemblée** à partir
+           d'elles, avec `encodeURIComponent` : n'importe quel mot de pas
+          se fonctionne |
+      58  | `DATABASE_URL` | oui | *(vide)* | facultative, l'emporte sur 
+          les cinq précédentes — l'échappatoire pour une base managée ou 
+          de CI |
+
+● Update(README.md)
+  ⎿  Added 3 lines, removed 1 line
+      45  
+      46  ## Configuration
+      47  
+      48 -Un seul fichier, `.env` à la racine, lu à la fois par `docker c
+         -ompose` et par l'API. `.env.example`                           
+      48 +Un seul fichier, `.env` à la racine — et à la racine même si le
+         + compose est dans `infra/`, parce que                          
+      49 +l'API le lit aussi quand elle tourne sur la machine (`pnpm dev`
+         +) : d'où le `--env-file .env` des                              
+      50 +commandes ci-dessus. Il est lu à la fois par `docker compose` e
+         +t par l'API. `.env.example`                                    
+      51  en est la documentation ; `./install.sh` le génère et tire au s
+          ort les secrets. **Rien n'a de valeur
+      52  de repli dans le code** : une variable manquante fait échouer l
+          e démarrage en la nommant, plutôt que
+      53  de faire écouter le service au mauvais endroit ou de démarrer P
+          ostgres sans mot de passe.
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Update(.env.example)
+  ⎿  Added 4 lines
+       4  #
+       5  # `./install.sh` genere ce fichier automatiquement s'il est abs
+          ent, avec des
+       6  # secrets aleatoires. Il n'ecrase jamais un .env existant.
+       7 +#                                                              
+       8 +# A LA RACINE, et pas dans infra/ a cote des fichiers compose :
+         + l'API le lit                                                  
+       9 +# aussi quand elle tourne sur la machine (`pnpm dev`). C'est po
+         +ur cela que les                                                
+      10 +# commandes compose portent `--env-file .env` — voir infra/READ
+         +ME.md.                                                         
+      11  
+      12  # --- API -----------------------------------------------------
+          -----------
+      13  # Aucune valeur par defaut n'est codee en dur : l'API refuse de
+           demarrer si ces
+
+● Now CLAUDE.md.
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Update(CLAUDE.md)
+  ⎿  Added 5 lines, removed 2 lines
+      60  - `backend/` — NestJS API
+      61  - `frontend/` — Vite SPA
+      62  - `package.json` — root orchestration scripts (no app code)
+      63 -- `docker-compose.yml` — production stack: `db`, `backend`, `fr
+         -ontend`, `proxy`                                               
+      64 -- `docker-compose.dev.yml` — **the database only**, for local `
+         -pnpm dev` (there is no dev image)                              
+      63 +- `infra/` — **all infrastructure, no application code** (A5): 
+         +`docker-compose.yml` (production                               
+      64 +  stack: `db`, `minio`, `minio-init`, `backend`, `frontend`, `p
+         +roxy`), `docker-compose.dev.yml`                               
+      65 +  (**database and storage only**, for local `pnpm dev` — there 
+         +is no dev image), `nginx/nginx.conf`,                          
+      66 +  `minio/`. `prometheus/` (F1) and `grafana/` (F2) land here to
+         +o. `infra/README.md` documents the                             
+      67 +  two non-obvious consequences of compose not being at the root
+         + — see § Docker.                                               
+      68  - `issue_backlog.md` — the backlog derived from the exercise st
+          atement; every feature branch
+      69    should name the issue it closes
+      70  - `README.md` — project title, staging subdomain, and a list of
+           topics the final README must cover
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Update(CLAUDE.md)
+  ⎿  Added 29 lines
+      225  # tout passe par le proxy sur 127.0.0.1:21600
+      226  ```
+      227  
+      228 +**Both flags are load-bearing, and A5 is where that started.**
+          + Compose derives its *project                                 
+      229 +directory* from the directory of the first `-f` file, and that
+          + is where it looks for `.env` and                             
+      230 +where it gets the project name from. Since the compose files l
+          +ive in `infra/`:                                              
+      231 +                                                              
+      232 +- **`--env-file .env`** — otherwise compose looks for `infra/.
+          +env`, finds nothing, and every                                
+      233 +  `${VAR:?}` fails. `.env` stays at the root because the API r
+          +eads it there too when it runs on the                         
+      234 +  host (`pnpm dev`, resolved from `__dirname`). **Never create
+          + `infra/.env`**: `install.sh` fills                           
+      235 +  only the root one, and a second secrets file that nobody pop
+          +ulates fails in production only.                              
+      236 +  Verified: `docker compose --project-directory /tmp -f docker
+          +-compose.yml config`, run from a                              
+      237 +  directory that *does* have a `.env`, still fails on `require
+          +d variable DB_NAME is missing` — the                          
+      238 +  cwd's `.env` is not consulted, only the project directory's.
+      239 +- **`name:` inside each compose file** — otherwise the project
+          + would be called `infra` and every                            
+      240 +  existing volume would go orphan. It also fixes a pre-existin
+          +g bug: both files were at the root, so                        
+      241 +  both inherited the *same* project name. `pnpm db:up` while p
+          +roduction was running did not start a                         
+      242 +  second stack — it recreated production's `db`/`minio`/`minio
+          +-init` with the dev config (empty                             
+      243 +  `_dev` volumes, two published ports) underneath a still-runn
+          +ing `backend`. They are now                                   
+      244 +  `exo2-portail-depot` and `exo2-portail-depot-dev`.          
+      245 +                                                              
+      246 +Consequence: **relative paths inside those files are relative 
+          +to `infra/`** — `../backend`,                                 
+      247 +`./minio`, `./nginx/nginx.conf`. `--project-directory ..` was 
+          +rejected for exactly that reason: it                          
+      248 +would restore root-relative paths inside a file that no longer
+          + lives at the root. The command is                            
+      249 +written once per consumer — `COMPOSE` in `install.sh`, the `st
+          +ack:*`/`db:*` scripts, the final                              
+      250 +banner, `infra/README.md`.                                    
+      251 +                                                              
+      252 +A misplaced `nginx.conf` mount is the **silent** failure mode 
+          +of any move here: nginx then serves                           
+      253 +its default welcome page, `wget /` still returns 200, `proxy` 
+          +goes healthy and `install.sh` reports                         
+      254 +success. What catches it is `curl http://127.0.0.1:21600/api/v
+          +1/health` returning **403** — the                             
+      255 +`deny all` rule only exists in our file.                      
+      256 +                                                              
+      257  Both Dockerfiles are two-stage, each building from **its own d
+           irectory** (`build: ./backend`), with
+      258  its own `.dockerignore`. Paths inside are unprefixed (`dist/`,
+            `node_modules/`).
+      259  
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(CLAUDE.md)
+  ⎿  Added 10 lines, removed 1 line
+      384  Debian/Ubuntu. After install, if neither `systemctl` nor `serv
+           ice` exists (containers, WSL without
+      385  systemd), the script starts `dockerd` itself.
+      386  
+      387 -Three details that are easy to undo by accident:              
+      387 +**Every compose call goes through `$DOCKER compose $COMPOSE`**
+          +, where                                                       
+      388 +`COMPOSE="-f infra/docker-compose.yml --env-file .env"` — one 
+          +variable, seven call sites (`ps`,                             
+      389 +`build`, `up`, `logs`, `exec`, and the two inside `port_is_our
+          +s`/`health_of`). Missing one is not a                         
+      390 +syntax error: that call would silently target a *different* pr
+          +oject (compose would look for a                               
+      391 +compose file in the cwd, find none, and either fail or answer 
+          +about nothing), so `port_is_ours`                             
+      392 +would stop recognising our own proxy. The only deliberate exce
+          +ption is `compose_v2_present`, which                          
+      393 +probes `docker compose version` and must not need a file. `cd 
+          +"$(dirname "$0")"` at the top is what                         
+      394 +makes both relative paths valid regardless of the caller's cwd
+          +.                                                             
+      395  
+      396 +Four details that are easy to undo by accident:               
+      397 +                                                              
+      398  - **`chmod 600 .env` must come after the value substitutions.*
+           * `set_env_value` writes a temp file
+      399    and moves it into place, which resets the mode to the umask.
+            Doing it before leaves `.env` at 644.
+      400  - **Port 21600 is checked before the build**, otherwise the fa
+           ilure arrives minutes late. A port held
+
+● Update(CLAUDE.md)
+  ⎿  Added 5 lines
+      409    this, a `.env` predating A3 made `docker compose up` fail on
+            `${STORAGE_ACCESS_KEY:?}` — the script
+      410    stopped honouring "exit 0 means the portal answers". Note `s
+           et_env_default` uses `if`, not `&&`:
+      411    `a && b` returns 1 when the key is already filled, which `se
+           t -e` would read as a script failure.
+      412 +- **The final banner must stay in raw docker commands.** It pr
+          +ints                                                          
+      413 +  `docker compose -f infra/docker-compose.yml --env-file .env 
+          +down`, not `pnpm stack:down`: the                             
+      414 +  script no longer installs Node or pnpm, so the banner cannot
+          + tell the grader to run a pnpm script                         
+      415 +  they may not have. The heredoc is unquoted (`<<BANNER`), whi
+          +ch is what interpolates `$COMPOSE` —                          
+      416 +  quoting the delimiter would print the variable name.        
+      417  
+      418  **Adding a required variable therefore means touching three fi
+           les together**: `.env.example` (the
+      419  key and its documentation), `install.sh` (a `set_env_default` 
+           if it is a secret), and
+
+● Update(issue_backlog.md)
+  ⎿  Added 20 lines, removed 5 lines
+       89  de validité par défaut non plus : B2 en fait une entrée du for
+           mulaire. Aucun SMTP : l'énoncé ne
+       90  mentionne aucun envoi de mail.
+       91  
+       92 -### A5. Réorganisation `infra/` — P0                          
+       92 +### A5. Réorganisation `infra/` — P0 — **fait**               
+       93  
+       94 -L'énoncé impose `infra/` (compose, Prometheus, Grafana, revers
+          -e proxy). Aujourd'hui                                         
+       95 -`docker-compose.yml` et `nginx.conf` sont à la racine.        
+       94 +L'énoncé impose `infra/` (compose, Prometheus, Grafana, revers
+          +e proxy). Les deux fichiers compose et                        
+       95 +`nginx.conf` y sont passés, `nginx.conf` sous `infra/nginx/` —
+          + comme `infra/minio/`, pour que A7                            
+       96 +(TLS) et F1/F2 (`prometheus/`, `grafana/`) s'ajoutent sans un 
+          +second déplacement.                                           
+       97  
+       97 -- [ ] Déplacer compose + `nginx.conf` sous `infra/`, ajuster l
+          -es chemins de build et `install.sh`                           
+       98 -- [ ] Vérifier que `./install.sh` reste one-click après déplac
+          -ement                                                         
+       98 +- [x] Déplacer compose + `nginx.conf` sous `infra/`, ajuster l
+          +es chemins de build et `install.sh`                           
+       99 +- [x] Vérifier que `./install.sh` reste one-click après déplac
+          +ement                                                         
+      100  
+      101 +Le déplacement n'est pas un `git mv` : compose déduit son **ré
+          +pertoire de projet** du dossier du                            
+      102 +premier `-f`, donc son `.env` et son nom de projet. D'où deux 
+          +ajouts, documentés dans                                       
+      103 +`infra/README.md` :                                           
+      104 +                                                              
+      105 +- `--env-file .env` sur chaque appel — le `.env` reste à la ra
+          +cine, où `pnpm dev` le lit aussi ;                            
+      106 +- `name:` explicite dans chaque fichier, sans quoi le projet s
+          +'appellerait `infra` et tous les                              
+      107 +  volumes existants deviendraient orphelins.                  
+      108 +                                                              
+      109 +**Hors périmètre initial, réparé ici** : les deux fichiers com
+          +pose étant à la racine, ils                                   
+      110 +partageaient le même nom de projet. Un `pnpm db:up` pendant qu
+          +e la production tournait recréait donc                        
+      111 +`db` et `minio` de production avec la configuration de dev — v
+          +olumes vides et ports 21632/21690/21691                       
+      112 +publiés — sous un `backend` toujours en marche. Les noms sont 
+          +désormais `exo2-portail-depot` et                             
+      113 +`exo2-portail-depot-dev`.                                     
+      114 +                                                              
+      115  ### A6. Image Docker publiée sur registre et tirée en producti
+           on — P0
+      116  
+      117  - [ ] Build et push des images backend + frontend (GHCR ou Doc
+           ker Hub), tag versionné
+
+● Docs done. Now verification.
+
+  Searched for 1 pattern, ran 11 shell commands (ctrl+o to expand)
+
+● Let me commit first, so the bare-machine test runs on exactly what a grader
+  would clone.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● ai-logs/ was already untracked before this work and belongs to H3 (which
+  requires a redaction pass first). Unstaging it — it doesn't belong in the A5
+  commit.
+
+  Ran 2 shell commands (ctrl+o to expand)
+● Now the bare-machine run, on exactly the committed tree.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● While that runs, the code review of the full diff.
+
+  Searched for 2 patterns, read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Write(ai-plans/2026-08-08-a5-reorganisation-infra.md)
+  ⎿  Wrote 142 lines to ai-plans/2026-08-08-a5-reorganisation-infra.md
+       1 # A5 — Réorganisation `infra/`
+       2 
+       4 
+       5 ## Point de départ
+       6 
+         se proxy, Prometheus et Grafana.
+       8 Seul `infra/minio/` respectait déjà la convention ; `docker-comp
+         ose.yml`, `docker-compose.dev.yml` et
+         e) et A7 (HTTPS) en dépendent, et
+      10 F1/F2 y déposeront `prometheus/` et `grafana/`.
+     … +245 lines (ctrl+o to expand)
+
+  Read 1 file, ran 2 shell commands (ctrl+o to expand)
+
+● Everything else is done and committed. Waiting on the bare-machine run before
+  merging.
+
+  A5 implemented and verified. What the exploration changed about the shape of
+  the issue:
+
+  The move isn't a git mv
+  Compose derives its project directory from the first -f file's folder — and
+  with it the .env it reads and the project name. Verified: --project-directory
+    /tmp fails on required variable DB_NAME is missing even with a .env in the
+  cwd. Hence --env-file .env on every call (the .env stays at the root, where
+  pnpm  dev reads it) and an explicit name: in each file.
+  ────────────────────────────────────────
+  Pre-existing bug fixed
+  Both compose files sat at the root, so both inherited the same project name.
+  pnpm db:up while production ran recreated production's db/minio/minio-init
+  with the dev config — empty volumes, ports 21632/21690/21691 published on a
+  shared machine — under a still-running backend. Now exo2-portail-depot and
+  exo2-portail-depot-dev; verified coexisting, prod containers untouched.
+
+  Layout: infra/{docker-compose.yml, docker-compose.dev.yml, nginx/nginx.conf, 
+  minio/, README.md} — nginx/ as a subdirectory so A7's TLS config and F1/F2's
+  prometheus//grafana/ slot in without a second move.
+
+  Verification so far: install.sh exit 0 in 13.2 s (3.9 s on replay), / → 200,
+  /api/v1/health → 403 — the check that matters, since a misplaced nginx.conf
+  mount would leave nginx serving its default page while wget / still returned
+  200 and the script still claimed success. /api/v1/nope returns Nest's JSON
+  404, minio-init provisioned, pnpm dev reports
+  {"status":"ok","db":"up","storage":"up"}, 113 + 7 + 9 tests green, both lints
+  clean. port_is_ours confirmed to still recognise our own proxy with the new
+  flags — without them docker compose ps -q proxy answers no configuration file 
+  provided, which would have made the script accuse itself of holding port
+  21600.
+
+  Code review findings are in ai-plans/2026-08-08-a5-reorganisation-infra.md;
+  none blocking. The two worth knowing: $COMPOSE is deliberately unquoted
+  (SC2086) to match the existing $DOCKER convention, and forgetting $COMPOSE on
+  a future call would silently target another project rather than error —
+  documented in CLAUDE.md rather than enforced, since there's no place to check
+  it without restructuring install.sh around a compose() function.
+
+  Two commits on refactor/a5-reorganisation-infra. I left ai-logs/ untracked —
+  it was untracked before this work and belongs to H3, which requires a
+  redaction pass first. I'll merge to main once the bare-machine container run
+  finishes.
+
+✻ Baked for 11m 51s
+
+● Background command "Bare-machine one-click test in a privileged container"
+completed (exit code 0)
+
+  Read 1 file (ctrl+o to expand)
+
+● Background command "Wait for the bare-machine test to reach its end" completed
+(exit code 0)
+
+● Bare-machine run passed. Recording the measurement.
+
+● Update(ai-plans/2026-08-08-a5-reorganisation-infra.md)
+  ⎿  Added 7 lines, removed 1 line
+      112  | `port_is_ours` | `ss` voit bien 21600 occupé, et le script a
+           nnonce « Disponible » : la fonction reconnaît notre propre pro
+           xy **avec** les nouveaux drapeaux. Sans eux, `docker compose p
+           s -q proxy` répond `no configuration file provided` — le scrip
+           t aurait accusé son propre proxy |
+      113  | second `./install.sh` d'affilée | exit 0 en **3,9 s** |
+      114  | `pnpm lint` / `test` / `test:e2e` / `test:integration` | 113
+            + 7 + 9 tests verts, deux lints sans avertissement |
+      115 -| machine vierge (conteneur privilégié, arbre commité) | voir 
+          -plus bas |                                                    
+      115 +| machine vierge (conteneur privilégié, sur l'arbre **commité*
+          +*, donc exactement ce que clone un correcteur) | exit 0 en **4
+          + min 14 s**, docker installé depuis rien, cinq services health
+          +y, `/` → 200, `/api/v1/health` → 403, `.env` en **600** |     
+      116  
+      117 +La machine vierge est le chemin qui pourrit le plus vite : il 
+          +n'est jamais exercé autrement, et c'est                       
+      118 +lui que le correcteur emprunte. Le test tourne sur `git archiv
+          +e HEAD`, pas sur l'arbre de travail —                         
+      119 +un fichier oublié dans un `git add` s'y verrait, alors qu'un t
+          +est sur l'arbre local le masquerait.                          
+      120 +Les 4 min 14 s incluent l'installation de Docker (comparer aux
+          + 4 min 33 s mesurées en A8, pas aux                           
+      121 +13 s images en cache).                                        
+      122 +                                                              
+      123  ## Revue de code
+      124  
+      125  | # | Gravité | Constat | Décision |
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Update(CLAUDE.md)
+  ⎿  Added 7 lines, removed 1 line
+      431  in kind. Measured after A3, volumes destroyed and backend rebu
+           ilt for the new dependencies:
+      432  **1 min 06 s**.
+      433  
+      434 -The bare-machine path can only be exercised in a container, so
+          - it is the most likely to rot:                                
+      434 +A5 moved the compose files but changed no build stage. Re-meas
+          +ured after it: **13,2 s** with images                         
+      435 +cached, **3,9 s** with the stack already up, and **4 min 14 s*
+          +* on a bare machine, Docker install                           
+      436 +included — the figures hold.                                  
+      437  
+      438 +The bare-machine path can only be exercised in a container, so
+          + it is the most likely to rot. Run it                         
+      439 +against `git archive HEAD`, not the working tree: a file left 
+          +out of `git add` shows up there and is                        
+      440 +invisible otherwise.                                          
+      441 +                                                              
+      442  ```bash
+      443  docker run --rm --privileged -v /var/lib/docker -v "$PWD:/src:
+           ro" ubuntu:24.04 bash -c '...'
+      444  ```
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● A5 done and merged into main (0eed9fa), stack re-verified from main.
+
+  The move wasn't a git mv. Compose derives its project directory from the first
+  -f file's folder, and from that both the .env it reads and the project name.
+  Verified before deciding: docker compose --project-directory /tmp -f 
+  docker-compose.yml config, run from a directory that does have a .env, still
+  fails on required variable DB_NAME is missing — the cwd's .env is never
+  consulted. So every call carries --env-file .env (the .env stays at the root,
+  where pnpm dev also reads it), and each file carries an explicit name: —
+  without it the project would be called infra and every volume would go orphan.
+
+  A pre-existing bug fixed on the way. Both compose files sat at the root, so
+  both inherited the same project name. pnpm db:up while production ran did not
+  start a second stack — it recreated production's db/minio/minio-init with the
+  dev config (empty volumes, ports 21632/21690/21691 published on a shared
+  machine) under a still-running backend. Now exo2-portail-depot and
+  exo2-portail-depot-dev, verified coexisting with production's five container
+  IDs unchanged.
+
+  Layout is infra/{docker-compose.yml, docker-compose.dev.yml, nginx/nginx.conf,
+  minio/, README.md} — nginx/ as a subdirectory so A7's TLS config and F1/F2's
+  prometheus//grafana/ need no second move.
+
+  Verification: ./install.sh cached / already-up / bare machine
+  13.2 s / 3.9 s / 4 min 14 s, all exit 0
+  ────────────────────────────────────────
+  Verification: / → 200, /api/v1/health → 403, /api/v1/nope → Nest's JSON 404
+  the 403 is the one that matters — a misplaced nginx.conf mount leaves nginx
+  serving its default page while wget / still returns 200 and the script still
+  claims success
+  ────────────────────────────────────────
+  Verification: pnpm db:up alongside production, then pnpm dev
+  two projects listed, prod untouched, {"status":"ok","db":"up","storage":"up"}
+  ────────────────────────────────────────
+  Verification: port_is_ours
+  recognises our own proxy with the new flags; without them docker compose ps -q
+   
+  proxy answers no configuration file provided, and the script would have
+  accused itself of holding 21600
+  ────────────────────────────────────────
+  Verification: lint ×2, 113 + 7 + 9 tests
+  green
+
+  The bare-machine run went against git archive HEAD, not the working tree, so a
+  file left out of git add would have shown up.
+
+  No tests added, deliberately — the existing suites use doubles or their own
+  containers, and a test asserting infra/docker-compose.yml exists says no more
+  than the [ -f ... ] guard now in install.sh. The real gap is that nothing in
+  CI checks the nginx.conf mount; that belongs to D3.
+
+  Review findings are in ai-plans/2026-08-08-a5-reorganisation-infra.md, none
+  blocking. Two worth flagging: $COMPOSE is unquoted (SC2086) to match the
+  existing $DOCKER convention, and omitting $COMPOSE on a future call would
+  silently target another project rather than error — documented in CLAUDE.md
+  rather than enforced, since catching it in code would mean restructuring
+  install.sh around a compose() function.
+
+  ai-logs/ stays untracked: it was untracked before this work and belongs to H3,
+  which requires a redaction pass first.
+
+✻ Churned for 1m 14s

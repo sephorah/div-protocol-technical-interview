@@ -1,0 +1,924 @@
+ ▐▛███▜▌   Claude Code v2.1.226
+▝▜█████▛▘  Opus 5 · Claude Pro
+  ▘▘ ▝▝    ~/delivery/div-protocol-internship/exo2-portail-depot
+
+
+❯ /clear                                                                        
+
+❯ push ce qui a été fait                                                        
+  ⎿  ⧉ Selected 1 lines from .env in Visual Studio Code
+
+  Searched for 1 pattern, ran 10 shell commands (ctrl+o to expand)
+
+● Vérifications avant de proposer les commits : pnpm -C frontend lint sort en 0
+  (oxlint muet, canari type-aware passé), pnpm -C frontend test → 124 tests, 19 
+  fichiers, tous verts. Le backend n'est pas touché par ce diff.
+
+  État du dépôt : la branche fix/charte-lien-genere-et-survols est au même 
+  commit que main (aucun commit propre pour l'instant), et main est en avance de
+  18 commits sur origin/main.
+
+  Voici ce que je propose de commiter — trois commits, aucun git add -A :
+
+  1. fix(theme): take the violet on all three planes and draw the link as one 
+  box
+
+  Fichier: frontend/src/theme/recipes/button.ts
+  Ce qui change: survol secondaire sur fond + texte + anneau ; bloc _disabled
+  qui
+  neutralise ce survol ; variante link ; taille inline
+  ────────────────────────────────────────
+  Fichier: frontend/src/theme/recipes/field.ts
+  Ce qui change: variante bare (champ transparent dans la boîte du lien)
+  ────────────────────────────────────────
+  Fichier: frontend/src/components/copy-field.tsx
+  Ce qui change: une seule boîte porteuse de bordure/fond/anneau, Copier en
+  texte
+  à l'intérieur
+  ────────────────────────────────────────
+  Fichier: frontend/src/pages/deposit-page.tsx
+  Ce qui change: bouton de dépôt primaire tant que la pièce manque, secondaire
+  après
+  ────────────────────────────────────────
+  Fichier: docs/architecture.md
+  Ce qui change: quatre → cinq pièges Chakra, + les trois décisions de charte
+  ────────────────────────────────────────
+  Fichier: docs/tests-manuels.md
+  Ce qui change: 4 cases cochées avec les valeurs mesurées au navigateur
+  ────────────────────────────────────────
+  Fichier: issue_backlog.md
+  Ce qui change: 3 critères E1 ajoutés et cochés
+  ────────────────────────────────────────
+  Fichier: ai-plans/2026-08-10-ecarts-charte-lien-et-survols.md
+  Ce qui change: nouveau — le plan suivi
+
+  2. fix(nginx): let grafana live open its websocket through the proxy
+
+  ┌────────────────────────────────────┬─────────────────────────────────────┐
+  │              Fichier               │            Ce qui change            │
+  ├────────────────────────────────────┼─────────────────────────────────────┤
+  │ infra/nginx/websocket-upgrade.conf │ nouveau — la map $http_upgrade      │
+  │                                    │ $connection_upgrade (niveau http)   │
+  ├────────────────────────────────────┼─────────────────────────────────────┤
+  │                                    │ proxy_http_version 1.1,             │
+  │ infra/nginx/portal-locations.conf  │ Upgrade/Connection, Host $http_host │
+  │                                    │  au lieu de $host                   │
+  ├────────────────────────────────────┼─────────────────────────────────────┤
+  │ infra/docker-compose.yml           │ montage du fragment en              │
+  │                                    │ conf.d/00-websocket-upgrade.conf    │
+  ├────────────────────────────────────┼─────────────────────────────────────┤
+  │                                    │ cinq → six fichiers nginx, + la     │
+  │ docs/exploitation.md               │ section « 400 → 403 → 101 » et le   │
+  │                                    │ piège du bind-mount                 │
+  └────────────────────────────────────┴─────────────────────────────────────┘
+
+  3. docs(ai-logs): add the session logs required by the deliverable
+
+  ┌─────────────────────────────────────────────────────┬────────────────────┐
+  │                       Fichier                       │   Ce qui change    │
+  ├─────────────────────────────────────────────────────┼────────────────────┤
+  │                                                     │ nouveau — 31       │
+  │ ai-logs/                                            │ fichiers, ~9 Mo de │
+  │                                                     │  journaux de       │
+  │                                                     │ session            │
+  ├─────────────────────────────────────────────────────┼────────────────────┤
+  │ ai-plans/2026-08-10-nettoyage-tests-commentaires.md │ nouveau            │
+  ├─────────────────────────────────────────────────────┼────────────────────┤
+  │ ai-plans/2026-08-10-passe-navigateur-playwright.md  │ nouveau            │
+  └─────────────────────────────────────────────────────┴────────────────────┘
+
+  Laissés de côté délibérément (dis-moi si c'est une erreur) : enonce-full.png,
+  image.png, image copy.png, image copy 2.png, image copy 3.png, uikit.png —
+  captures de travail à la racine, et uikit.png est déjà versionné sous
+  ai-plans/assets/. .env est gitignoré et ne bougera pas.
+
+● User answered Claude's questions:
+  ⎿  · Où pousser ? `main` a 18 commits d'avance sur `origin/main`, et la 
+     branche courante est au même commit que `main`. → Commiter ici, 
+     fast-forward `main`, pousser `main` (recommandé)
+     · Les 31 fichiers d'`ai-logs/` (~9 Mo) entrent-ils dans le dépôt ? → non ne
+     les push pas 
+
+● Compris : ai-logs/ reste hors dépôt. Les deux plans restants, eux, sont dans
+  ai-plans/ qui est déjà versionné — je les garde, en troisième commit à part.
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Aucune valeur secrète dans ces plans — seulement des noms de variables.
+  J'ajoute ai-logs/ au .gitignore pour qu'ils ne réapparaissent plus dans git 
+  status (c'est ce que décrivait l'option choisie), et je commite.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(.gitignore)
+  ⎿  Added 4 lines
+      33  
+      34  # Captures Playwright MCP, hors depot
+      35  .playwright-mcp/
+      36 +                                                               
+      37 +# Journaux de session bruts (/export). Le livrable garde les pl
+         +ans d'ai-plans/,                                               
+      38 +# pas les transcriptions : plusieurs Mo de texte qui rejouent c
+         +haque essai.                                                   
+      39 +ai-logs/                                                       
+
+  Committed 3f9a792, e0c0caa, 38bb4f2, ran 1 shell command (ctrl+o to expand)
+  ⎿  PostToolUse:Bash says: Tip: Run /ultrareview before you push to catch bugs 
+     with a cloud-based multi-agent review — 3 free reviews left.
+
+● Trois commits en place. Fast-forward de main, puis push.
+
+  Pushed to main, ran 2 shell commands (ctrl+o to expand)
+
+● Poussé
+
+  origin/main est à 38bb4f2, écart avec main local : 0. Les 21 commits sont
+  partis (les 18 en attente + les 3 créés maintenant).
+
+  Ce qui a été commité — trois commits :
+
+  Commit: 3f9a792 fix(theme)
+  Contenu: survol secondaire violet sur fond + texte + anneau, bloc _disabled
+  qui
+  le neutralise, variante link + taille inline, variante bare du champ, bloc «
+  lien généré » en une seule boîte, bouton de dépôt primaire tant que la pièce
+  manque — plus docs/architecture.md, docs/tests-manuels.md, issue_backlog.md
+  et le plan suivi
+  ────────────────────────────────────────
+  Commit: e0c0caa fix(nginx)
+  Contenu: websocket-upgrade.conf (nouveau), les quatre lignes de location 
+  /grafana/, son montage dans compose, la section « 400 → 403 → 101 » de
+  docs/exploitation.md
+  ────────────────────────────────────────
+  Commit: 38bb4f2 docs(ai-plans)
+  Contenu: les deux plans du 10/08 restants, et ai-logs/ ajouté au .gitignore
+
+  Vérifié : pnpm -C frontend lint sort en 0 (oxlint muet, canari type-aware
+  passé) ; pnpm -C frontend test → 124 tests sur 19 fichiers, tous verts. .env
+  n'apparaît dans aucun commit de l'historique — il est gitignoré depuis le
+  début.
+
+  Laissé de côté, comme annoncé : ai-logs/ (désormais ignoré), et les six
+  captures de travail à la racine (enonce-full.png, image.png, image copy*.png,
+  uikit.png — ce dernier est déjà versionné sous ai-plans/assets/). Elles
+  restent visibles dans git status, je ne les ai pas ignorées pour que leur sort
+  reste ta décision.
+
+  Non vérifié : le correctif nginx et le montage compose n'ont aucun test
+  automatisé — la seule preuve est la mesure au navigateur consignée dans
+  docs/exploitation.md, faite avant ce commit et non rejouée ici. La branche
+  fix/charte-lien-genere-et-survols existe toujours en local, au même commit que
+  main ; dis-moi si tu veux que je la supprime.
+
+✻ Churned for 3m 35s
+
+※ recap: Goal was to push the pending work: three commits (charter fixes, Grafana WebSocket, plans) are on origin/main, lint and 124 frontend tests green. Next, tell me whether to delete the local branch fix/charte-lien-genere-et-survols and what to do with the root PNGs. (disable recaps in /config)
+
+❯ crée un tag github pour cette version                                         
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● Le workflow a déjà publié pour ce push : run 31449234919, succès en 1 min 28,
+  donc edge et sha-38bb4f2 existent. C'est exactement l'artefact que la doc
+  demande de faire tourner avant de poser un tag de version.
+
+  Deux points avant de tagger :
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Deux constats qui changent ce que je propose :
+
+  - La pile qui tourne est en 0.3.0 — backend et frontend tirent encore les
+  images de la version de juillet. Tout ce qui a été livré depuis (écrans
+  avocat, parcours client, thème, observabilité) n'est pas dans le portail qui
+  répond sur 127.0.0.1:21600.
+  - 85 commits séparent exo2-v0.3.0 de main : B4 + B4b (dashboard et
+  téléchargement), B5 (écrans avocat), C1/C2/C3 (parcours client complet), E1
+  (thème), F1/F2 (Prometheus + Grafana), G4 (durcissement, CSP, secret client
+  distinct).
+
+  Poser le tag seul ne suffit donc pas : IMAGE_TAG a son défaut écrit dans 
+  infra/docker-compose.yml (${IMAGE_TAG:-0.3.0}, lignes 86 et 153). Sans le
+  monter, le tag publierait des images que la production ne tirerait jamais.
+
+● User answered Claude's questions:
+  ⎿  · Quel numéro de version ? Le précédent est `exo2-v0.3.0` (« le lien de 
+     dépôt devient utilisable »). → 0.4.0 (recommandé)
+     · Faire tourner l'artefact réel avant de poser le tag ? C'est la règle 
+     écrite dans CLAUDE.md — on promeut une image qu'on a vue tourner. → Oui, 
+     lancer `IMAGE_TAG=sha-38bb4f2` (recommandé)
+
+  Ran 5 shell commands (ctrl+o to expand)
+
+● Handshake → 401 : c'est la réponse de Grafana lui-même (session absente), plus
+  le 400 de nginx ni le 403 d'Origin. La mise à niveau traverse donc bien le
+  proxy. Le 101 réel a été mesuré au navigateur et est consigné dans
+  docs/exploitation.md.
+
+  Maintenant le défaut d'IMAGE_TAG. Je vérifie partout où 0.3.0 est écrit :
+
+  Read 2 files, ran 2 shell commands (ctrl+o to expand)
+
+● Update(docs/exploitation.md)
+  ⎿  Added 1 line, removed 1 line
+      298  ## Les images et le registre
+      299  
+      300  `infra/docker-compose.yml` **tire, il ne construit pas** :
+      301 -`ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}:${IMAG
+          -E_TAG:-0.3.0}`. C'est ce qui fait de                          
+      301 +`ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}:${IMAG
+          +E_TAG:-0.4.0}`. C'est ce qui fait de                          
+      302  `infra/` + `.env` une unité de déploiement complète — l'exigen
+           ce de l'énoncé : pas de code source sur
+      303  la machine de staging. Le workflow qui publie vit à la racine 
+           du dépôt git
+      304  (`.github/workflows/exo2-publish-images.yml`), un niveau au-de
+           ssus de ce dossier.
+
+● Update(docs/exploitation.md)
+  ⎿  Added 5 lines, removed 3 lines
+      307    appartient au code, pas à la machine : dans `.env`, `install
+           .sh` ne la réécrirait jamais (il ne
+      308    remplit que les valeurs vides) et une machine resterait figé
+           e sur une version périmée sans que rien
+      309    ne le signale.
+      310 -- **Tout retour arrière retire quelque chose en silence**, la 
+          -pile démarrant normalement dans les                           
+      311 -  deux cas : `0.2.0` n'a ni URL client, ni expiration appliqué
+          -e, et écrit le jeton **en clair** dans                        
+      312 -  les journaux ; `0.1.0` est antérieure à l'authentification. 
+      310 +- **Tout retour arrière retire quelque chose en silence**, la 
+          +pile démarrant normalement dans tous                          
+      311 +  les cas : `0.3.0` n'a **aucun écran** au-delà de la connexio
+          +n — ni tableau de bord, ni parcours                           
+      312 +  client, ni dépôt de fichier — et aucune métrique ; `0.2.0` n
+          +'a ni URL client, ni expiration                               
+      313 +  appliquée, et écrit le jeton **en clair** dans les journaux 
+          +; `0.1.0` est antérieure à                                    
+      314 +  l'authentification.                                         
+      315  - **`infra/docker-compose.build.yml` est le seul endroit où un
+            `build:` survit**, et il ne doit
+      316    jamais s'appeler `docker-compose.override.yml` : compose cha
+           rge ce nom automatiquement, et une pile
+      317    que tout le monde croit tirée construirait en silence. Il co
+           nserve l'`image:` du fichier de base,
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(CLAUDE.md)
+  ⎿  Added 1 line, removed 1 line
+      472  ## Images and registry (A6)
+      473  
+      474  `infra/docker-compose.yml` **pulls, it does not build**:
+      475 -`ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}:${IMAG
+          -E_TAG:-0.3.0}`. That is what makes                            
+      475 +`ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}:${IMAG
+          +E_TAG:-0.4.0}`. That is what makes                            
+      476  `infra/` + `.env` a complete deployment unit, which is the sta
+           tement's requirement — no source code
+      477  on the staging machine. The workflow that publishes lives at
+      478  **`.github/workflows/exo2-publish-images.yml`, at the root of 
+           the git repository
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(CLAUDE.md)
+  ⎿  Added 5 lines, removed 4 lines
+      486    (`set_env_default` only fills empties), so a machine would s
+           tay pinned to a stale version with
+      487    nothing to signal it — and it would drag in the three-file r
+           ule (`.env.example`, `install.sh`,
+      488    compose). Overriding still works, and that is the rollback —
+            but **every rollback target here
+      489 -  removes something silently**, the stack starting normally ei
+          -ther way: `0.2.0` has no client URL,                          
+      490 -  no expiry enforcement and no link regeneration, and it write
+          -s the deposit token **in clear** to the                       
+      491 -  proxy's and the frontend's logs; `0.1.0` predates authentica
+          -tion, so it has no login route and no                         
+      492 -  demo account.                                               
+      489 +  removes something silently**, the stack starting normally ei
+          +ther way: `0.3.0` has **no screen**                           
+      490 +  past the login — no dashboard, no client journey, no upload 
+          +— and no metrics; `0.2.0` has no client                       
+      491 +  URL, no expiry enforcement and no link regeneration, and it 
+          +writes the deposit token **in clear** to                      
+      492 +  the proxy's and the frontend's logs; `0.1.0` predates authen
+          +tication, so it has no login route and                        
+      493 +  no demo account.                                            
+      494  - **`infra/docker-compose.build.yml` is the only place a `buil
+           d:` survives**, and it must never be
+      495    named `docker-compose.override.yml`: compose loads that name
+            **automatically** whenever it sits in
+      496    the project directory, so a stack everyone believes is pulle
+           d would silently build. It keeps the
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Compose résout bien 0.4.0 par défaut. Je commite ce bump avant de poser le tag
+  — le tag doit porter un arbre où la production tire déjà la bonne version.
+
+  Fichiers du commit (aucun nouveau) : infra/docker-compose.yml (les deux
+  image:), docs/exploitation.md (le défaut + ce que perd un retour à 0.3.0),
+  CLAUDE.md (les deux mêmes).
+
+  Committed 687d6c4, pushed to main, ran 1 shell command (ctrl+o to expand)
+  ⎿  PostToolUse:Bash says: Tip: Run /ultrareview before you push to catch bugs 
+     with a cloud-based multi-agent review — 3 free reviews left.
+
+● Le tag est parti. Le workflow de publication doit s'être déclenché dessus :
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Les deux paquets sont tirables sans identifiants (jeton anonyme → 200). Je
+  bascule la pile en cours sur le défaut 0.4.0, ce qui est exactement ce
+  qu'obtient un correcteur :
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● exo2-v0.4.0 publié
+
+  Le tag : annoté, sur 687d6c4, poussé sur origin. Il suit la convention du
+  dépôt (exo2-v*, préfixe imposé par le multi-exercices), et c'est le seul
+  événement qui produit un tag d'image semver.
+
+  Le workflow déclenché par le tag (31449971538) : succès. Les images 0.4.0 sont
+  sur GHCR, et vérifiées tirables sans identifiants — jeton de registre
+  anonyme, manifeste en 200 pour backend comme pour frontend. C'est le contrôle
+  que la doc réclame : un 403 et une image inexistante se ressemblent.
+
+  Un commit a précédé le tag, parce que le tag seul n'aurait rien changé pour la
+  production : build(release): pin production to 0.4.0 monte le défaut
+  ${IMAGE_TAG:-…} dans infra/docker-compose.yml (les deux image:), et met à jour
+  la note de retour arrière dans docs/exploitation.md et CLAUDE.md. Sans lui,
+  les images publiées n'auraient jamais été tirées.
+
+  Vérifié avant de tagger, sur l'artefact réel sha-38bb4f2 que la CI venait de
+  produire — pas sur une reconstruction locale :
+
+  Sonde: les 7 services
+  Attendu: healthy
+  Obtenu: healthy
+  ────────────────────────────────────────
+  Sonde: / et /login
+  Attendu: 200
+  Obtenu: 200
+  ────────────────────────────────────────
+  Sonde: /api/v1/health à travers nginx
+  Attendu: 403 (preuve que notre conf est montée)
+  Obtenu: 403
+  ────────────────────────────────────────
+  Sonde: /api/v1/metrics
+  Attendu: 403
+  Obtenu: 403
+  ────────────────────────────────────────
+  Sonde: /api/v1/requests sans session
+  Attendu: 401
+  Obtenu: 401
+  ────────────────────────────────────────
+  Sonde: sonde interne
+  Attendu: db et storage up
+  Obtenu: {"status":"ok","db":"up","storage":"up"}
+  ────────────────────────────────────────
+  Sonde: handshake WebSocket Grafana
+  Attendu: ni 400 nginx ni 403 Origin
+  Obtenu: 401 Grafana — la mise à niveau traverse
+
+  Puis rebasculé sur le défaut 0.4.0 : la pile tourne maintenant sur
+  ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}:0.4.0, sondes rejouées
+  et identiques. La pile tournait jusqu'ici en 0.3.0 — elle n'avait donc aucun 
+  écran au-delà de la connexion ; c'est corrigé.
+
+  Non vérifié : le 101 du WebSocket Grafana n'est pas rejouable en curl anonyme
+  (Grafana répond 401 avant l'upgrade) — la mesure au navigateur reste celle
+  consignée dans docs/exploitation.md. Et je n'ai pas créé de release GitHub
+  au-dessus du tag : dis-moi si tu la veux, le corps du tag annoté sert de notes
+  tel quel.
+
+✻ Brewed for 4m 57s
+
+❯ mets à jour l'.env.example et push le                                         
+
+  Searched for 1 pattern, read 1 file, ran 2 shell commands (ctrl+o to expand)
+● J'ai audité .env.example avant de le toucher, en croisant quatre sources : les
+  ${VAR} des quatre fichiers compose, ce que env.validation.ts valide, ce que
+  le backend lit réellement via ConfigService, et les clés du .env de cette
+  machine.
+
+  Résultat : aucune clé ne manque. Les 28 clés de .env.example couvrent
+  exactement les 20 variables validées par l'API, les 14 qu'elle lit, et les 22
+  référencées par compose. CLIENT_JWT_SECRET (G4) et GRAFANA_ADMIN_PASSWORD (F2)
+  sont déjà là avec leur documentation. Le fichier n'a pas dérivé.
+
+  Il reste un seul écart réel, et il vient de ce qu'on vient de faire :
+  IMAGE_TAG est la seule variable que compose lit sans qu'elle apparaisse nulle
+  part dans .env.example. C'est délibéré — la version appartient au code, et une
+  clé ici serait figée pour toujours puisque install.sh ne remplit que le vide.
+  Mais conséquence : le levier de retour arrière est invisible pour qui ne lit
+  que .env.example, alors que c'est le fichier que lit un exploitant sur la
+  machine de staging.
+
+● User answered Claude's questions:
+  ⎿  · Les clés de `.env.example` sont déjà complètes. Qu'est-ce que tu veux que
+     j'y change ? → Documenter `IMAGE_TAG` en commentaire (recommandé)
+
+● Une vérification avant d'écrire : install.sh recopie dans .env toute clé que
+  .env.example a gagnée. Je m'assure qu'une clé commentée n'y devient pas une
+  clé active.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● append_missing_keys alimente sa boucle avec grep -oE '^[A-Z_]...=', ancré en 
+  début de ligne : une clé commentée n'est pas recopiée dans .env. C'est déjà le
+  cas de # DATABASE_URL=. La section est donc sans effet de bord.
+
+● Update(.env.example)
+  ⎿  Added 16 lines
+       7  # A LA RACINE, et pas dans infra/ : l'API le lit aussi quand el
+          le tourne sur la
+       8  # machine. Voir docs/exploitation.md § .env.
+       9  
+      10 +# --- Version des images --------------------------------------
+         +-------------                                                  
+      11 +# PAS une cle a renseigner : le defaut vit dans infra/docker-co
+         +mpose.yml                                                      
+      12 +# (actuellement 0.4.0), parce que la version appartient au code
+         + et non a la                                                   
+      13 +# machine. Renseignee ici, install.sh ne la reecrirait jamais e
+         +t la machine                                                   
+      14 +# resterait figee sur une version perimee.                     
+      15 +#                                                              
+      16 +# Le retour arriere est ponctuel, sur la ligne de commande :   
+      17 +#   IMAGE_TAG=0.3.0 docker compose -f infra/docker-compose.yml 
+         +\                                                              
+      18 +#     --env-file .env up -d                                    
+      19 +#                                                              
+      20 +# Chaque version anterieure retire quelque chose EN SILENCE, la
+         + pile                                                          
+      21 +# demarrant normalement : 0.3.0 n'a aucun ecran au-dela de la c
+         +onnexion ni                                                    
+      22 +# aucune metrique ; 0.2.0 ecrit le jeton de depot en clair dans
+         + les journaux ;                                                
+      23 +# 0.1.0 est anterieure a l'authentification.                   
+      24 +# IMAGE_TAG=                                                   
+      25 +                                                               
+      26  # --- API -----------------------------------------------------
+          -----------
+      27  # Sans repli : l'API refuse de demarrer si elles manquent, plut
+          ot que d'ecouter
+      28  # hors de la plage attribuee (21600-21699) sur une machine part
+          agee. Elles sont
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Vérifié : les clés actives de .env.example et de .env sont identiques —
+  IMAGE_TAG n'est pas vue comme une clé, donc aucun .env existant ne gagnera de
+  ligne. Compose résout toujours 0.4.0.
+
+  Un seul fichier au commit, aucun nouveau : .env.example.
+
+  Committed 5e65639, pushed to main, ran 2 shell commands (ctrl+o to expand)
+
+❯ C'est faux il manque le GRAFANA_ADMIN_PASSWORD                                
+  Regarde bien l'env de base                                                    
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ C'est faux il manque le GRAFANA_ADMIN_PASSWORD                                
+  Regarde bien l'env de base, n'oublie aucune clé                               
+
+  Ran 5 shell commands (ctrl+o to expand)
+
+● GRAFANA_ADMIN_PASSWORD est déjà là, et depuis F2 : ligne 117 du fichier
+  commité, sous --- Observabilite ---, avec sa documentation (Grafana ne le lit
+  qu'à l'initialisation de son volume). J'ai comparé clé par clé, et les deux
+  fichiers portent exactement les mêmes 28 clés — diff ne sort rien.
+
+  Les trois lignes ajoutées en fin de fichier en font donc un doublon, et j'ai
+  mesuré ce qu'il provoque plutôt que de le supposer :
+
+  ┌───────────────────────────┬──────────────────┬─────────────────────────┐
+  │      Ce qui lit .env      │     Quelle       │       Conséquence       │
+  │                           │ occurrence gagne │                         │
+  ├───────────────────────────┼──────────────────┼─────────────────────────┤
+  │ set_env_value             │ la première      │ le mot de passe est     │
+  │ d'install.sh (awk !done)  │                  │ écrit ligne 117         │
+  ├───────────────────────────┼──────────────────┼─────────────────────────┤
+  │ docker compose --env-file │ la dernière      │ il lit la ligne vide de │
+  │                           │                  │  la fin                 │
+  └───────────────────────────┴──────────────────┴─────────────────────────┘
+
+  Sur une machine vierge, install.sh fait cp .env.example .env (ligne 379),
+  remplit la première, et docker compose up meurt sur :
+
+  required variable GRAFANA_ADMIN_PASSWORD is missing a value
+
+  C'est le message exact que je viens de reproduire dans un compose jetable. Le
+  contrat d'install.sh — « sortir en 0 veut dire que le portail répond » —
+  serait cassé sur le premier test des correcteurs.
+
+  Je retire donc le doublon et je garde la ligne 117, qui porte la documentation
+  :
+
+● Update(.env.example)
+  ⎿  Added 1 line, removed 4 lines
+      157  # Un secret, mais stocke en clair parce qu'il faut pouvoir le 
+           RELIRE : c'est ce
+      158  # que le seed imprime a l'evaluateur, et un hash ne se relit p
+           as. D'ou le
+      159  # chmod 600 sur .env. Le changer puis relancer ./install.sh me
+           t a jour le compte.
+      160 -SEED_LAWYER_PASSWORD=                                         
+      161 -                                                              
+      162 -# Mot de passe admin Grafana (F2). Genere par install.sh.     
+      163 -GRAFANA_ADMIN_PASSWORD=                                       
+      160   No newline at end of file
+      161 +SEED_LAWYER_PASSWORD=                                         
+      162   No newline at end of file
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Rien à pousser : le fichier poussé était déjà correct
+
+  GRAFANA_ADMIN_PASSWORD n'était pas manquant. Il est ligne 117 de la version
+  poussée (5e65639), sous --- Observabilite ---, avec sa documentation — présent
+  depuis F2. Les trois lignes ajoutées en fin de fichier créaient une deuxième
+  occurrence ; je les ai retirées, et l'arbre de travail est de nouveau
+  identique à origin/main.
+
+  Le contrôle complet que tu demandais, croisé sur quatre sources :
+
+  ┌──────────────────────────────┬──────────────────────────────────────────┐
+  │            Source            │                 Résultat                 │
+  ├──────────────────────────────┼──────────────────────────────────────────┤
+  │ clés de .env (la base de     │ 28                                       │
+  │ cette machine)               │                                          │
+  ├──────────────────────────────┼──────────────────────────────────────────┤
+  │ clés de .env.example         │ 28                                       │
+  ├──────────────────────────────┼──────────────────────────────────────────┤
+  │ diff entre les deux          │ aucune différence                        │
+  ├──────────────────────────────┼──────────────────────────────────────────┤
+  │ variables validées par       │ 20, toutes présentes                     │
+  │ env.validation.ts            │                                          │
+  ├──────────────────────────────┼──────────────────────────────────────────┤
+  │ variables lues via           │ 14, toutes présentes                     │
+  │ ConfigService                │                                          │
+  ├──────────────────────────────┼──────────────────────────────────────────┤
+  │ ${VAR} des quatre fichiers   │ 22, toutes présentes sauf IMAGE_TAG,     │
+  │ compose                      │ désormais documentée en commentaire      │
+  ├──────────────────────────────┼──────────────────────────────────────────┤
+  │ clés en double               │ aucune                                   │
+  └──────────────────────────────┴──────────────────────────────────────────┘
+
+  Pourquoi le doublon aurait cassé l'installation — mesuré, pas supposé.
+  install.sh fait cp .env.example .env (ligne 379) sur une machine vierge, puis
+  remplit les secrets. Or les deux lecteurs du fichier ne prennent pas la même
+  ligne :
+
+  - set_env_value (awk $1==k && !done) remplit la première occurrence — vérifié,
+  la seconde reste vide ;
+  - docker compose --env-file retient la dernière — vérifié sur un compose
+  jetable : avec la première remplie et la seconde vide, il répond required 
+  variable GRAFANA_ADMIN_PASSWORD is missing a value.
+
+  Résultat sur le premier test des correcteurs : install.sh génère bien le mot
+  de passe, et docker compose up refuse de démarrer en disant qu'il manque. Le
+  contrat « sortir en 0 veut dire que le portail répond » tombait.
+
+  État final : origin/main à 5e65639, écart local 0, aucun doublon, .env.example
+  et .env alignés sur les mêmes 28 clés. Si tu voulais que la variable
+  apparaisse ailleurs dans le fichier plutôt qu'en section Observabilité,
+  dis-le-moi — c'est un déplacement, pas un ajout, et il faut alors retirer la
+  ligne 117 dans le même geste.
+
+✻ Churned for 1m 47s
+
+❯ crée un nouveau tag 0.4.1                                                     
+
+  Ran 1 shell command (ctrl+o to expand)
+● Un constat à poser avant : le seul commit depuis exo2-v0.4.0 touche
+  .env.example, qui n'est dans aucun des deux contextes de build (backend/ et
+  frontend/). Les images 0.4.1 seront donc reconstruites depuis le cache et
+  fonctionnellement identiques à 0.4.0 — le tag documente un changement de
+  documentation. Je le fais quand même, et je le dis dans la note de retour
+  arrière pour qu'un exploitant sache que ce pas-là ne coûte rien.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(.env.example)
+  ⎿  Added 1 line, removed 1 line
+       9  
+      10  # --- Version des images --------------------------------------
+          -------------
+      11  # PAS une cle a renseigner : le defaut vit dans infra/docker-co
+          mpose.yml
+      12 -# (actuellement 0.4.0), parce que la version appartient au code
+         - et non a la                                                   
+      12 +# (actuellement 0.4.1), parce que la version appartient au code
+         + et non a la                                                   
+      13  # machine. Renseignee ici, install.sh ne la reecrirait jamais e
+          t la machine
+      14  # resterait figee sur une version perimee.
+      15  #
+
+● Update(.env.example)
+  ⎿  Added 4 lines, removed 3 lines
+      18  #     --env-file .env up -d
+      19  #
+      20  # Chaque version anterieure retire quelque chose EN SILENCE, la
+           pile
+      21 -# demarrant normalement : 0.3.0 n'a aucun ecran au-dela de la c
+         -onnexion ni                                                    
+      22 -# aucune metrique ; 0.2.0 ecrit le jeton de depot en clair dans
+         - les journaux ;                                                
+      23 -# 0.1.0 est anterieure a l'authentification.                   
+      21 +# demarrant normalement — sauf 0.4.0, identique a 0.4.1 (seule 
+         +la                                                             
+      22 +# documentation les separe) : 0.3.0 n'a aucun ecran au-dela de 
+         +la connexion                                                   
+      23 +# ni aucune metrique ; 0.2.0 ecrit le jeton de depot en clair d
+         +ans les                                                        
+      24 +# journaux ; 0.1.0 est anterieure a l'authentification.        
+      25  # IMAGE_TAG=
+      26  
+      27  # --- API -----------------------------------------------------
+          -----------
+
+● Update(docs/exploitation.md)
+  ⎿  Added 5 lines, removed 4 lines
+      308    remplit que les valeurs vides) et une machine resterait figé
+           e sur une version périmée sans que rien
+      309    ne le signale.
+      310  - **Tout retour arrière retire quelque chose en silence**, la 
+           pile démarrant normalement dans tous
+      311 -  les cas : `0.3.0` n'a **aucun écran** au-delà de la connexio
+          -n — ni tableau de bord, ni parcours                           
+      312 -  client, ni dépôt de fichier — et aucune métrique ; `0.2.0` n
+          -'a ni URL client, ni expiration                               
+      313 -  appliquée, et écrit le jeton **en clair** dans les journaux 
+          -; `0.1.0` est antérieure à                                    
+      314 -  l'authentification.                                         
+      311 +  les cas — sauf `0.4.0`, dont les images sont identiques à `0
+          +.4.1` : seule la documentation les                            
+      312 +  sépare, et rien de ce que contient un `.env.example` n'entre
+          + dans un contexte de build. Ensuite :                         
+      313 +  `0.3.0` n'a **aucun écran** au-delà de la connexion — ni tab
+          +leau de bord, ni parcours client, ni                          
+      314 +  dépôt de fichier — et aucune métrique ; `0.2.0` n'a ni URL c
+          +lient, ni expiration appliquée, et                            
+      315 +  écrit le jeton **en clair** dans les journaux ; `0.1.0` est 
+          +antérieure à l'authentification.                              
+      316  - **`infra/docker-compose.build.yml` est le seul endroit où un
+            `build:` survit**, et il ne doit
+      317    jamais s'appeler `docker-compose.override.yml` : compose cha
+           rge ce nom automatiquement, et une pile
+      318    que tout le monde croit tirée construirait en silence. Il co
+           nserve l'`image:` du fichier de base,
+
+● Update(CLAUDE.md)
+  ⎿  Added 2 lines, removed 1 line
+      486    (`set_env_default` only fills empties), so a machine would s
+           tay pinned to a stale version with
+      487    nothing to signal it — and it would drag in the three-file r
+           ule (`.env.example`, `install.sh`,
+      488    compose). Overriding still works, and that is the rollback —
+            but **every rollback target here
+      489 -  removes something silently**, the stack starting normally ei
+          -ther way: `0.3.0` has **no screen**                           
+      489 +  removes something silently**, the stack starting normally ei
+          +ther way — except `0.4.0`, whose                              
+      490 +  images are identical to `0.4.1`, documentation being all tha
+          +t separates them: `0.3.0` has **no screen**                   
+      491    past the login — no dashboard, no client journey, no upload 
+           — and no metrics; `0.2.0` has no client
+      492    URL, no expiry enforcement and no link regeneration, and it 
+           writes the deposit token **in clear** to
+      493    the proxy's and the frontend's logs; `0.1.0` predates authen
+           tication, so it has no login route and
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● .gitignore apparaît modifié et ai-logs/ est redevenu non suivi — je regarde
+  avant de commiter quoi que ce soit :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● La règle ai-logs/ a été retirée du .gitignore — c'est en dehors de ce que tu
+  m'as demandé, je n'y touche pas et je ne la mets pas dans le commit de
+  version.
+
+  Fichiers du commit (aucun nouveau) : infra/docker-compose.yml (les deux
+  image:), docs/exploitation.md, CLAUDE.md, .env.example — les quatre endroits
+  qui nomment la version.
+  Laissés de côté : .gitignore (modifié hors de ce travail), ai-logs/ et les six
+  captures PNG (non suivis).
+
+  Committed 0c52e50, pushed to main, ran 3 shell commands (ctrl+o to expand)
+
+● Les digests de manifeste diffèrent — je vérifie si le contenu diffère aussi,
+  parce que la doc que je viens d'écrire affirme « images identiques » :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Le résultat est plus précis que ce que j'avais écrit : les 11 couches ont le 
+  même digest, seul le blob de configuration diffère (les étiquettes
+  revision/created que metadata-action injecte à chaque build). Je vérifie le
+  frontend, puis je corrige ma propre formulation :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Confirmé pour les deux images : piles de couches identiques, blob de
+  configuration différent. Je corrige ma formulation, qui disait « images
+  identiques » là où le digest publié, lui, diffère :
+
+● Update(docs/exploitation.md)
+  ⎿  Added 6 lines, removed 2 lines
+      308    remplit que les valeurs vides) et une machine resterait figé
+           e sur une version périmée sans que rien
+      309    ne le signale.
+      310  - **Tout retour arrière retire quelque chose en silence**, la 
+           pile démarrant normalement dans tous
+      311 -  les cas — sauf `0.4.0`, dont les images sont identiques à `0
+          -.4.1` : seule la documentation les                            
+      312 -  sépare, et rien de ce que contient un `.env.example` n'entre
+          - dans un contexte de build. Ensuite :                         
+      311 +  les cas — sauf `0.4.0`, qui ne contient **rien de moins** qu
+          +e `0.4.1` : seule la documentation les                        
+      312 +  sépare, et `.env.example` n'entre dans aucun des deux contex
+          +tes de build. Attention, leurs                                
+      313 +  **digests diffèrent quand même** : vérifié au registre, les 
+          +couches sont les mêmes (11 pour le                            
+      314 +  backend, 7 pour le frontend, digests identiques un à un) et 
+          +seul le blob de configuration change,                         
+      315 +  parce que `metadata-action` y écrit `revision` et `created` 
+          +à chaque build. Un digest différent ne                        
+      316 +  prouve donc pas un contenu différent. Ensuite :             
+      317    `0.3.0` n'a **aucun écran** au-delà de la connexion — ni tab
+           leau de bord, ni parcours client, ni
+      318    dépôt de fichier — et aucune métrique ; `0.2.0` n'a ni URL c
+           lient, ni expiration appliquée, et
+      319    écrit le jeton **en clair** dans les journaux ; `0.1.0` est 
+           antérieure à l'authentification.
+
+● Update(CLAUDE.md)
+  ⎿  Added 5 lines, removed 2 lines
+      486    (`set_env_default` only fills empties), so a machine would s
+           tay pinned to a stale version with
+      487    nothing to signal it — and it would drag in the three-file r
+           ule (`.env.example`, `install.sh`,
+      488    compose). Overriding still works, and that is the rollback —
+            but **every rollback target here
+      489 -  removes something silently**, the stack starting normally ei
+          -ther way — except `0.4.0`, whose                              
+      490 -  images are identical to `0.4.1`, documentation being all tha
+          -t separates them: `0.3.0` has **no screen**                   
+      489 +  removes something silently**, the stack starting normally ei
+          +ther way — except `0.4.0`, which                              
+      490 +  contains **nothing less** than `0.4.1`, documentation being 
+          +all that separates them. Their                                
+      491 +  published **digests still differ**: the layers are identical
+          + one for one (verified at the                                 
+      492 +  registry), only the config blob changes, because `metadata-a
+          +ction` writes `revision` and `created`                        
+      493 +  into it on every build. A different digest is not proof of d
+          +ifferent content. Then: `0.3.0` has **no screen**             
+      494    past the login — no dashboard, no client journey, no upload 
+           — and no metrics; `0.2.0` has no client
+      495    URL, no expiry enforcement and no link regeneration, and it 
+           writes the deposit token **in clear** to
+      496    the proxy's and the frontend's logs; `0.1.0` predates authen
+           tication, so it has no login route and
+
+● Update(.env.example)
+  ⎿  Added 5 lines, removed 4 lines
+      18  #     --env-file .env up -d
+      19  #
+      20  # Chaque version anterieure retire quelque chose EN SILENCE, la
+           pile
+      21 -# demarrant normalement — sauf 0.4.0, identique a 0.4.1 (seule 
+         -la                                                             
+      22 -# documentation les separe) : 0.3.0 n'a aucun ecran au-dela de 
+         -la connexion                                                   
+      23 -# ni aucune metrique ; 0.2.0 ecrit le jeton de depot en clair d
+         -ans les                                                        
+      24 -# journaux ; 0.1.0 est anterieure a l'authentification.        
+      21 +# demarrant normalement — sauf 0.4.0, qui ne contient rien de m
+         +oins que                                                       
+      22 +# 0.4.1 : seule la documentation les separe (leurs digests diff
+         +erent malgre                                                   
+      23 +# tout, voir docs/exploitation.md). Ensuite : 0.3.0 n'a aucun e
+         +cran au-dela                                                   
+      24 +# de la connexion ni aucune metrique ; 0.2.0 ecrit le jeton de 
+         +depot en                                                       
+      25 +# clair dans les journaux ; 0.1.0 est anterieure a l'authentifi
+         +cation.                                                        
+      26  # IMAGE_TAG=
+      27  
+      28  # --- API -----------------------------------------------------
+          -----------
+
+  Committed 4b9a5fe, pushed to main, ran 1 shell command (ctrl+o to expand)
+
+● exo2-v0.4.1 publié
+
+  Tag annoté sur 0c52e50, poussé. Le workflow déclenché (31450488050) est vert,
+  les images 0.4.1 sont sur GHCR.
+
+  Ce que le tag contient. Un seul commit fonctionnel le séparait de 0.4.0 : la
+  documentation d'IMAGE_TAG dans .env.example. Le commit de version qui précède
+  le tag monte le défaut dans les quatre endroits qui nomment la version —
+  infra/docker-compose.yml (les deux image:), docs/exploitation.md, CLAUDE.md,
+  et le commentaire d'.env.example lui-même.
+
+  Une chose que la vérification a corrigée. J'avais écrit que les images 0.4.0
+  et 0.4.1 seraient identiques, puisque .env.example n'entre dans aucun contexte
+  de build. C'est vrai du contenu, faux du digest publié — mesuré au registre :
+
+  ┌───────────────────────┬─────────────────────────────┬───────────┐
+  │                       │            0.4.0            │   0.4.1   │
+  ├───────────────────────┼─────────────────────────────┼───────────┤
+  │ couches backend (11)  │ digests identiques un à un  │ idem      │
+  ├───────────────────────┼─────────────────────────────┼───────────┤
+  │ couches frontend (7)  │ empreinte de pile a58e815e… │ a58e815e… │
+  ├───────────────────────┼─────────────────────────────┼───────────┤
+  │ blob de configuration │ 9899c296…                   │ 4512ab32… │
+  ├───────────────────────┼─────────────────────────────┼───────────┤
+  │ digest de manifeste   │ ae940071…                   │ 0b8d1394… │
+  └───────────────────────┴─────────────────────────────┴───────────┘
+
+  Seul le blob de configuration change : metadata-action y écrit revision et
+  created à chaque build. Un quatrième commit (4b9a5fe, poussé) remplace donc «
+  images identiques » par la formulation exacte dans les trois documents — un
+  lecteur qui compare deux docker pull aurait trouvé la première fausse.
+
+  État final : origin/main à 4b9a5fe, écart 0, cinq tags sur le distant jusqu'à
+  exo2-v0.4.1.
+
+  Non fait, délibérément :
+  - La pile locale tourne toujours en 0.4.0 — je ne l'ai pas rebasculée sur
+  0.4.1, le contenu étant le même. Dis-moi si tu veux que je le fasse pour que
+  docker compose ps affiche la version courante.
+  - .gitignore reste modifié hors commit : la règle ai-logs/ en a été retirée
+  après mon commit d'hier, ce qui remet les 31 fichiers de journaux dans git 
+  status. Ce n'était pas dans le périmètre de ta demande, je n'y ai pas touché —
+  mais il faut trancher, sinon ils repasseront dans un git add par
+  inadvertance.
+  - Les trois documents corrigés par 4b9a5fe ne sont pas dans l'arbre du tag
+  exo2-v0.4.1 : ils sont postérieurs. Aucun impact sur les images, la
+  documentation n'entrant dans aucun contexte de build.
+
+✻ Sautéed for 3m 54s
+
+❯ pour re-déployer c'est bien avec install.sh sur la machine de dev?            
+
+● Bonne question, et la réponse dépend de ce que tu veux redéployer. Je
+  ⎿  Interrupted · What should Claude do instead?
+❯ pour re-déployer c'est bien avec install.sh sur la machine de dev?            
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● Oui, ./install.sh marche et il est fait pour être rejoué — mais ce n'est pas
+  le chemin le plus court, et sur une machine de dev il y a un piège.
+
+  Le piège : ./install.sh tire les images publiées, il ne construit pas ton
+  arbre de travail. Sur la machine de dev, il déploie donc ce qui est sur GHCR —
+  pas tes modifications locales non commitées. Pour déployer ton code local,
+  c'est ./install.sh --from-source.
+
+  Les trois chemins :
+
+  ┌─────────────────────────────────────────────┬───────────────────────────┐
+  │               Ce que tu veux                │        La commande        │
+  ├─────────────────────────────────────────────┼───────────────────────────┤
+  │ Redéployer la version publiée (le cas       │ pnpm stack:pull && pnpm   │
+  │ courant)                                    │ stack:up                  │
+  ├─────────────────────────────────────────────┼───────────────────────────┤
+  │ Déployer ton code local non publié          │ ./install.sh              │
+  │                                             │ --from-source             │
+  ├─────────────────────────────────────────────┼───────────────────────────┤
+  │ Repartir de zéro, ou revalider le parcours  │ ./install.sh              │
+  │ des correcteurs                             │                           │
+  └─────────────────────────────────────────────┴───────────────────────────┘
+
+  Ce qu'install.sh fait en plus de stack:pull && stack:up : il complète .env
+  avec les clés qu'.env.example a gagnées, vérifie le port 21600, attend chaque
+  healthcheck, rejoue le seed, et imprime les URLs et les identifiants.
+
+  Et c'est le seed qui compte pour un redéploiement. src/seed.ts appelle
+  regenerate : il révoque le lien de démonstration et en crée un nouveau, à
+  chaque exécution. Le PIN étant haché, l'ancien ne peut pas être réaffiché —
+  donc un lien déjà envoyé cesse de fonctionner et un nouveau PIN est imprimé.
+  C'est voulu (un lien de démo dont personne ne connaît le PIN ne vaut rien),
+  mais ça fait d'install.sh un mauvais outil pour un simple redéploiement si tu
+  as partagé le lien.
+
+  install.sh est idempotent par ailleurs : les secrets ne sont jamais régénérés
+  (set_env_default ne remplit que le vide), et le port tenu par notre propre
+  proxy n'est pas vu comme un conflit — un second ./install.sh ne échoue pas
+  contre lui-même.
+
+  Dans ton cas immédiat — la pile tourne en 0.4.0, 0.4.1 est publiée et le
+  compose l'épingle par défaut — c'est pnpm stack:pull && pnpm stack:up. Je le
+  lance ?
+
+✻ Baked for 33s
+
+※ recap: Tout est poussé : les correctifs charte et Grafana, plus les tags exo2-v0.4.0 et v0.4.1 dont les images sont publiées. La pile locale tourne encore en 0.4.0 ; j'attends ton feu vert pour lancer pnpm stack:pull && pnpm stack:up. (disable recaps in /config)

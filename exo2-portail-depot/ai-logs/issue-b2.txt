@@ -1,0 +1,3028 @@
+ ▐▛███▜▌   Claude Code v2.1.226
+▝▜█████▛▘  Opus 5 · Claude Pro
+  ▘▘ ▝▝    ~/delivery/div-protocol-internship/exo2-portail-depot
+
+
+❯ /clear                                                                        
+
+❯ Effectue l'issue B2                                                           
+
+● I'll start by reading the backlog and the official statement, then explore the
+  code.
+
+  Listed 1 directory, ran 1 shell command (ctrl+o to expand)
+
+● Using superpowers:brainstorming — l'issue B2 est du travail de conception
+  (nouvelle feature), donc je cadre avant de planifier.
+
+● Skill(superpowers:brainstorming)
+  ⎿  Successfully loaded skill
+
+  Read 2 files, ran 5 shell commands (ctrl+o to expand)
+
+● Fetch(https://exercice-stagiaire-div.vercel.app/exo/portail-depot)
+  ⎿  Received 94.2KB (200 OK)
+
+● J'ai lu l'énoncé, le backlog, le schéma Prisma, crypto/secrets.ts, le module
+  auth et le seed. Trois arbitrages changent réellement le travail — je vous les
+  pose avant d'écrire le plan.
+
+● User answered Claude's questions:
+  ⎿  · Comment le formulaire exprime-t-il la durée de validité du lien ? → 
+     Nombre de jours borné (recommandé)
+     · Que renvoie la création à propos du lien client ? → Jeton seul, URL en B3
+     (recommandé)
+     · Faut-il des règles sur la liste des pièces attendues ? → Au moins une 
+     pièce, Refuser les doublons, Plafond de 20 pièces
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Updated plan
+  ⎿  /plan to preview
+
+● Plan écrit dans /home/sephorahaniambossou/.claude/plans/effectue-l-issue-b2-br
+  eezy-stardust.md.
+
+  Ce qu'il contient, en bref : un module src/requests/ (contrôleur, service,
+  DTO, dérivation de statut pure, mappeurs de réponse), aucune migration et
+  aucune variable d'environnement nouvelle, les trois décisions que vous avez
+  tranchées, une section sécurité qui nomme le risque résiduel (PIN à 4 chiffres
+  tant que G1 n'existe pas), trois suites de tests avec ce que chacune protège,
+  et une vérification qui passe par la vraie base puis par nginx.
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ B2 — Création d'une demande de dépôt (POST /requests)                   │
+     │                                                                         │
+     │ Contexte                                                                │
+     │                                                                         │
+     │ L'avocat peut se connecter (B1) mais ne peut rien créer. Aujourd'hui la │
+     │ seule demande de dépôt                                                  │
+     │ qui existe est celle que src/seed.ts écrit pour la démonstration : le   │
+     │ portail se connecte, et                                                 │
+     │ s'arrête là. B2 ouvre la première route métier — celle qui produit un   │
+     │ dossier, sa liste de pièces                                             │
+     │ attendues, son lien public et son PIN.                                  │
+     │                                                                         │
+     │ L'énoncé (relu ce jour) fixe le périmètre : demande créée par l'avocat  │
+     │ authentifié, titre                                                      │
+     │ descriptif, lien public expirable, PIN à 4 chiffres, durée de validité. │
+     │ Le PIN étant                                                            │
+     │ stocké haché (A2), il n'existe en clair qu'une seule fois, dans la      │
+     │ réponse de création — ce qui                                            │
+     │ n'est pas affiché à ce moment-là est perdu.                             │
+     │                                                                         │
+     │ Résultat attendu : POST /api/v1/requests renvoie 201 avec la demande,   │
+     │ ses pièces, le jeton du lien                                            │
+     │ et le PIN en clair ; la base ne contient que des empreintes.            │
+     │                                                                         │
+     │ Rien à migrer : DepositRequest, RequestedItem et PublicLink existent    │
+     │ depuis A2, index                                                        │
+     │ unique partiel « un seul lien actif par demande » compris. Aucune       │
+     │ variable d'environnement                                                │
+     │ nouvelle non plus, donc la règle des trois fichiers (.env.example,      │
+     │ install.sh,                                                             │
+     │ infra/docker-compose.yml) ne se déclenche pas.                          │
+     │                                                                         │
+     │ Décisions prises avec l'utilisateur                                     │
+     │                                                                         │
+     │ Point: Durée de validité                                                │
+     │ Retenu: expiresInDays, entier borné 1–90                                │
+     │ Écarté, et pourquoi: expiresAt en ISO : l'horloge du navigateur peut    │
+     │ différer                                                                │
+     │ de celle du serveur, et il faudrait refuser le passé et borner le futur │
+     │ pour                                                                    │
+     │ la même valeur métier                                                   │
+     │ ────────────────────────────────────────                                │
+     │ Point: Lien rendu                                                       │
+     │ Retenu: token brut + pin, l'URL complète reste en B3                    │
+     │ Écarté, et pourquoi: Renvoyer https://…/depot/<token> suppose une       │
+     │ origine                                                                 │
+     │ configurée (PUBLIC_BASE_URL) : une variable d'env de plus, trois        │
+     │ fichiers à                                                              │
+     │ toucher, pour un besoin que B3 traite                                   │
+     │ ────────────────────────────────────────                                │
+     │ Point: Liste des pièces                                                 │
+     │ Retenu: au moins une, sans doublon (à la casse près), 20 au plus        │
+     │ Écarté, et pourquoi: Aucune règle : zéro pièce rendrait la demande «    │
+     │ complète »                                                              │
+     │ dès sa création, et deux libellés identiques sont indiscernables pour   │
+     │ le                                                                      │
+     │ client alors que C2 rattache un fichier à une pièce précise             │
+     │                                                                         │
+     │ Périmètre                                                               │
+     │                                                                         │
+     │ Dans B2 : la route de création, sa validation, la génération jeton +    │
+     │ PIN, la dérivation de                                                   │
+     │ statut (nécessaire dès la réponse de création), les tests.              │
+     │                                                                         │
+     │ Hors B2, volontairement : GET /requests et le détail (B4), la           │
+     │ régénération / prolongation du                                          │
+     │ lien et la construction de l'URL publique (B3), les écrans (B5), la     │
+     │ limitation de débit (G1).                                               │
+     │                                                                         │
+     │ Architecture                                                            │
+     │                                                                         │
+     │ Un module src/requests/, sur le modèle de src/lawyers/ et src/auth/ :   │
+     │ PrismaService étant                                                     │
+     │ @Global, il n'importe rien.                                             │
+     │                                                                         │
+     │ src/requests/                                                           │
+     │   requests.module.ts        déclare contrôleur + service                │
+     │   requests.controller.ts    POST /requests                              │
+     │   requests.service.ts       la création, en une écriture                │
+     │   request-status.ts         deriveStatus() — fonction pure, sans Prisma │
+     │   request.types.ts          les formes de réponse + les mappeurs        │
+     │   dto/create-request.dto.ts class-validator                             │
+     │   dto/unique-labels.validator.ts  contrainte « pas deux fois le même    │
+     │ libellé »                                                               │
+     │                                                                         │
+     │ Puis RequestsModule dans les imports de src/app.module.ts. Le garde     │
+     │ étant global                                                            │
+     │ (APP_GUARD, déclaré par AuthModule), la route naît protégée : aucun     │
+     │ @UseGuards à écrire, et                                                 │
+     │ surtout aucun @Public().                                                │
+     │                                                                         │
+     │ Le contrat HTTP                                                         │
+     │                                                                         │
+     │ POST /api/v1/requests            (cookie de session requis)             │
+     │                                                                         │
+     │ { "title": "Dossier Martin, pieces 2026",                               │
+     │   "items": ["Piece d'identite", "Contrat de bail signe"],               │
+     │   "expiresInDays": 14 }                                                 │
+     │                                                                         │
+     │ 201                                                                     │
+     │ { "id": "…", "title": "…", "createdAt": "…", "status": "pending",       │
+     │   "items": [{ "id": "…", "label": "Piece d'identite", "received": false │
+     │ }],                                                                     │
+     │   "link": { "token": "kR7…", "pin": "0421", "expiresAt": "…" } }        │
+     │                                                                         │
+     │ token et pin ne réapparaissent jamais : c'est l'unique instant où ils   │
+     │ existent en clair. Un                                                   │
+     │ commentaire le dit à l'endroit du code qui les produit.                 │
+     │                                                                         │
+     │ La validation (CreateRequestDto)                                        │
+     │                                                                         │
+     │ - title : chaîne, @Transform de coupe des espaces, 1 à 200 caractères.  │
+     │ - items : tableau de chaînes, chaque libellé coupé puis 1 à 200         │
+     │ caractères,                                                             │
+     │ @ArrayMinSize(1), @ArrayMaxSize(20), plus la contrainte de doublons.    │
+     │ - expiresInDays : @IsInt(), @Min(1), @Max(90).                          │
+     │                                                                         │
+     │ La coupe des espaces passe par @Transform et non par le service :       │
+     │ class-transformer s'exécute                                             │
+     │ avant class-validator, donc "  " est refusé comme vide et "Bail " /     │
+     │ "Bail" sont bien vus                                                    │
+     │ comme un doublon. Fait dans le service, le contrôle de doublons         │
+     │ arriverait après la validation et                                       │
+     │ renverrait une erreur d'une autre nature que les autres 400.            │
+     │                                                                         │
+     │ La contrainte de doublons est un ValidatorConstraint maison (une        │
+     │ douzaine de lignes) plutôt qu'un                                        │
+     │ if dans le service, pour que toutes les erreurs d'entrée sortent du     │
+     │ même ValidationPipe, avec                                               │
+     │ la même forme de corps. class-validator n'a pas de décorateur d'unicité │
+     │ de tableau ; @ArrayUnique                                               │
+     │ existe mais compare à la casse et sans normalisation, donc « Bail » et  │
+     │ « bail » passeraient.                                                   │
+     │                                                                         │
+     │ whitelist + forbidNonWhitelisted sont déjà actifs globalement           │
+     │ (src/app.setup.ts) : un corps                                           │
+     │ portant lawyerId ou pinHash est refusé en 400, il n'est pas             │
+     │ silencieusement ignoré.                                                 │
+     │                                                                         │
+     │ La création (RequestsService.create(lawyerId, dto))                     │
+     │                                                                         │
+     │ 1. generatePublicToken(), generatePin(), puis hashSecret(pin) et        │
+     │ hashPublicToken(token) —                                                │
+     │ tous déjà écrits dans src/crypto/secrets.ts, rien à réimplémenter.      │
+     │ 2. L'argon2id du PIN est calculé avant l'écriture (≈67 ms) : le faire à │
+     │ l'intérieur d'une                                                       │
+     │ transaction la tiendrait ouverte pour rien. Même raisonnement que       │
+     │ src/seed.ts.                                                            │
+     │ 3. Un seul prisma.depositRequest.create() avec les deux relations       │
+     │ imbriquées (items, links) :                                             │
+     │ Prisma exécute une écriture imbriquée dans une transaction implicite,   │
+     │ donc pas de demande sans                                                │
+     │ lien ni de lien orphelin. Un $transaction interactif ferait la même     │
+     │ chose en plus verbeux.                                                  │
+     │ 4. now est capté une fois et sert à expiresAt : sinon createdAt et      │
+     │ expiresAt viennent de                                                   │
+     │ deux horloges différentes, et la durée réelle n'est plus exactement     │
+     │ celle demandée.                                                         │
+     │ 5. lawyerId vient de request.lawyer.id, posé par le garde — jamais du   │
+     │ corps.                                                                  │
+     │                                                                         │
+     │ La dérivation de statut (request-status.ts)                             │
+     │                                                                         │
+     │ export enum RequestStatus { Pending = 'pending', Complete = 'complete', │
+     │ Expired = 'expired' }                                                   │
+     │                                                                         │
+     │ export const deriveStatus = (                                           │
+     │   input: { expiresAt: Date; expectedCount: number; receivedCount:       │
+     │ number },                                                               │
+     │   now: Date,                                                            │
+     │ ): RequestStatus                                                        │
+     │                                                                         │
+     │ Fonction pure, now passé en argument plutôt que lu par la fonction :    │
+     │ les tests d'expiration de                                               │
+     │ D1 (avant / à la limite / après) se font alors sans geler l'horloge, et │
+     │ B4 réutilise la même                                                    │
+     │ fonction pour toute une liste avec un seul now.                         │
+     │                                                                         │
+     │ Règle appliquée, celle qu'A2 a consignée : now > expiresAt → expired ;  │
+     │ sinon toutes les pièces                                                 │
+     │ reçues → complete ; sinon pending. La comparaison est stricte, donc à   │
+     │ l'instant exact de                                                      │
+     │ l'échéance le lien vaut encore — c'est le cas limite que D1 doit figer. │
+     │                                                                         │
+     │ Écrit dans B2 et non repoussé à B4 parce que la réponse de création     │
+     │ affiche déjà un statut, et                                              │
+     │ qu'une dérivation dupliquée plus tard divergerait en silence.           │
+     │                                                                         │
+     │ Le mapping de réponse (request.types.ts)                                │
+     │                                                                         │
+     │ Champ par champ, comme toProfile() dans src/lawyers/lawyer.types.ts —   │
+     │ pas de spread. C'est le                                                 │
+     │ compilateur, et non la vigilance de l'auteur, qui garantit alors que    │
+     │ pinHash et tokenHash ne                                                 │
+     │ peuvent pas atteindre une réponse : un futur champ ajouté au modèle ne  │
+     │ se retrouve pas embarqué.                                               │
+     │                                                                         │
+     │ Sécurité — ce que ça expose, et ce qui reste ouvert                     │
+     │                                                                         │
+     │ - Le propriétaire n'est jamais fourni par le client. Sans ça, un avocat │
+     │ créerait une demande au                                                 │
+     │ nom d'un autre en ajoutant un champ au corps.                           │
+     │ - Aucun secret dans les journaux. Le PIN et le jeton ne passent par     │
+     │ aucun Logger, et aucune                                                 │
+     │ exception ne les recopie. À vérifier en relecture : un console.log(dto) │
+     │ d'aide au débogage                                                      │
+     │ suffirait à les publier.                                                │
+     │ - Le PIN à 4 chiffres est le maillon faible — 10 000 combinaisons. Ce   │
+     │ n'est pas B2 qui le                                                     │
+     │ protège mais C1 (réponses indistinguables) et G1 (limitation par jeton  │
+     │ de lien). Risque                                                        │
+     │ résiduel à nommer tel quel dans le résumé : tant que G1 n'existe pas,   │
+     │ un lien connu se force par                                              │
+     │ essais. L'argon2id sur le PIN (≈67 ms) est ce qui borne aujourd'hui le  │
+     │ débit d'un attaquant.                                                   │
+     │ - Plafond de 90 jours : borne la durée pendant laquelle un lien oublié  │
+     │ reste vivant.                                                           │
+     │ - Coût d'écriture borné : 20 pièces au plus, 200 caractères par         │
+     │ libellé, donc pas de corps                                              │
+     │ arbitrairement gros sur une route authentifiée.                         │
+     │ - Point ouvert assumé : expired l'emporte sur complete, donc un dossier │
+     │ terminé bascule en                                                      │
+     │ « expirée » une fois la date passée. C'est la règle consignée en A2 ;   │
+     │ si B4 montre que l'affichage                                            │
+     │ gêne l'avocat, c'est là qu'on l'inversera, pas ici.                     │
+     │                                                                         │
+     │ Tests                                                                   │
+     │                                                                         │
+     │ Trois niveaux, aucun n'exigeant Docker (contrainte CLAUDE.md : test et  │
+     │ test:e2e restent                                                        │
+     │ jouables sur machine nue).                                              │
+     │                                                                         │
+     │ src/requests/request-status.spec.ts — ce qu'elle protège : la règle     │
+     │ d'expiration et de                                                      │
+     │ complétude, cible explicite de l'énoncé. Une seconde avant l'échéance,  │
+     │ à l'échéance exacte, une                                                │
+     │ seconde après ; 0 pièce reçue sur 3, 2 sur 3, 3 sur 3 ; une demande     │
+     │ complète et expirée, qui doit                                           │
+     │ répondre expired (le jour où quelqu'un inverse l'ordre, ce test tombe). │
+     │                                                                         │
+     │ src/requests/requests.service.spec.ts (Prisma doublé) — ce qu'elle      │
+     │ protège : qu'aucun secret                                               │
+     │ n'atteigne la base en clair. Le create reçoit un pinHash en $argon2id$… │
+     │ et un tokenHash de 64                                                   │
+     │ hexadécimaux égal au SHA-256 du jeton renvoyé ; la charge écrite ne     │
+     │ contient ni le PIN ni le                                                │
+     │ jeton ; expiresAt vaut now + n × 24 h ; lawyerId est celui de           │
+     │ l'argument ; deux créations                                             │
+     │ successives donnent deux jetons et deux PIN différents.                 │
+     │                                                                         │
+     │ test/requests.e2e-spec.ts (Prisma et Storage doublés, configureApp()    │
+     │ réel) — ce qu'elle                                                      │
+     │ protège : le contrat HTTP tel que le SPA le verra. Sans cookie → 401    │
+     │ (c'est le test du garde                                                 │
+     │ global : si quelqu'un pose un @Public() de trop, il tombe). Avec cookie │
+     │ → 201 et une réponse                                                    │
+     │ sans le moindre champ en *Hash. 400 sur : items vide, 21 pièces, deux   │
+     │ libellés identiques à                                                   │
+     │ la casse près, expiresInDays à 0, à 91, absent, et sur un champ inconnu │
+     │ dans le corps.                                                          │
+     │                                                                         │
+     │ Fichiers                                                                │
+     │                                                                         │
+     │ ┌──────────────────────────────────────────────────┬─────────────────── │
+     │ ───┐                                                                    │
+     │ │                     Fichier                      │        Nature      │
+     │   │                                                                     │
+     │ ├──────────────────────────────────────────────────┼─────────────────── │
+     │ ───┤                                                                    │
+     │ │ backend/src/requests/ (7 fichiers ci-dessus)     │ nouveaux           │
+     │   │                                                                     │
+     │ ├──────────────────────────────────────────────────┼─────────────────── │
+     │ ───┤                                                                    │
+     │ │ backend/src/requests/request-status.spec.ts,     │ nouveaux           │
+     │   │                                                                     │
+     │ │ requests.service.spec.ts                         │                    │
+     │   │                                                                     │
+     │ ├──────────────────────────────────────────────────┼─────────────────── │
+     │ ───┤                                                                    │
+     │ │ backend/test/requests.e2e-spec.ts                │ nouveau            │
+     │   │                                                                     │
+     │ ├──────────────────────────────────────────────────┼─────────────────── │
+     │ ───┤                                                                    │
+     │ │                                                  │ ajout de           │
+     │   │                                                                     │
+     │ │ backend/src/app.module.ts                        │ RequestsModule aux │
+     │   │                                                                     │
+     │ │                                                  │ imports            │
+     │   │                                                                     │
+     │ ├──────────────────────────────────────────────────┼─────────────────── │
+     │ ───┤                                                                    │
+     │ │ issue_backlog.md                                 │ critères B2        │
+     │ cochés,  │                                                              │
+     │ │                                                  │ décisions          │
+     │ consignées │                                                            │
+     │ ├──────────────────────────────────────────────────┼─────────────────── │
+     │ ───┤                                                                    │
+     │ │                                                  │ nouveau — plan     │
+     │   │                                                                     │
+     │ │ ai-plans/2026-08-09-b2-creation-demande.md       │ suivi, décisions,  │
+     │   │                                                                     │
+     │ │                                                  │ vérifications,     │
+     │   │                                                                     │
+     │ │                                                  │ relecture          │
+     │   │                                                                     │
+     │ ├──────────────────────────────────────────────────┼─────────────────── │
+     │ ───┤                                                                    │
+     │ │                                                  │ § Status : B2 fait │
+     │ ; │                                                                     │
+     │ │ CLAUDE.md                                        │  les points non    │
+     │   │                                                                     │
+     │ │                                                  │ devinables du      │
+     │ module │                                                                │
+     │ └──────────────────────────────────────────────────┴─────────────────── │
+     │ ───┘                                                                    │
+     │                                                                         │
+     │ Rien dans infra/, install.sh, .env.example ni prisma/ : aucune          │
+     │ variable, aucune migration.                                             │
+     │                                                                         │
+     │ Vérification                                                            │
+     │                                                                         │
+     │ 1. pnpm -C backend lint — bloquant (--max-warnings 0).                  │
+     │ 2. pnpm test puis pnpm test:e2e — les trois suites ci-dessus vertes, et │
+     │ les suites existantes                                                   │
+     │ toujours vertes (le module nouveau entre dans AppModule, donc dans      │
+     │ chaque e2e).                                                            │
+     │ 3. La vraie chaîne, que les doubles ne prouvent pas : pnpm db:up &&     │
+     │ pnpm dev, se connecter avec                                             │
+     │ le compte du seed pour obtenir le cookie, puis POST /api/v1/requests.   │
+     │ Contrôler ensuite en base                                               │
+     │ (pnpm -C backend db:studio ou psql) que pinHash commence par            │
+     │ $argon2id$, que tokenHash                                               │
+     │ fait 64 hexadécimaux, qu'ils ne correspondent à rien de lisible, et que │
+     │ la demande porte bien                                                   │
+     │ l'identifiant de l'avocat connecté.                                     │
+     │ 4. Par le chemin de l'évaluateur : pnpm stack:up, puis la même création │
+     │ à travers nginx sur                                                     │
+     │ http://127.0.0.1:21600/api/v1/requests. C'est le seul chemin qui prouve │
+     │ que la route est servie                                                 │
+     │ sous le préfixe et que le cookie survit au proxy.                       │
+     │ 5. Vérifier qu'une seconde création pour le même avocat fonctionne, et  │
+     │ que deux demandes portent                                               │
+     │ deux liens actifs distincts — l'index unique partiel est par demande,   │
+     │ pas par avocat.                                                         │
+     │ 6. Relecture systématique du diff complet                               │
+     │ (superpowers:requesting-code-review), findings classés                  │
+     │ par gravité avec le scénario d'échec concret, avant fusion sur main.    │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+● Deux remarques justes. Le PIN : non, jamais relisible — c'est déjà l'invariant
+  d'A2 (argon2id), et je vais rendre explicite la conséquence, à savoir qu'un
+  PIN perdu se répare en régénérant le lien (B3), pas en le réaffichant. Et non,
+  je n'ai pas fait passer le plan par superpowers:writing-plans — je le fais
+  maintenant pour le réécrire en étapes exécutables.
+
+● Skill(superpowers:writing-plans)
+  ⎿  Successfully loaded skill
+
+  Read 1 file, ran 2 shell commands (ctrl+o to expand)
+
+● Updated plan
+  ⎿  /plan to preview
+❯ why does it take so much time?                                                
+
+● Un correctif avant de répondre — j'avais laissé une faute de frappe dans un
+  test plutôt que de la corriger :
+
+● Updated plan
+  ⎿  /plan to preview
+
+● Updated plan
+  ⎿  /plan to preview
+
+● Pourquoi c'est long : j'ai réécrit le plan entier, pas retouché le précédent.
+  Le premier décrivait l'architecture ; celui-ci contient le code réel de sept
+  fichiers et de trois suites de tests, étape par étape — c'est ce que demande
+  writing-plans, et c'est ce qui manquait. À cela s'ajoutent deux vérifications
+  que je n'avais pas faites au premier passage : la signature de @ArrayUnique
+  dans les types installés, et le fait que l'ordre des pièces n'est pas garanti
+  sans colonne dédiée.
+
+  Deux points de fond ont changé depuis votre remarque :
+
+  - Le PIN. Non, jamais relisible. Il n'existe en clair que dans la réponse de
+  création, et le plan écrit maintenant la conséquence noir sur blanc : un PIN 
+  perdu se remplace, il ne se réaffiche pas — c'est B3 qui régénère le lien. Un
+  test e2e vérifie qu'aucun *Hash ni $argon2 ne sort dans une réponse.
+  - Une migration est nécessaire, contrairement à ce que je vous avais annoncé.
+  Les pièces d'une demande sont insérées dans la même transaction, donc elles
+  partagent leur createdAt à la milliseconde : sans colonne position, Postgres
+  est libre de les rendre dans n'importe quel ordre et la liste du client se
+  réordonne d'un affichage à l'autre. Ajoutée plus tard, elle demanderait une
+  migration de données.
+
+  Le plan tient en 7 tâches, chacune terminée par un test qui passe et un
+  commit.
+
+● User approved Claude's plan
+  ⎿  Plan saved to: ~/.claude/plans/effectue-l-issue-b2-breezy-stardust.md · 
+     /plan to edit
+     B2 — Création d'une demande de dépôt — plan d'implémentation
+
+     ▎ Pour l'exécution : ce plan se déroule avec superpowers:executing-plans, 
+     ▎ tâche par tâche.
+     ▎ Les étapes sont des cases à cocher (- [ ]).
+
+     Changements par rapport à la version précédente de ce plan
+
+     Section autonome, à lire seule.
+
+     1. Le PIN n'est relisible nulle part, et le plan le dit maintenant 
+     explicitement. Il est haché en
+     argon2id et n'apparaît en clair que dans la réponse de POST /requests.
+     Conséquence assumée et
+     désormais écrite : un PIN perdu ne se réaffiche pas, il se remplace en
+     régénérant le lien —
+     ce que fait B3. Aucune route de B2 ne renvoie de PIN, et aucun champ de
+     réponse ne porte
+     pinHash ni tokenHash.
+     2. Une colonne position est ajoutée à RequestedItem, avec une migration.
+     L'annonce
+     précédente (« rien à migrer ») était fausse en pratique : sans colonne
+     d'ordre, Postgres rend les
+     pièces attendues dans un ordre non garanti, donc la liste du client peut se
+     réordonner d'un
+     affichage à l'autre. Ajoutée plus tard, elle demanderait une migration de
+     données.
+     3. Le contrôle des doublons ne demande plus de validateur maison.
+     @ArrayUnique de
+     class-validator 0.15 accepte une fonction d'identité — vérifié dans
+     node_modules/class-validator/types/decorator/array/ArrayUnique.d.ts. Un
+     fichier de moins.
+     4. Le plan est réécrit en tâches exécutables, chacune avec ses étapes, son
+     code et sa commande
+     de vérification, au lieu d'une description d'architecture.
+
+     N'ont pas bougé : le périmètre (création seule, B3/B4/B5 hors sujet), les
+     trois décisions prises
+     (expiresInDays borné 1–90 ; jeton brut renvoyé, URL publique en B3 ; au
+     moins une pièce, sans
+     doublon, 20 au plus), la dérivation de statut selon la règle d'A2,
+     l'absence de variable
+     d'environnement nouvelle, et les trois niveaux de tests.
+
+     ---
+     Objectif : l'avocat authentifié crée une demande de dépôt, et reçoit une 
+     seule fois le jeton
+     du lien client et son PIN à 4 chiffres.
+
+     Architecture : un module src/requests/ sur le modèle de src/lawyers/ —
+     contrôleur, service,
+     DTO, une fonction pure de dérivation de statut, des mappeurs de réponse.
+     PrismaService étant
+     @Global, le module n'importe rien. Le garde d'authentification étant global
+     (APP_GUARD, déclaré
+     par AuthModule), la route naît fermée : il n'y a aucun @UseGuards ni
+     @Public() à écrire.
+
+     Pile : NestJS 11, Prisma 7, class-validator 0.15 / class-transformer 0.5,
+     argon2id et
+     SHA-256 via src/crypto/secrets.ts (déjà écrit), Jest.
+
+     Contexte
+
+     L'avocat peut se connecter (B1) mais ne peut rien créer. La seule demande
+     existante est celle
+     que src/seed.ts écrit pour la démonstration. B2 ouvre la première route
+     métier.
+
+     L'énoncé, relu ce jour : demande créée par l'avocat authentifié, titre
+     descriptif, lien public
+     expirable, PIN à 4 chiffres, durée de validité, et un dashboard qui affiche
+     en attente / complète / expirée.
+
+     Contraintes globales
+
+     Elles s'appliquent à chaque tâche.
+
+     - Code en anglais : identifiants, commentaires, noms de tests. Les messages
+     de validation
+     restent en français — ils sont lus par l'avocat, et c'est déjà la
+     convention de
+     src/auth/dto/login.dto.ts.
+     - Fonctions fléchées partout, jamais function nom().
+     - Les deux lints sont bloquants. pnpm -C backend lint (--max-warnings 0)
+     doit rester vert.
+     - Variables d'environnement via ConfigService.getOrThrow, jamais
+     process.env, jamais de
+     valeur de repli. (B2 n'en ajoute aucune.)
+     - Aucun secret dans un journal ni dans un message d'erreur. Le PIN et le
+     jeton ne passent par
+     aucun Logger.
+     - pnpm, jamais npm. Commandes depuis la racine du dépôt sauf mention
+     contraire.
+     - Commits : Conventional Commits en anglais. Avant chaque commit, annoncer 
+     la liste des
+     fichiers un par ligne avec ce qui a changé, signaler les nouveaux, attendre
+     le feu vert.
+     Jamais git add -A ni git add ..
+     - Aucun test nouveau ne doit exiger Docker : pnpm test et pnpm test:e2e
+     restent jouables sur
+     machine nue (c'est ce que la CI de D3 fera tourner).
+
+     Décisions, et ce qu'elles écartent
+
+     Point: Durée de validité
+     Retenu: expiresInDays, entier borné 1–90
+     Écarté, et pourquoi: expiresAt ISO : l'horloge du navigateur peut différer
+     de
+     celle du serveur, et il faudrait refuser le passé et borner le futur pour
+     la
+     même valeur métier
+     ────────────────────────────────────────
+     Point: Lien rendu
+     Retenu: token brut + pin ; l'URL complète est en B3
+     Écarté, et pourquoi: Renvoyer https://…/depot/<token> suppose
+     PUBLIC_BASE_URL :
+     une variable de plus, trois fichiers à toucher, pour ce que B3 traite
+     ────────────────────────────────────────
+     Point: Pièces attendues
+     Retenu: au moins une, sans doublon (casse et espaces ignorés), 20 au plus
+     Écarté, et pourquoi: Aucune règle : zéro pièce rendrait la demande «
+     complète »
+     à la création, et deux libellés identiques sont indiscernables pour le
+     client
+      alors que C2 rattache un fichier à une pièce
+     ────────────────────────────────────────
+     Point: Ordre des pièces
+     Retenu: colonne position, migration
+     Écarté, et pourquoi: orderBy: createdAt : les lignes sont créées dans la
+     même
+     transaction, donc à la même milliseconde — l'ordre resterait indéterminé
+     ────────────────────────────────────────
+     Point: Doublons
+     Retenu: @ArrayUnique(fonction d'identité)
+     Écarté, et pourquoi: Contrôle dans le service : l'erreur sortirait
+     d'ailleurs
+     que le ValidationPipe, avec une autre forme de corps
+     ────────────────────────────────────────
+     Point: Écriture
+     Retenu: un seul create avec relations imbriquées
+     Écarté, et pourquoi: $transaction interactif : Prisma exécute déjà
+     l'écriture
+     imbriquée en une transaction implicite
+
+     Périmètre
+
+     Dans B2 : POST /requests, sa validation, la génération jeton + PIN, la
+     dérivation de statut,
+     les tests.
+
+     Hors B2 : GET /requests et le détail (B4), l'URL publique construite et la
+     régénération / prolongation du lien (B3), les écrans (B5), la limitation de
+     débit (G1), l'upload
+     (C2).
+
+     Sécurité
+
+     - Le propriétaire ne vient jamais du client : lawyerId est lu sur
+     request.lawyer, posé par
+     le garde. Sans ça, un avocat créerait une demande au nom d'un autre en
+     ajoutant un champ au corps.
+     forbidNonWhitelisted (déjà actif dans src/app.setup.ts) refuse en 400 un
+     corps portant
+     lawyerId ou pinHash, au lieu de l'ignorer en silence.
+     - Le PIN et le jeton n'existent en clair que dans la réponse de création.
+     La base ne contient
+     qu'un argon2id et un SHA-256. Un PIN perdu ne se retrouve pas : il se
+     remplace en régénérant
+     le lien (B3). C'est le prix du hachage, et c'est le bon prix.
+     - Les mappeurs de réponse recopient champ par champ, jamais par spread :
+     c'est le compilateur
+     qui garantit qu'une colonne future ne partira pas dans une réponse.
+     - Risque résiduel, à nommer dans le résumé final : un PIN à 4 chiffres, ce
+     sont 10 000
+     combinaisons. Ce n'est pas B2 qui le protège, mais C1 (réponses
+     indistinguables) et surtout
+     G1 (limitation par jeton de lien, qui n'existe pas encore). Ce qui borne
+     aujourd'hui le débit
+     d'un attaquant, c'est l'argon2id sur le PIN (~67 ms par essai).
+     - Plafond de 90 jours : borne la durée pendant laquelle un lien oublié
+     reste vivant.
+     - Coût d'écriture borné : 20 pièces, 200 caractères par libellé.
+     - Point ouvert assumé : expired l'emporte sur complete, donc un dossier
+     terminé bascule en
+     « expirée » une fois la date passée. C'est la règle consignée en A2 ; si B4
+     montre que l'affichage
+     gêne, c'est là qu'on l'inversera.
+
+     Structure des fichiers
+
+     Fichier: backend/prisma/schema.prisma
+     Responsabilité: modifié — position sur RequestedItem
+     ────────────────────────────────────────
+     Fichier: backend/prisma/migrations/<horodatage>_requested_item_position/
+     Responsabilité: nouveau — la migration
+     ────────────────────────────────────────
+     Fichier: backend/src/seed.ts
+     Responsabilité: modifié — pose la position des pièces de démonstration
+     ────────────────────────────────────────
+     Fichier: backend/src/requests/request-status.ts
+     Responsabilité: nouveau — RequestStatus, deriveStatus(), fonction pure
+     ────────────────────────────────────────
+     Fichier: backend/src/requests/request-status.spec.ts
+     Responsabilité: nouveau
+     ────────────────────────────────────────
+     Fichier: backend/src/requests/dto/create-request.dto.ts
+     Responsabilité: nouveau — validation du corps
+     ────────────────────────────────────────
+     Fichier: backend/src/requests/dto/create-request.dto.spec.ts
+     Responsabilité: nouveau
+     ────────────────────────────────────────
+     Fichier: backend/src/requests/request.types.ts
+     Responsabilité: nouveau — formes de réponse et mappeurs
+     ────────────────────────────────────────
+     Fichier: backend/src/requests/requests.service.ts
+     Responsabilité: nouveau — la création
+     ────────────────────────────────────────
+     Fichier: backend/src/requests/requests.service.spec.ts
+     Responsabilité: nouveau
+     ────────────────────────────────────────
+     Fichier: backend/src/requests/requests.controller.ts
+     Responsabilité: nouveau — POST /requests
+     ────────────────────────────────────────
+     Fichier: backend/src/requests/requests.module.ts
+     Responsabilité: nouveau
+     ────────────────────────────────────────
+     Fichier: backend/src/app.module.ts
+     Responsabilité: modifié — importe RequestsModule
+     ────────────────────────────────────────
+     Fichier: backend/test/requests.e2e-spec.ts
+     Responsabilité: nouveau — le contrat HTTP
+     ────────────────────────────────────────
+     Fichier: ai-plans/2026-08-09-b2-creation-demande.md
+     Responsabilité: nouveau — livrable de stage
+     ────────────────────────────────────────
+     Fichier: issue_backlog.md, CLAUDE.md
+     Responsabilité: modifiés — B2 fait, points non devinables
+
+     Rien dans infra/, install.sh ni .env.example : aucune variable nouvelle,
+     donc la règle des
+     trois fichiers ne se déclenche pas.
+
+     ---
+     Tâche 1 — Ordre stable des pièces attendues
+
+     Fichiers : modifier backend/prisma/schema.prisma, backend/src/seed.ts ;
+     créer une migration.
+
+     Produit : RequestedItem.position: Int, et des lectures triées par position
+     croissante.
+
+     Attention : CLAUDE.md signale que l'index unique partiel
+     PublicLink_requestId_active_key est
+     écrit à la main dans 20260808014756_initial_model/migration.sql et
+     disparaît en silence si on
+     régénère cette migration. Ici on en ajoute une nouvelle : l'ancienne n'est
+     pas retouchée.
+     Vérifier quand même après coup qu'elle est intacte.
+
+     - [ ] Étape 1 : ajouter la colonne au schéma
+
+     Dans backend/prisma/schema.prisma, modèle RequestedItem :
+
+     prisma
+       /// Display order, as the lawyer typed it. Not derivable from createdAt:
+     the
+       /// items of one request are inserted in the same transaction, so they
+     share
+       /// a timestamp and Postgres is free to return them in any order -- the
+       /// client's checklist would then reshuffle between two page loads.
+       ///
+       /// The default only exists to migrate the rows written before this
+     column;
+       /// every write site sets it explicitly.
+       position Int @default(0)
+
+     Et ajouter le tri à la relation en le documentant côté lecture (voir tâches
+     4 et 5) — Prisma ne sait
+     pas déclarer un ordre par défaut sur une relation, il se pose à chaque
+     include.
+
+     - [ ] Étape 2 : générer la migration
+
+     pnpm db:up
+     pnpm -C backend db:migrate --name requested_item_position
+
+     Attendu : un dossier
+     prisma/migrations/<horodatage>_requested_item_position/ contenant
+     ALTER TABLE "RequestedItem" ADD COLUMN "position" INTEGER NOT NULL DEFAULT 
+     0;.
+
+     - [ ] Étape 3 : vérifier que l'index partiel d'A2 est intact
+
+     grep -n "PublicLink_requestId_active_key"
+     backend/prisma/migrations/*/migration.sql
+
+     Attendu : la ligne existe toujours dans
+     20260808014756_initial_model/migration.sql.
+
+     - [ ] Étape 4 : poser la position dans le seed
+
+     Dans backend/src/seed.ts, les deux endroits qui créent des pièces :
+
+           items: {
+             create: DEMO_ITEMS.map((label, position) => ({ label, position })),
+           },
+
+     et, dans la branche de réparation :
+
+         await prisma.requestedItem.createMany({
+           data: missing.map((label) => ({
+             label,
+             requestId: request.id,
+             position: DEMO_ITEMS.indexOf(label),
+           })),
+         });
+
+     - [ ] Étape 5 : rejouer le seed deux fois et vérifier l'idempotence
+
+     pnpm -C backend build && node backend/dist/seed.js && node
+     backend/dist/seed.js
+
+     Attendu : deux exécutions sans erreur, un compte, une demande, trois
+     pièces. Puis, en base :
+
+     pnpm -C backend db:studio   # ou psql
+
+     Attendu : les trois pièces portent les positions 0, 1, 2.
+
+     - [ ] Étape 6 : commit
+
+     Annoncer les fichiers, attendre le feu vert, puis :
+
+     git add backend/prisma/schema.prisma backend/prisma/migrations
+     backend/src/seed.ts
+     git commit -m "feat(db): order the requested items of a deposit request"
+
+     ---
+     Tâche 2 — Dérivation du statut
+
+     Fichiers : créer backend/src/requests/request-status.ts et
+     backend/src/requests/request-status.spec.ts.
+
+     Interfaces produites, dont les tâches 4 et 5 dépendent :
+
+     export enum RequestStatus { Pending = 'pending', Complete = 'complete',
+     Expired = 'expired' }
+     export interface StatusInput { expiresAt: Date; expectedCount: number;
+     receivedCount: number }
+     export const deriveStatus: (input: StatusInput, now: Date) => RequestStatus
+
+     - [ ] Étape 1 : écrire le test qui échoue
+
+     backend/src/requests/request-status.spec.ts :
+
+     import { deriveStatus, RequestStatus } from './request-status';
+
+     /**
+      * What this suite protects: the two rules the exercise statement names --
+      * expiry and completeness -- and the order between them. `now` is an 
+     argument
+      * of the function, so none of this needs a frozen clock.
+      */
+     const EXPIRY = new Date('2026-08-23T12:00:00.000Z');
+     const before = new Date(EXPIRY.getTime() - 1);
+     const after = new Date(EXPIRY.getTime() + 1);
+
+     describe('deriveStatus', () => {
+       it('is still pending one millisecond before the deadline', () => {
+         expect(
+           deriveStatus({ expiresAt: EXPIRY, expectedCount: 3, receivedCount: 0
+     }, before),
+         ).toBe(RequestStatus.Pending);
+       });
+
+       // The boundary is the case a refactor silently flips: at the exact 
+     instant
+       // the link must still work, the comparison being strict.
+       it('is still pending at the exact expiry instant', () => {
+         expect(
+           deriveStatus({ expiresAt: EXPIRY, expectedCount: 3, receivedCount: 0
+     }, EXPIRY),
+         ).toBe(RequestStatus.Pending);
+       });
+
+       it('is expired one millisecond after the deadline', () => {
+         expect(
+           deriveStatus({ expiresAt: EXPIRY, expectedCount: 3, receivedCount: 0
+     }, after),
+         ).toBe(RequestStatus.Expired);
+       });
+
+       it('stays pending while one expected piece is missing', () => {
+         expect(
+           deriveStatus({ expiresAt: EXPIRY, expectedCount: 3, receivedCount: 2
+     }, before),
+         ).toBe(RequestStatus.Pending);
+       });
+
+       it('turns complete once every expected piece is in', () => {
+         expect(
+           deriveStatus({ expiresAt: EXPIRY, expectedCount: 3, receivedCount: 3
+     }, before),
+         ).toBe(RequestStatus.Complete);
+       });
+
+       // Expiry wins, as recorded in A2. Whoever inverts the two branches 
+     breaks
+       // this test rather than the dashboard.
+       it('reports expired rather than complete once the deadline has passed',
+     () => {
+         expect(
+           deriveStatus({ expiresAt: EXPIRY, expectedCount: 3, receivedCount: 3
+     }, after),
+         ).toBe(RequestStatus.Expired);
+       });
+
+       // A row written by hand, or a future feature allowing an empty request:
+       // "nothing expected" must not read as "everything received".
+       it('never reports complete when nothing is expected', () => {
+         expect(
+           deriveStatus({ expiresAt: EXPIRY, expectedCount: 0, receivedCount: 0
+     }, before),
+         ).toBe(RequestStatus.Pending);
+       });
+     });
+
+     - [ ] Étape 2 : lancer le test et vérifier qu'il échoue
+
+     pnpm -C backend test request-status
+
+     Attendu : ÉCHEC, Cannot find module './request-status'.
+
+     - [ ] Étape 3 : écrire l'implémentation minimale
+
+     backend/src/requests/request-status.ts :
+
+     /**
+      * The three statuses of a deposit request, DERIVED and never stored: 
+     "expired"
+      * depends on the wall clock, so a column would stay wrong from the expiry
+      * instant until some job flips it, and the dashboard would lie. Same 
+     reasoning
+      * for "how many pieces are expected", which is a count of RequestedItem.
+      */
+     export enum RequestStatus {
+       Pending = 'pending',
+       Complete = 'complete',
+       Expired = 'expired',
+     }
+
+     export interface StatusInput {
+       expiresAt: Date;
+       expectedCount: number;
+       receivedCount: number;
+     }
+
+     /**
+      * `now` is an argument, not a reading taken inside: the expiry tests then 
+     need
+      * no frozen clock, and a dashboard listing twenty requests classifies them
+     all
+      * against a single instant instead of twenty slightly different ones.
+      */
+     export const deriveStatus = (input: StatusInput, now: Date): RequestStatus
+     => {
+       // Strictly greater: at the exact expiry instant the link still works.
+       if (now.getTime() > input.expiresAt.getTime()) {
+         return RequestStatus.Expired;
+       }
+
+       // The count guard is not decoration: without it a request expecting 
+     nothing
+       // would report "complete" the moment it is created.
+       if (input.expectedCount > 0 && input.receivedCount >=
+     input.expectedCount) {
+         return RequestStatus.Complete;
+       }
+
+       return RequestStatus.Pending;
+     };
+
+     - [ ] Étape 4 : lancer le test et vérifier qu'il passe
+
+     pnpm -C backend test request-status
+
+     Attendu : 7 tests verts.
+
+     - [ ] Étape 5 : commit (annoncer les fichiers, attendre le feu vert)
+
+     git add backend/src/requests/request-status.ts
+     backend/src/requests/request-status.spec.ts
+     git commit -m "feat(requests): derive the status of a deposit request from 
+     the clock"
+
+     ---
+     Tâche 3 — Validation du corps de la requête
+
+     Fichiers : créer backend/src/requests/dto/create-request.dto.ts et son
+     .spec.ts.
+
+     Interfaces produites : CreateRequestDto { title: string; items: string[]; 
+     expiresInDays: number },
+     plus les constantes exportées MAX_ITEMS = 20 et MAX_EXPIRES_DAYS = 90.
+
+     - [ ] Étape 1 : écrire le test qui échoue
+
+     backend/src/requests/dto/create-request.dto.spec.ts :
+
+     import { plainToInstance } from 'class-transformer';
+     import { validate } from 'class-validator';
+     import { CreateRequestDto } from './create-request.dto';
+
+     /**
+      * What this suite protects: the input rules, tested against the 
+     transformer and
+      * the validator directly rather than through HTTP. The trimming happens in
+      * class-transformer, BEFORE validation -- a rule tested only end to end 
+     would
+      * not say which of the two layers broke.
+      */
+     const check = async (body: unknown): Promise<string[]> => {
+       const dto = plainToInstance(CreateRequestDto, body);
+       const errors = await validate(dto, {
+         whitelist: true,
+         forbidNonWhitelisted: true,
+       });
+       return errors.map((error) => error.property);
+     };
+
+     const VALID = {
+       title: 'Dossier Martin, pieces 2026',
+       items: ["Piece d'identite", 'Contrat de bail signe'],
+       expiresInDays: 14,
+     };
+
+     describe('CreateRequestDto', () => {
+       it('accepts a well-formed request', async () => {
+         await expect(check(VALID)).resolves.toEqual([]);
+       });
+
+       it('trims the title and each label before anything else looks at them',
+     () => {
+         const dto = plainToInstance(CreateRequestDto, {
+           ...VALID,
+           title: '  Dossier Martin  ',
+           items: ['  Bail  '],
+         });
+         expect(dto.title).toBe('Dossier Martin');
+         expect(dto.items).toEqual(['Bail']);
+       });
+
+       // A title of spaces is empty for the lawyer reading the dashboard, so it
+     must
+       // be empty for the validator too.
+       it('rejects a title made of spaces', async () => {
+         await expect(check({ ...VALID, title: '   '
+     })).resolves.toEqual(['title']);
+       });
+
+       it('rejects an empty list of expected pieces', async () => {
+         await expect(check({ ...VALID, items: []
+     })).resolves.toEqual(['items']);
+       });
+
+       it('rejects more than twenty expected pieces', async () => {
+         const items = Array.from({ length: 21 }, (_, i) => `Piece ${i}`);
+         await expect(check({ ...VALID, items })).resolves.toEqual(['items']);
+       });
+
+       // Case and surrounding spaces must not be enough to smuggle a duplicate 
+     in:
+       // the client cannot tell two identical labels apart, and C2 attaches a 
+     file
+       // to ONE of them.
+       it('rejects two labels differing only in case or spacing', async () => {
+         await expect(
+           check({ ...VALID, items: ['Contrat de bail', '  contrat de bail ']
+     }),
+         ).resolves.toEqual(['items']);
+       });
+
+       it('rejects a label made of spaces', async () => {
+         await expect(check({ ...VALID, items: ['Bail', '  ']
+     })).resolves.toEqual([
+           'items',
+         ]);
+       });
+
+       it.each([0, -1, 91, 1.5, '14'])(
+         'rejects %p as a number of days',
+         async (expiresInDays) => {
+           await expect(check({ ...VALID, expiresInDays })).resolves.toEqual([
+             'expiresInDays',
+           ]);
+         },
+       );
+
+       it('accepts the bounds, one day and ninety', async () => {
+         await expect(check({ ...VALID, expiresInDays: 1
+     })).resolves.toEqual([]);
+         await expect(check({ ...VALID, expiresInDays: 90
+     })).resolves.toEqual([]);
+       });
+
+       // The route reads the owner from the session. A body naming one must be 
+     a
+       // 400, not a field silently dropped.
+       it('rejects an unknown field', async () => {
+         await expect(
+           check({ ...VALID, lawyerId: 'someone-else' }),
+         ).resolves.toEqual(['lawyerId']);
+       });
+     });
+
+     - [ ] Étape 2 : lancer le test et vérifier qu'il échoue
+
+     pnpm -C backend test create-request.dto
+
+     Attendu : ÉCHEC, Cannot find module './create-request.dto'.
+
+     - [ ] Étape 3 : écrire l'implémentation minimale
+
+     backend/src/requests/dto/create-request.dto.ts :
+
+     import { Transform, TransformFnParams } from 'class-transformer';
+     import {
+       ArrayMaxSize,
+       ArrayMinSize,
+       ArrayUnique,
+       IsArray,
+       IsInt,
+       IsString,
+       Max,
+       MaxLength,
+       Min,
+       MinLength,
+     } from 'class-validator';
+
+     /** Bounds the number of inserts and the size of the response, in one 
+     write. */
+     export const MAX_ITEMS = 20;
+
+     /** Bounds how long a forgotten link stays alive. */
+     export const MAX_EXPIRES_DAYS = 90;
+
+     const TITLE_MAX_LENGTH = 200;
+     const LABEL_MAX_LENGTH = 200;
+
+     // The guards on the type are not defensive noise: a non-string slips 
+     through
+     // here on its way to @IsString, and an unguarded .trim() would answer 500 
+     where
+     // the caller deserves a 400.
+     const trim = ({ value }: TransformFnParams): unknown =>
+       typeof value === 'string' ? value.trim() : value;
+
+     const trimEach = ({ value }: TransformFnParams): unknown =>
+       Array.isArray(value)
+         ? (value as unknown[]).map((entry) =>
+             typeof entry === 'string' ? entry.trim() : entry,
+           )
+         : value;
+
+     // What makes two labels "the same" for the client reading the checklist. 
+     Only
+     // case, the spaces having already been trimmed above -- going further 
+     (accents,
+     // punctuation) would start refusing labels a lawyer legitimately wants.
+     const foldCase = (label: unknown): unknown =>
+       typeof label === 'string' ? label.toLocaleLowerCase('fr') : label;
+
+     /**
+      * The body of POST /requests.
+      *
+      * The owner is deliberately absent: it is read from the session. The 
+     global
+      * ValidationPipe runs with forbidNonWhitelisted, so a body naming a 
+     lawyerId
+      * is a 400 rather than a field quietly dropped.
+      *
+      * Every field is bounded. On an authenticated route the concern is not an
+      * anonymous flood but the cost of one write: twenty inserts at most, and 
+     no
+      * label long enough to turn the dashboard into a wall of text.
+      */
+     export class CreateRequestDto {
+       @Transform(trim)
+       @IsString()
+       @MinLength(1, { message: "L'intitulé de la demande est obligatoire." })
+       @MaxLength(TITLE_MAX_LENGTH)
+       title!: string;
+
+       // Trimming FIRST, hence @Transform: class-transformer runs before
+       // class-validator, so "  " is seen as empty and "Bail " as a duplicate 
+     of
+       // "Bail". Done in the service instead, both checks would arrive too 
+     late.
+       @Transform(trimEach)
+       @IsArray()
+       @ArrayMinSize(1, {
+         message: 'Une demande doit attendre au moins une pièce.',
+       })
+       @ArrayMaxSize(MAX_ITEMS, {
+         message: `Une demande ne peut pas attendre plus de ${MAX_ITEMS}
+     pièces.`,
+       })
+       @ArrayUnique(foldCase, {
+         message: 'Deux pièces attendues portent le même libellé.',
+       })
+       @IsString({ each: true })
+       @MinLength(1, {
+         each: true,
+         message: "Le libellé d'une pièce attendue ne peut pas être vide.",
+       })
+       @MaxLength(LABEL_MAX_LENGTH, { each: true })
+       items!: string[];
+
+       // No @Type(() => Number): a JSON body carries a real number, and 
+     coercing
+       // would accept "14" from a caller who believes they sent a string.
+       @IsInt({ message: 'La durée de validité est un nombre de jours entier.'
+     })
+       @Min(1, { message: 'La durée de validité est d’au moins un jour.' })
+       @Max(MAX_EXPIRES_DAYS, {
+         message: `La durée de validité ne peut pas dépasser ${MAX_EXPIRES_DAYS}
+     jours.`,
+       })
+       expiresInDays!: number;
+     }
+
+     - [ ] Étape 4 : lancer le test et vérifier qu'il passe
+
+     pnpm -C backend test create-request.dto
+
+     Attendu : tous verts. Si le cas « deux libellés à la casse près » échoue,
+     vérifier que
+     @ArrayUnique reçoit bien foldCase en premier argument.
+
+     - [ ] Étape 5 : commit (annoncer, attendre le feu vert)
+
+     git add backend/src/requests/dto
+     git commit -m "feat(requests): validate the body of a deposit request 
+     creation"
+
+     ---
+     Tâche 4 — Le service, et les formes de réponse
+
+     Fichiers : créer backend/src/requests/request.types.ts,
+     backend/src/requests/requests.service.ts,
+     backend/src/requests/requests.service.spec.ts.
+
+     Interfaces consommées : deriveStatus, RequestStatus (tâche 2) ;
+     CreateRequestDto
+     (tâche 3) ; generatePin, generatePublicToken, hashPublicToken, hashSecret,
+     verifySecret
+     depuis src/crypto/secrets.ts ; PrismaService depuis
+     src/prisma/prisma.service.ts.
+
+     Interfaces produites :
+
+     export interface RequestedItemView { id: string; label: string; received:
+     boolean }
+     export interface IssuedLink { token: string; pin: string; expiresAt: Date }
+     export interface CreatedRequestView {
+       id: string; title: string; createdAt: Date; status: RequestStatus;
+       items: RequestedItemView[]; link: IssuedLink;
+     }
+     export class RequestsService { create(lawyerId: string, input:
+     CreateRequestDto): Promise<CreatedRequestView> }
+
+     - [ ] Étape 1 : écrire le test qui échoue
+
+     backend/src/requests/requests.service.spec.ts :
+
+     import { createHash } from 'node:crypto';
+     import { verifySecret } from '../crypto/secrets';
+     import { PrismaService } from '../prisma/prisma.service';
+     import { RequestStatus } from './request-status';
+     import { RequestsService } from './requests.service';
+
+     /**
+      * What this suite protects: that nothing reaches the database in clear. 
+     The
+      * Prisma double records the payload it is handed, and the assertions read 
+     that
+      * payload rather than the response -- a service returning the right thing 
+     while
+      * writing the PIN in clear would pass any test that only looks at the 
+     response.
+      */
+     describe('RequestsService.create', () => {
+       const create = jest.fn();
+       const prisma = {
+         depositRequest: { create },
+       } as unknown as PrismaService;
+       const service = new RequestsService(prisma);
+
+       const body = {
+         title: 'Dossier Martin, pieces 2026',
+         items: ["Piece d'identite", 'Contrat de bail signe'],
+         expiresInDays: 7,
+       };
+
+       /** The payload handed to Prisma by the call under test. */
+       interface WrittenData {
+         title: string;
+         lawyerId: string;
+         items: { create: { label: string; position: number }[] };
+         links: { create: { tokenHash: string; pinHash: string; expiresAt: Date
+     } };
+       }
+
+       const written = (): WrittenData =>
+         (create.mock.calls[0][0] as { data: WrittenData }).data;
+
+       beforeEach(() => {
+         create.mockReset();
+         create.mockImplementation(({ data }: { data: WrittenData }) =>
+           Promise.resolve({
+             id: 'request-1',
+             title: data.title,
+             lawyerId: data.lawyerId,
+             createdAt: new Date(),
+             items: data.items.create.map((item, index) => ({
+               id: `item-${index}`,
+               label: item.label,
+               position: item.position,
+             })),
+           }),
+         );
+       });
+
+       it('stores the PIN as an argon2id hash of the PIN it returns', async ()
+     => {
+         const view = await service.create('lawyer-1', body);
+         const { pinHash } = written().links.create;
+
+         expect(pinHash).toMatch(/^\$argon2id\$/);
+         expect(pinHash).not.toBe(view.link.pin);
+         await expect(verifySecret(view.link.pin, pinHash)).resolves.toBe(true);
+       });
+
+       it('stores the SHA-256 of the token, and never the token', async () => {
+         const view = await service.create('lawyer-1', body);
+         const link = written().links.create;
+
+         expect(link.tokenHash).toBe(
+           createHash('sha256').update(view.link.token, 'utf8').digest('hex'),
+         );
+         expect(Object.keys(link).sort()).toEqual([
+           'expiresAt',
+           'pinHash',
+           'tokenHash',
+         ]);
+       });
+
+       it('takes the owner from its argument, never from the body', async () =>
+     {
+         await service.create('lawyer-1', body);
+         expect(written().lawyerId).toBe('lawyer-1');
+       });
+
+       it('numbers the expected pieces in the order they were given', async ()
+     => {
+         await service.create('lawyer-1', body);
+         expect(written().items.create).toEqual([
+           { label: "Piece d'identite", position: 0 },
+           { label: 'Contrat de bail signe', position: 1 },
+         ]);
+       });
+
+       // A tolerance rather than an exact equality: argon2id really runs here, 
+     so
+       // several tens of milliseconds pass between the two clock readings.
+       it('dates the expiry from the requested number of days', async () => {
+         const before = Date.now();
+         const view = await service.create('lawyer-1', body);
+         const expected = before + 7 * 24 * 60 * 60 * 1000;
+
+         expect(
+           Math.abs(view.link.expiresAt.getTime() - expected),
+         ).toBeLessThan(5000);
+         expect(written().links.create.expiresAt).toEqual(view.link.expiresAt);
+       });
+
+       it('answers pending, with no piece received', async () => {
+         const view = await service.create('lawyer-1', body);
+
+         expect(view.status).toBe(RequestStatus.Pending);
+         expect(view.items).toEqual([
+           { id: 'item-0', label: "Piece d'identite", received: false },
+           { id: 'item-1', label: 'Contrat de bail signe', received: false },
+         ]);
+       });
+
+       // Two requests created back to back must not share a secret: a generator
+       // seeded once per process would pass every test above and hand the same 
+     PIN
+       // to two different clients.
+       it('draws a different token and PIN every time', async () => {
+         const first = await service.create('lawyer-1', body);
+         const second = await service.create('lawyer-1', body);
+
+         expect(first.link.token).not.toBe(second.link.token);
+         expect(first.link.pin).not.toBe(second.link.pin);
+       });
+     });
+
+     - [ ] Étape 2 : lancer le test et vérifier qu'il échoue
+
+     pnpm -C backend test requests.service
+
+     Attendu : ÉCHEC, Cannot find module './requests.service'.
+
+     - [ ] Étape 3 : écrire les formes de réponse
+
+     backend/src/requests/request.types.ts :
+
+     import { DepositRequest, RequestedItem } from '../generated/prisma/client';
+     import { deriveStatus, RequestStatus } from './request-status';
+
+     /**
+      * An expected piece as the outside sees it. "received" rather than a 
+     status
+      * column: a piece is received when a file hangs off it, and that is a 
+     join, not
+      * a state to keep in sync.
+      */
+     export interface RequestedItemView {
+       id: string;
+       label: string;
+       received: boolean;
+     }
+
+     /**
+      * The link, IN CLEAR. This shape exists at exactly one moment -- the 
+     response
+      * to the creation -- because the database only ever holds an argon2id of 
+     the
+      * PIN and a SHA-256 of the token. Whatever the lawyer does not copy here 
+     is
+      * lost, and a lost PIN is repaired by regenerating the link (B3), never by
+      * displaying it again.
+      */
+     export interface IssuedLink {
+       token: string;
+       pin: string;
+       expiresAt: Date;
+     }
+
+     export interface CreatedRequestView {
+       id: string;
+       title: string;
+       createdAt: Date;
+       status: RequestStatus;
+       items: RequestedItemView[];
+       link: IssuedLink;
+     }
+
+     /**
+      * `file` is optional rather than required: the creation does not join it, 
+     and
+      * B4 will. Absent means "not received", which is exactly true at creation.
+      */
+     type ItemRow = RequestedItem & { file?: { id: string } | null };
+
+     const toItemView = (item: ItemRow): RequestedItemView => ({
+       id: item.id,
+       label: item.label,
+       received: item.file != null,
+     });
+
+     /**
+      * Field by field, never a spread: it is then the compiler, and not the 
+     author's
+      * vigilance, that keeps pinHash and tokenHash out of a response when a 
+     column
+      * is added later.
+      */
+     export const toCreatedRequest = (
+       request: DepositRequest & { items: ItemRow[] },
+       link: IssuedLink,
+       now: Date,
+     ): CreatedRequestView => ({
+       id: request.id,
+       title: request.title,
+       createdAt: request.createdAt,
+       status: deriveStatus(
+         {
+           expiresAt: link.expiresAt,
+           expectedCount: request.items.length,
+           receivedCount: request.items.filter((item) => item.file !=
+     null).length,
+         },
+         now,
+       ),
+       items: request.items.map(toItemView),
+       link,
+     });
+
+     - [ ] Étape 4 : écrire le service
+
+     backend/src/requests/requests.service.ts :
+
+     import { Injectable } from '@nestjs/common';
+     import {
+       generatePin,
+       generatePublicToken,
+       hashPublicToken,
+       hashSecret,
+     } from '../crypto/secrets';
+     import { PrismaService } from '../prisma/prisma.service';
+     import { CreateRequestDto } from './dto/create-request.dto';
+     import { CreatedRequestView, toCreatedRequest } from './request.types';
+
+     const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+
+     @Injectable()
+     export class RequestsService {
+       constructor(private readonly prisma: PrismaService) {}
+
+       async create(
+         lawyerId: string,
+         input: CreateRequestDto,
+       ): Promise<CreatedRequestView> {
+         const token = generatePublicToken();
+         const pin = generatePin();
+
+         // Hashed BEFORE the write: argon2id takes tens of milliseconds, and 
+     holding
+         // a database transaction open across it would serve no purpose. Same
+         // reasoning as src/seed.ts.
+         const pinHash = await hashSecret(pin);
+
+         // ONE clock reading for both timestamps. Two would date the expiry 
+     from
+         // after the hashing, so the validity would not be exactly the one 
+     asked
+         // for -- and the status derived below would use a third instant.
+         const now = new Date();
+         const expiresAt = new Date(
+           now.getTime() + input.expiresInDays * MILLISECONDS_PER_DAY,
+         );
+
+         // A single nested write: Prisma runs it in one implicit transaction, 
+     so
+         // there can be no request without its link, nor a link without its
+         // request. An interactive $transaction would do the same, more 
+     verbosely.
+         const created = await this.prisma.depositRequest.create({
+           data: {
+             title: input.title,
+             lawyerId,
+             items: {
+               create: input.items.map((label, position) => ({ label, position
+     })),
+             },
+             links: {
+               create: { tokenHash: hashPublicToken(token), pinHash, expiresAt
+     },
+             },
+           },
+           // Ordered explicitly: the rows share a createdAt to the millisecond,
+     so
+           // without this Postgres is free to return them in any order.
+           include: { items: { orderBy: { position: 'asc' } } },
+         });
+
+         // The only place where the token and the PIN travel in clear.
+         return toCreatedRequest(created, { token, pin, expiresAt }, now);
+       }
+     }
+
+     - [ ] Étape 5 : lancer les tests et vérifier qu'ils passent
+
+     pnpm -C backend test requests.service
+
+     Attendu : 7 tests verts.
+
+     - [ ] Étape 6 : commit (annoncer, attendre le feu vert)
+
+     git add backend/src/requests/request.types.ts
+     backend/src/requests/requests.service.ts \
+             backend/src/requests/requests.service.spec.ts
+     git commit -m "feat(requests): create a deposit request with its link and 
+     PIN"
+
+     ---
+     Tâche 5 — La route, et le contrat HTTP
+
+     Fichiers : créer backend/src/requests/requests.controller.ts,
+     backend/src/requests/requests.module.ts, backend/test/requests.e2e-spec.ts
+     ; modifier
+     backend/src/app.module.ts.
+
+     Interfaces consommées : RequestsService (tâche 4) ; AuthenticatedRequest
+     depuis
+     src/auth/auth.types.ts.
+
+     - [ ] Étape 1 : écrire le test e2e qui échoue
+
+     backend/test/requests.e2e-spec.ts :
+
+     /**
+      * What this suite proves: the HTTP contract of the creation route, through
+     the
+      * application as it is really configured -- configureApp() is the very 
+     function
+      * main.ts calls, so the global guard, cookie-parser, the ValidationPipe 
+     and the
+      * prefix are the production ones.
+      *
+      * What it does NOT prove: that the write reaches a real Postgres. 
+     PrismaService
+      * is a double. The real chain is verified by hand, see the plan's task 6.
+      */
+
+     import { ConfigService } from '@nestjs/config';
+     import { NestExpressApplication } from '@nestjs/platform-express';
+     import { Test, TestingModule } from '@nestjs/testing';
+     import request from 'supertest';
+     import { AppModule } from './../src/app.module';
+     import { configureApp } from './../src/app.setup';
+     import { hashSecret } from './../src/crypto/secrets';
+     import { PrismaService } from './../src/prisma/prisma.service';
+     import { StorageService } from './../src/storage/storage.service';
+
+     const PASSWORD = 'un-mot-de-passe-de-test';
+
+     const VALID_BODY = {
+       title: 'Dossier Martin, pieces 2026',
+       items: ["Piece d'identite", 'Contrat de bail signe'],
+       expiresInDays: 14,
+     };
+
+     describe('Requests (e2e)', () => {
+       let app: NestExpressApplication;
+       let loginPath: string;
+       let requestsPath: string;
+
+       const lawyer = {
+         id: 'lawyer-1',
+         name: 'Maitre Dupont',
+         email: 'avocat@exemple.fr',
+         passwordHash: '',
+         createdAt: new Date(),
+       };
+
+       const lawyerFindUnique = jest.fn(
+         ({ where }: { where: { id?: string; email?: string } }) => {
+           if (where.id !== undefined) {
+             return Promise.resolve(where.id === lawyer.id ? lawyer : null);
+           }
+           return Promise.resolve(where.email === lawyer.email ? lawyer : null);
+         },
+       );
+
+       interface WrittenData {
+         title: string;
+         lawyerId: string;
+         items: { create: { label: string; position: number }[] };
+         links: { create: Record<string, unknown> };
+       }
+
+       const requestCreate = jest.fn(({ data }: { data: WrittenData }) =>
+         Promise.resolve({
+           id: 'request-1',
+           title: data.title,
+           lawyerId: data.lawyerId,
+           createdAt: new Date('2026-08-09T10:00:00.000Z'),
+           items: data.items.create.map((item, index) => ({
+             id: `item-${index}`,
+             label: item.label,
+             position: item.position,
+           })),
+         }),
+       );
+
+       const sessionCookie = async (): Promise<string> => {
+         const response = await request(app.getHttpServer())
+           .post(loginPath)
+           .send({ email: lawyer.email, password: PASSWORD })
+           .expect(200);
+
+         const raw: unknown = response.headers['set-cookie'];
+         return (Array.isArray(raw) ? (raw as string[]) : [raw as
+     string]).join('; ');
+       };
+
+       beforeAll(async () => {
+         lawyer.passwordHash = await hashSecret(PASSWORD);
+       });
+
+       beforeEach(async () => {
+         lawyerFindUnique.mockClear();
+         requestCreate.mockClear();
+
+         const prismaDouble: Record<string, unknown> = {
+           lawyer: { findUnique: lawyerFindUnique },
+           depositRequest: { create: requestCreate },
+           refreshToken: {
+             findUnique: jest.fn().mockResolvedValue(null),
+             create: jest.fn().mockResolvedValue({}),
+             updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+             deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+           },
+           $queryRaw: jest.fn(),
+           $connect: jest.fn(),
+           $disconnect: jest.fn(),
+         };
+         prismaDouble.$transaction = (fn: (tx: unknown) => Promise<unknown>) =>
+           fn(prismaDouble);
+
+         const moduleFixture: TestingModule = await Test.createTestingModule({
+           imports: [AppModule],
+         })
+           .overrideProvider(PrismaService)
+           .useValue(prismaDouble)
+           .overrideProvider(StorageService)
+           .useValue({
+             ping: jest.fn().mockResolvedValue(true),
+             assertBucketExists: jest.fn(),
+             onModuleInit: jest.fn(),
+             onModuleDestroy: jest.fn(),
+           })
+           .compile();
+
+         app = moduleFixture.createNestApplication<NestExpressApplication>({
+           logger: false,
+         });
+         configureApp(app);
+         await app.init();
+
+         const prefix = app.get(ConfigService).getOrThrow<string>('API_PREFIX');
+         loginPath = `${prefix}/auth/login`;
+         requestsPath = `${prefix}/requests`;
+       });
+
+       afterEach(async () => {
+         await app.close();
+       });
+
+       // The route carries no @UseGuards: this is what proves the GLOBAL guard
+       // covers it. Whoever adds a @Public() here breaks this test.
+       it('refuses an anonymous creation with 401', async () => {
+         await request(app.getHttpServer())
+           .post(requestsPath)
+           .send(VALID_BODY)
+           .expect(401);
+
+         expect(requestCreate).not.toHaveBeenCalled();
+       });
+
+       it('answers 201 with the request, its pieces, the token and the PIN',
+     async () => {
+         const cookie = await sessionCookie();
+
+         const response = await request(app.getHttpServer())
+           .post(requestsPath)
+           .set('Cookie', cookie)
+           .send(VALID_BODY)
+           .expect(201);
+
+         expect(response.body).toMatchObject({
+           id: 'request-1',
+           title: 'Dossier Martin, pieces 2026',
+           status: 'pending',
+           items: [
+             { id: 'item-0', label: "Piece d'identite", received: false },
+             { id: 'item-1', label: 'Contrat de bail signe', received: false },
+           ],
+         });
+         expect(response.body.link.pin).toMatch(/^\d{4}$/);
+         expect(typeof response.body.link.token).toBe('string');
+       });
+
+       // The whole point of hashing: a response leaking a hash would hand an
+       // attacker the material for an offline attack on a 4-digit PIN.
+       it('never puts a hash in the response', async () => {
+         const cookie = await sessionCookie();
+
+         const response = await request(app.getHttpServer())
+           .post(requestsPath)
+           .set('Cookie', cookie)
+           .send(VALID_BODY)
+           .expect(201);
+
+         expect(JSON.stringify(response.body)).not.toContain('Hash');
+         expect(JSON.stringify(response.body)).not.toContain('$argon2');
+       });
+
+       it('takes the owner from the session, ignoring the body', async () => {
+         const cookie = await sessionCookie();
+
+         // Naming a lawyerId is a 400, not a silently dropped field.
+         await request(app.getHttpServer())
+           .post(requestsPath)
+           .set('Cookie', cookie)
+           .send({ ...VALID_BODY, lawyerId: 'someone-else' })
+           .expect(400);
+
+         await request(app.getHttpServer())
+           .post(requestsPath)
+           .set('Cookie', cookie)
+           .send(VALID_BODY)
+           .expect(201);
+
+         const written = (requestCreate.mock.calls[0][0] as { data: WrittenData
+     })
+           .data;
+         expect(written.lawyerId).toBe('lawyer-1');
+       });
+
+       it.each([
+         ['an empty list of pieces', { ...VALID_BODY, items: [] }],
+         [
+           'twenty-one pieces',
+           {
+             ...VALID_BODY,
+             items: Array.from({ length: 21 }, (_, i) => `Piece ${i}`),
+           },
+         ],
+         [
+           'two identical labels',
+           { ...VALID_BODY, items: ['Contrat de bail', 'contrat de bail'] },
+         ],
+         ['a validity of zero days', { ...VALID_BODY, expiresInDays: 0 }],
+         ['a validity of ninety-one days', { ...VALID_BODY, expiresInDays: 91
+     }],
+         ['a missing validity', { title: VALID_BODY.title, items:
+     VALID_BODY.items }],
+         ['an empty title', { ...VALID_BODY, title: '   ' }],
+       ])('answers 400 on %s', async (_label, body) => {
+         const cookie = await sessionCookie();
+
+         await request(app.getHttpServer())
+           .post(requestsPath)
+           .set('Cookie', cookie)
+           .send(body)
+           .expect(400);
+
+         expect(requestCreate).not.toHaveBeenCalled();
+       });
+     });
+
+     - [ ] Étape 2 : lancer le test et vérifier qu'il échoue
+
+     pnpm -C backend test:e2e requests
+
+     Attendu : ÉCHEC — la route répond 404 (le module n'existe pas encore).
+
+     - [ ] Étape 3 : écrire le contrôleur et le module
+
+     backend/src/requests/requests.controller.ts :
+
+     import { Body, Controller, Post, Req } from '@nestjs/common';
+     import type { AuthenticatedRequest } from '../auth/auth.types';
+     import { CreateRequestDto } from './dto/create-request.dto';
+     import type { CreatedRequestView } from './request.types';
+     import { RequestsService } from './requests.service';
+
+     /**
+      * The lawyer's deposit requests.
+      *
+      * No @UseGuards and, above all, no @Public(): the guard registered as 
+     APP_GUARD
+      * by AuthModule closes this controller by default. The owner is read from 
+     the
+      * session that the guard attached, never from the body.
+      *
+      * 201 is Nest's default for POST, and it is the right code here: unlike
+      * /auth/login, something really is created.
+      */
+     @Controller('requests')
+     export class RequestsController {
+       constructor(private readonly requests: RequestsService) {}
+
+       @Post()
+       create(
+         @Req() request: AuthenticatedRequest,
+         @Body() body: CreateRequestDto,
+       ): Promise<CreatedRequestView> {
+         return this.requests.create(request.lawyer.id, body);
+       }
+     }
+
+     backend/src/requests/requests.module.ts :
+
+     import { Module } from '@nestjs/common';
+     import { RequestsController } from './requests.controller';
+     import { RequestsService } from './requests.service';
+
+     // PrismaService is @Global, hence no import here -- same as LawyersModule.
+     @Module({
+       controllers: [RequestsController],
+       providers: [RequestsService],
+       exports: [RequestsService],
+     })
+     export class RequestsModule {}
+
+     - [ ] Étape 4 : brancher le module
+
+     Dans backend/src/app.module.ts, ajouter l'import et l'entrée dans imports,
+     après AuthModule :
+
+     import { RequestsModule } from './requests/requests.module';
+
+         AuthModule,
+         // After AuthModule, which registers the global guard: this module's 
+     routes
+         // are therefore born closed.
+         RequestsModule,
+
+     - [ ] Étape 5 : lancer la suite e2e complète
+
+     pnpm test:e2e
+
+     Attendu : la nouvelle suite verte et auth.e2e-spec.ts, health.e2e-spec.ts,
+     app.e2e-spec.ts toujours vertes — le module nouveau entre dans AppModule,
+     donc dans chacune.
+
+     - [ ] Étape 6 : lint et suite unitaire complète
+
+     pnpm -C backend lint && pnpm test
+
+     Attendu : zéro avertissement, toutes les suites vertes.
+
+     - [ ] Étape 7 : commit (annoncer, attendre le feu vert)
+
+     git add backend/src/requests/requests.controller.ts
+     backend/src/requests/requests.module.ts \
+             backend/src/app.module.ts backend/test/requests.e2e-spec.ts
+     git commit -m "feat(requests): open POST /requests behind the lawyer 
+     session"
+
+     ---
+     Tâche 6 — Vérification contre la vraie chaîne
+
+     Les doubles ne prouvent pas qu'une écriture atteint Postgres. Cette tâche
+     n'écrit pas de code : elle
+     produit les preuves qui iront dans ai-plans/.
+
+     - [ ] Étape 1 : démarrer la base et l'API en local
+
+     pnpm db:up && pnpm -C backend db:migrate:deploy && pnpm dev
+
+     - [ ] Étape 2 : ouvrir une session avec le compte du seed
+
+     curl -s -c /tmp/portail.jar -X POST
+     http://127.0.0.1:21610/api/v1/auth/login \
+       -H 'Content-Type: application/json' \
+       -d '{"email":"avocat@example.com","password":"<celui de .env>"}'
+
+     Attendu : le profil de l'avocat, et un cookie de session dans le bocal.
+
+     - [ ] Étape 3 : créer une demande
+
+     curl -s -b /tmp/portail.jar -X POST http://127.0.0.1:21610/api/v1/requests
+     \
+       -H 'Content-Type: application/json' \
+       -d '{"title":"Dossier Durand, pieces 2026","items":["Piece d 
+     identite","Bail"],"expiresInDays":30}'
+
+     Attendu : 201, status: "pending", un PIN à 4 chiffres, un jeton en
+     base64url d'environ 43
+     caractères, les deux pièces dans l'ordre envoyé.
+
+     - [ ] Étape 4 : constater en base que rien n'est en clair
+
+     docker compose -f infra/docker-compose.dev.yml --env-file .env exec db \
+       psql -U portail -d portail_depot -c \
+       'SELECT "pinHash", "tokenHash", "expiresAt" FROM "PublicLink" ORDER BY 
+     "createdAt" DESC LIMIT 1;'
+
+     Attendu : pinHash commence par $argon2id$, tokenHash fait 64 hexadécimaux,
+     et ni l'un ni
+     l'autre ne contient le PIN ou le jeton renvoyés à l'étape 3.
+
+     - [ ] Étape 5 : vérifier l'ordre et le propriétaire
+
+     docker compose -f infra/docker-compose.dev.yml --env-file .env exec db \
+       psql -U portail -d portail_depot -c \
+       'SELECT r."title", r."lawyerId", i."position", i."label" FROM 
+     "DepositRequest" r
+          JOIN "RequestedItem" i ON i."requestId" = r."id"
+          ORDER BY r."createdAt" DESC, i."position" ASC LIMIT 5;'
+
+     Attendu : positions 0 et 1 dans l'ordre envoyé, lawyerId égal à celui du
+     compte connecté.
+
+     - [ ] Étape 6 : vérifier que deux demandes ont chacune un lien actif
+
+     docker compose -f infra/docker-compose.dev.yml --env-file .env exec db \
+       psql -U portail -d portail_depot -c \
+       'SELECT "requestId", count(*) FROM "PublicLink" WHERE "revokedAt" IS NULL
+     GROUP BY 1;'
+
+     Attendu : une ligne par demande, chacune à 1. L'index unique partiel est
+     par demande, pas par
+     avocat : deux demandes avec deux liens actifs sont normales.
+
+     - [ ] Étape 7 : refaire la création par le chemin de l'évaluateur
+
+     pnpm stack:up
+     # puis rejouer les étapes 2 et 3 contre http://127.0.0.1:21600/api/v1/...
+
+     Attendu : même résultat. C'est le seul chemin qui prouve que la route est
+     bien servie sous le
+     préfixe à travers nginx et que le cookie survit au proxy.
+
+     - [ ] Étape 8 : relever une mesure du temps de réponse
+
+     Reprendre l'étape 3 avec curl -w '%{time_total}\n' -o /dev/null -s. Attendu
+     : de l'ordre de 100 ms,
+     l'argon2id du PIN en représentant ~67. Chiffre à consigner dans ai-plans/.
+
+     ---
+     Tâche 7 — Relecture, documentation, fusion
+
+     - [ ] Étape 1 : relecture du diff complet
+
+     Invoquer superpowers:requesting-code-review sur le diff entier de la
+     branche. Rapporter les
+     findings classés par gravité, chacun avec son scénario d'échec concret.
+     Chercher activement ce
+     que la vérification n'a pas couvert. Points à regarder en priorité :
+
+     - un Logger ou un console.log qui recopierait le DTO, le PIN ou le jeton ;
+     - une réponse d'erreur qui laisserait fuir un pinHash ;
+     - l'ordre des branches de deriveStatus ;
+     - la migration : position bien en NOT NULL DEFAULT 0, et l'index partiel
+     d'A2 intact.
+     - [ ] Étape 2 : appliquer les corrections via
+     superpowers:receiving-code-review — vérifier
+     chaque remarque plutôt que l'appliquer telle quelle.
+     - [ ] Étape 3 : écrire ai-plans/2026-08-09-b2-creation-demande.md
+
+     Plan suivi, décisions et ce qu'elles écartent, vérifications avec leurs 
+     résultats mesurés (les
+     sorties des tâches 5 et 6), ce que la relecture a corrigé, ce qui reste
+     ouvert (le PIN à 4 chiffres
+     sans G1 ; expired qui l'emporte sur complete).
+
+     - [ ] Étape 4 : cocher B2 dans issue_backlog.md
+
+     Les trois critères, avec en dessous ce qui n'était pas dans l'énoncé : le
+     plafond de 90 jours, la
+     règle des doublons, la colonne position et pourquoi.
+
+     - [ ] Étape 5 : mettre CLAUDE.md à jour
+
+     § Status : B2 fait. Ajouter une courte section « Demandes de dépôt (B2) »
+     avec les points non
+     devinables : le PIN et le jeton n'existent en clair que dans la réponse de
+     création ; deriveStatus
+     prend now en argument et l'expiration l'emporte sur la complétude ; la
+     colonne position existe
+     parce que les pièces d'une demande partagent leur createdAt ; l'écriture
+     imbriquée unique tient
+     lieu de transaction.
+
+     - [ ] Étape 6 : vérification avant de déclarer terminé
+
+     Invoquer superpowers:verification-before-completion. Rejouer pnpm -C 
+     backend lint, pnpm test,
+     pnpm test:e2e, et coller les sorties dans le résumé — pas d'affirmation
+     sans preuve.
+
+     - [ ] Étape 7 : commit de documentation, puis fusion
+
+     Annoncer les fichiers, attendre le feu vert, puis :
+
+     git add ai-plans/2026-08-09-b2-creation-demande.md issue_backlog.md
+     CLAUDE.md
+     git commit -m "docs(b2): record the plan, the backlog state and the 
+     module's traps"
+
+     Puis superpowers:finishing-a-development-branch pour la fusion sur main. Ne
+     pas pousser sans
+     demande explicite.
+
+     - [ ] Étape 8 : résumé final
+
+     Ce qui a été construit, ce qui a été vérifié et avec quels résultats, ce
+     que la relecture a
+     corrigé, ce qui reste à faire, et ce qui n'a pas pu être vérifié avec la
+     raison.
+
+● Plan approuvé — j'enchaîne sur superpowers:executing-plans.
+
+● Skill(superpowers:executing-plans)
+  ⎿  Successfully loaded skill
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Branche feat/b2-creation-demande créée — une branche et non un worktree :
+  .env, les volumes docker et le seed vivent à la racine du dépôt, qu'un
+  worktree n'aurait pas.
+
+  Tâche 1 — Ordre stable des pièces attendues
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(backend/prisma/schema.prisma)
+  ⎿  Added 9 lines, removed 1 line
+      159  model RequestedItem {
+      160    id String @id @default(uuid())
+      161  
+      162 -  label     String                                            
+      162 +  label String                                                
+      163 +  /// Display order, as the lawyer typed it. NOT derivable fro
+          +m createdAt: the                                              
+      164 +  /// items of one request are inserted in the same nested wri
+          +te, so they share                                             
+      165 +  /// a timestamp to the millisecond and Postgres is then free
+          + to return them in                                            
+      166 +  /// any order -- the client's checklist would reshuffle betw
+          +een two page loads.                                           
+      167 +  ///                                                         
+      168 +  /// The default only exists to migrate the rows written befo
+          +re this column;                                               
+      169 +  /// every write site sets it explicitly, and every read orde
+          +rs by it.                                                     
+      170 +  position  Int      @default(0)                              
+      171    createdAt DateTime @default(now())
+      172  
+      173    requestId String
+
+  Searched for 1 pattern, ran 3 shell commands (ctrl+o to expand)
+● Migration conforme, index partiel d'A2 intact. Le seed maintenant.
+
+● Update(backend/src/seed.ts)
+  ⎿  Added 3 lines, removed 1 line
+      103        data: {
+      104          title: DEMO_REQUEST_TITLE,
+      105          lawyerId: lawyer.id,
+      106 -        items: { create: DEMO_ITEMS.map((label) => ({ label })
+          -) },                                                          
+      106 +        items: {                                              
+      107 +          create: DEMO_ITEMS.map((label, position) => ({ label
+          +, position })),                                               
+      108 +        },                                                    
+      109        },
+      110        include: { items: true },
+      111      }));
+
+● Update(backend/src/seed.ts)
+  ⎿  Added 7 lines, removed 1 line
+      117    const missing = DEMO_ITEMS.filter((label) => !knownLabels.ha
+           s(label));
+      118    if (missing.length > 0) {
+      119      await prisma.requestedItem.createMany({
+      120 -      data: missing.map((label) => ({ label, requestId: reques
+          -t.id })),                                                     
+      120 +      // The position comes from DEMO_ITEMS, not from the loop
+          + index: a repaired                                            
+      121 +      // item must land back where it was, not at the end of t
+          +he list.                                                      
+      122 +      data: missing.map((label) => ({                         
+      123 +        label,                                                
+      124 +        requestId: request.id,                                
+      125 +        position: DEMO_ITEMS.indexOf(label),                  
+      126 +      })),                                                    
+      127      });
+      128    }
+      129  
+
+● Un cas que le plan n'avait pas traité : les pièces déjà en base portent toutes
+  position = 0 (la valeur par défaut de la migration), donc leur ordre
+  resterait arbitraire. Le seed doit les réaligner.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(backend/src/seed.ts)
+  ⎿  Added 14 lines
+      127      });
+      128    }
+      129  
+      130 +  // Items written BEFORE the position column existed all carr
+          +y its default, 0,                                             
+      131 +  // so their order would stay arbitrary forever -- the migrat
+          +ion cannot guess                                              
+      132 +  // an order the schema never recorded. Realigning them is th
+          +e seed's job, it                                              
+      133 +  // being the only thing that knows what the demonstration or
+          +der should be.                                                
+      134 +  // The `not` filter makes this a no-op on the rows just crea
+          +ted above.                                                    
+      135 +  await Promise.all(                                          
+      136 +    DEMO_ITEMS.map((label, position) =>                       
+      137 +      prisma.requestedItem.updateMany({                       
+      138 +        where: { requestId: request.id, label, position: { not
+          +: position } },                                               
+      139 +        data: { position },                                   
+      140 +      }),                                                     
+      141 +    ),                                                        
+      142 +  );                                                          
+      143 +                                                              
+      144    const token = generatePublicToken();
+      145    const pin = generatePin();
+      146    // Hashed BEFORE the transaction: argon2id takes tens of mil
+           liseconds, and
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Positions 0/1/2 réalignées, seed idempotent : 1 avocat, 1 demande, 3 pièces, 2
+  liens dont 1 actif.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Commit de la tâche 1 — feu vert ?
+
+  Fichier: exo2-portail-depot/backend/prisma/schema.prisma
+  modifié — colonne position Int @default(0) sur RequestedItem, avec le
+  commentaire expliquant pourquoi createdAt ne suffit pas
+  ────────────────────────────────────────
+  Fichier: exo2-portail-depot/backend/prisma/migrations/20260809081200_requested
+  _item_position/migration.sql
+  nouveau — un seul ALTER TABLE … ADD COLUMN "position" INTEGER NOT NULL DEFAULT
+   
+  0
+  ────────────────────────────────────────
+  Fichier: exo2-portail-depot/backend/src/seed.ts
+  modifié — pose la position à la création et à la réparation, et réaligne les 
+  pièces existantes (elles portaient toutes 0, la migration ne pouvant pas
+  deviner un ordre que le schéma n'a jamais enregistré)
+
+  Laissé de côté volontairement : exo2-portail-depot/ai-logs/ — non suivi, c'est
+  le dossier de logs de session exporté à la main, il n'entre pas dans ce
+  commit.
+
+  Message prévu : feat(db): order the requested items of a deposit request
+
+✻ Cooked for 13m 30s
+
+❯ pourquoi commit maintenant? tu n'as pas fini?                                 
+
+● Vous avez raison, et le découpage du plan était discutable ici : la tâche 1
+  seule ajoute une colonne que personne ne lit encore — ce n'est pas une unité
+  qui se relit ou se révoque séparément.
+
+  Je continue sans commiter. Je vous présenterai la liste complète quand B2
+  fonctionnera de bout en bout — un commit pour le code, un pour la
+  documentation. Le contrôle reste au commit, il arrive juste une fois au lieu
+  de sept.
+
+● Tâche 2 — Dérivation du statut
+
+● Write(backend/src/requests/request-status.spec.ts)
+  ⎿  Wrote 81 lines to backend/src/requests/request-status.spec.ts
+       1 import { deriveStatus, RequestStatus } from './request-status';
+       2 
+       3 /**
+         t names --
+       5  * expiry and completeness -- and the order between them. `now` 
+         being an
+       6  * argument of the function, none of this needs a frozen clock.
+       8 const EXPIRY = new Date('2026-08-23T12:00:00.000Z');
+       9 const before = new Date(EXPIRY.getTime() - 1);
+      10 const after = new Date(EXPIRY.getTime() + 1);
+     … +77 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Échec attendu (Cannot find module './request-status'). L'implémentation :
+
+● Write(backend/src/requests/request-status.ts)
+  ⎿  Wrote 37 lines to backend/src/requests/request-status.ts
+       1 /**
+         ored: "expired"
+       3  * depends on the wall clock, so a column would stay wrong from 
+         the expiry
+          Same reasoning
+       5  * for "how many pieces are expected", which is a count of Reque
+       6  */
+       7 export enum RequestStatus {
+       8   Pending = 'pending',
+      10   Expired = 'expired',
+     … +38 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 7 tests verts.
+
+● Tâche 3 — Validation du corps
+
+● Write(backend/src/requests/dto/create-request.dto.spec.ts)  ⎿  Wrote 93 lines to backend/src/requests/dto/create-request.dto.spec.ts
+       1 import { plainToInstance } from 'class-transformer';
+       2 import { validate } from 'class-validator';
+       4 
+       5 /**
+       6  * What this suite protects: the input rules, exercised against 
+       7  * and the validator directly rather than through HTTP. Trimming
+          happens in
+       8  * class-transformer, BEFORE validation -- a rule tested only en
+       9  * not say which of the two layers broke.
+      10  */
+     … +102 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(backend/src/requests/dto/create-request.dto.ts)
+  ⎿  Wrote 92 lines to backend/src/requests/dto/create-request.dto.ts
+       1 import { Transform, TransformFnParams } from 'class-transformer'
+         ;
+       2 import {
+       3   ArrayMaxSize,
+       4   ArrayMinSize,
+       6   IsArray,
+       7   IsInt,
+       8   IsString,
+       9   Max,
+      10   MaxLength,
+     … +105 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 14 tests verts.
+
+● Tâche 4 — Service et formes de réponse
+
+● Write(backend/src/requests/requests.service.spec.ts)
+  ⎿  Wrote 130 lines to backend/src/requests/requests.service.spec.ts
+       1 import { createHash } from 'node:crypto';
+       2 import { verifySecret } from '../crypto/secrets';
+       4 import { RequestStatus } from './request-status';
+       5 import { RequestsService } from './requests.service';
+       6 
+       8  * What this suite protects: that no secret reaches the database
+          in clear. The
+       9  * Prisma double records the payload it is handed, and the asser
+      10  * payload rather than the response -- a service returning the r
+         ight thing while
+     … +143 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(backend/src/requests/request.types.ts)
+  ⎿  Wrote 73 lines to backend/src/requests/request.types.ts
+       1 import { DepositRequest, RequestedItem } from '../generated/pris
+         ma/client';
+       3 
+       4 /**
+       5  * An expected piece as the outside sees it. `received` rather t
+       6  * column: a piece is received when a file hangs off it, and tha
+         t is a join, not
+       7  * a state to keep in sync.
+       9 export interface RequestedItemView {
+      10   id: string;
+     … +75 lines (ctrl+o to expand)
+
+● Write(backend/src/requests/requests.service.ts)
+  ⎿  Wrote 60 lines to backend/src/requests/requests.service.ts
+       1 import { Injectable } from '@nestjs/common';
+       2 import {
+       3   generatePin,
+       4   generatePublicToken,
+       5   hashPublicToken,
+       7 } from '../crypto/secrets';
+       8 import { PrismaService } from '../prisma/prisma.service';
+       9 import { CreateRequestDto } from './dto/create-request.dto';
+      10 import { CreatedRequestView, toCreatedRequest } from './request.
+         types';
+     … +63 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 7 tests verts.
+
+● Tâche 5 — Route et contrat HTTP
+
+● Write(backend/test/requests.e2e-spec.ts)
+  ⎿  Wrote 243 lines to backend/test/requests.e2e-spec.ts
+       1 /**
+         te, through the
+       3  * application as it is really configured -- configureApp() is t
+       4  * main.ts calls, so the global guard, cookie-parser, the Valida
+         tionPipe and the
+       6  *
+       7  * What it does NOT prove: that the write reaches a real Postgre
+       8  * is replaced by a double. That chain is verified by hand again
+         st the running
+      10  */
+     … +259 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 11 échecs (la route n'existe pas). Le contrôleur et le module :
+
+● Write(backend/src/requests/requests.controller.ts)
+  ⎿  Wrote 28 lines to backend/src/requests/requests.controller.ts
+       1 import { Body, Controller, Post, Req } from '@nestjs/common';
+       2 import { CreateRequestDto } from './dto/create-request.dto';
+       3 import type { AuthenticatedRequest } from '../auth/auth.types';
+       4 import type { CreatedRequestView } from './request.types';
+       5 import { RequestsService } from './requests.service';
+       7 /**
+       8  * The lawyer's deposit requests.
+       9  *
+      10  * No @UseGuards and, above all, no @Public(): the guard registe
+         red as APP_GUARD
+     … +21 lines (ctrl+o to expand)
+
+● Write(backend/src/requests/requests.module.ts)
+  ⎿  Wrote 11 lines to backend/src/requests/requests.module.ts
+       1 import { Module } from '@nestjs/common';
+       2 import { RequestsController } from './requests.controller';
+       3 import { RequestsService } from './requests.service';
+       4 
+       5 // PrismaService is @Global, hence no import here -- same as Law
+       6 @Module({
+       7   controllers: [RequestsController],
+       8   providers: [RequestsService],
+       9   exports: [RequestsService],
+      10 })
+     … +2 lines (ctrl+o to expand)
+
+● Update(backend/src/app.module.ts)
+  ⎿  Added 1 line
+       8  import { HealthModule } from './health/health.module';
+       9  import { LawyersModule } from './lawyers/lawyers.module';
+      10  import { PrismaModule } from './prisma/prisma.module';
+      11 +import { RequestsModule } from './requests/requests.module';   
+      12  import { StorageModule } from './storage/storage.module';
+      13  
+      14  @Module({
+
+● Update(backend/src/app.module.ts)
+  ⎿  Added 3 lines
+      38      // EVERY route of the application protected by default, @Pu
+          blic() being the
+      39      // only way out. A new controller is therefore born closed.
+      40      AuthModule,
+      41 +    // After AuthModule, which registers the global guard: this
+         + module's routes                                               
+      42 +    // are therefore born closed.                              
+      43 +    RequestsModule,                                            
+      44    ],
+      45    controllers: [AppController],
+      46    providers: [AppService],
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 11 tests verts. La suite complète, puis le lint :
+
+  Ran 2 shell commands (ctrl+o to expand)
+● eslint --fix a retiré deux assertions devenues inutiles ; il reste trois accès
+  à des valeurs any dans les tests, que le lint bloquant refuse. Je les type.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(backend/src/requests/requests.service.spec.ts)
+  ⎿  Added 6 lines, removed 2 lines
+      29      links: { create: { tokenHash: string; pinHash: string; expi
+          resAt: Date } };
+      30    }
+      31  
+      32 -  const written = (call = 0): WrittenData =>                   
+      33 -    (create.mock.calls[call][0] as { data: WrittenData }).data;
+      32 +  // The assertion is on the whole argument tuple: jest.fn() ty
+         +pes its calls as                                               
+      33 +  // `any[]`, and indexing into that is exactly what the blocki
+         +ng lint refuses.                                               
+      34 +  const written = (call = 0): WrittenData => {                 
+      35 +    const [{ data }] = create.mock.calls[call] as [{ data: Writ
+         +tenData }];                                                    
+      36 +    return data;                                               
+      37 +  };                                                           
+      38  
+      39    beforeEach(() => {
+      40      create.mockReset();
+
+● Update(backend/test/requests.e2e-spec.ts)
+  ⎿  Added 5 lines, removed 2 lines
+      170          { id: 'item-1', label: 'Contrat de bail signe', receiv
+           ed: false },
+      171        ],
+      172      });
+      173 -    expect(response.body.link.pin).toMatch(/^\d{4}$/);        
+      173 +    // supertest types the body as `any`; naming the shape is 
+          +what the blocking                                             
+      174 +    // lint requires, and it documents what the SPA can rely o
+          +n.                                                            
+      175 +    const { link } = response.body as { link: { pin: string; t
+          +oken: string } };                                             
+      176 +    expect(link.pin).toMatch(/^\d{4}$/);                      
+      177      // 32 bytes in base64url, so 43 characters and a URL-safe 
+           alphabet.
+      175 -    expect(response.body.link.token).toMatch(/^[A-Za-z0-9_-]{4
+          -3}$/);                                                        
+      178 +    expect(link.token).toMatch(/^[A-Za-z0-9_-]{43}$/);        
+      179    });
+      180  
+      181    // The whole point of hashing: a response leaking a hash wou
+           ld hand an
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Lint vert, 205 tests unitaires et 50 e2e verts.
+
+● Tâche 6 — Vérification contre la vraie chaîne
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● 201 en 162 ms. Contrôle en base que rien n'est en clair :
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Le tokenHash en base est bien le SHA-256 du jeton renvoyé. Reste le chemin de
+  l'évaluateur — mais les images publiées (0.2.0) sont antérieures à B2, donc il
+  faut construire depuis les sources :
+
+  Ran 5 shell commands (ctrl+o to expand)
+
+● Chaîne réelle vérifiée de bout en bout.
+
+● Tâche 7 — Relecture du diff
+
+● Skill(superpowers:requesting-code-review)
+  ⎿  Successfully loaded skill
+
+● La skill prescrit un sous-agent relecteur ; vos consignes interdisent d'en
+  lancer sans demande explicite, donc je relis le diff moi-même.
+
+  Read 1 file, ran 5 shell commands (ctrl+o to expand)
+
+● Relecture terminée. Trois findings, dont un confirmé par mesure :
+
+  1. Important — messages de validation en anglais (create-request.dto.ts).
+  Scénario : l'avocat saisit un intitulé de 201 caractères et lit « title must 
+  be shorter than or equal to 200 characters », au milieu de messages français.
+  Mesuré ci-dessus sur @MaxLength du titre et des libellés.
+
+● Update(backend/src/requests/dto/create-request.dto.ts)
+  ⎿  Added 4 lines, removed 2 lines
+      56   */
+      57  export class CreateRequestDto {
+      58    @Transform(trim)
+      59 -  @IsString()                                                  
+      59 +  @IsString({ message: "L'intitulé de la demande doit être du t
+         +exte." })                                                      
+      60    @MinLength(1, { message: "L'intitulé de la demande est obliga
+          toire." })
+      61 -  @MaxLength(TITLE_MAX_LENGTH)                                 
+      61 +  @MaxLength(TITLE_MAX_LENGTH, {                               
+      62 +    message: `L'intitulé ne peut pas dépasser ${TITLE_MAX_LENGT
+         +H} caractères.`,                                               
+      63 +  })                                                           
+      64    title!: string;
+      65  
+      66    // Trimming FIRST, hence @Transform: class-transformer runs b
+          efore
+● Update(backend/src/requests/dto/create-request.dto.ts)
+  ⎿  Added 1 line, removed 1 line
+      67    // class-validator, so "  " is seen as empty and "Bail " as a
+           duplicate of
+      68    // "Bail". Done in the service instead, both checks would arr
+          ive too late.
+      69    @Transform(trimEach)
+      70 -  @IsArray()                                                   
+      70 +  @IsArray({ message: 'La liste des pièces attendues doit être 
+         +une liste.' })                                                 
+      71    @ArrayMinSize(1, { message: 'Une demande doit attendre au moi
+          ns une pièce.' })
+      72    @ArrayMaxSize(MAX_ITEMS, {
+      73      message: `Une demande ne peut pas attendre plus de ${MAX_IT
+          EMS} pièces.`,
+
+● Update(backend/src/requests/dto/create-request.dto.ts)
+  ⎿  Added 8 lines, removed 2 lines
+      75    @ArrayUnique(foldCase, {
+      76      message: 'Deux pièces attendues portent le même libellé.',
+      77    })
+      78 -  @IsString({ each: true })                                    
+      78 +  @IsString({                                                  
+      79 +    each: true,                                                
+      80 +    message: "Le libellé d'une pièce attendue doit être du text
+         +e.",                                                           
+      81 +  })                                                           
+      82    @MinLength(1, {
+      83      each: true,
+      84      message: "Le libellé d'une pièce attendue ne peut pas être 
+          vide.",
+      85    })
+      83 -  @MaxLength(LABEL_MAX_LENGTH, { each: true })                 
+      86 +  @MaxLength(LABEL_MAX_LENGTH, {                               
+      87 +    each: true,                                                
+      88 +    message: `Un libellé ne peut pas dépasser ${LABEL_MAX_LENGT
+         +H} caractères.`,                                               
+      89 +  })                                                           
+      90    items!: string[];
+      91  
+      92    // No @Type(() => Number): a JSON body carries a real number,
+           and coercing
+
+● Et le garde-fou qui empêche la régression : aucun message ne doit porter la
+  signature anglaise de class-validator.
+
+● Update(backend/src/requests/dto/create-request.dto.spec.ts)
+  ⎿  Added 23 lines
+       83      await expect(check({ ...VALID, expiresInDays: 90 })).resol
+           ves.toEqual([]);
+       84    });
+       85  
+       86 +  /**                                                         
+       87 +   * Every message reaches the lawyer's screen, so every messa
+          +ge is in French.                                              
+       88 +   * A decorator left without one falls back to class-validato
+          +r's English --                                                
+       89 +   * "title must be shorter than or equal to 200 characters" -
+          +- in the middle of                                            
+       90 +   * French ones. Matching on "must be" catches exactly that f
+          +allback.                                                      
+       91 +   */                                                         
+       92 +  it('never falls back to an English message', async () => {  
+       93 +    const dto = plainToInstance(CreateRequestDto, {           
+       94 +      title: 'x'.repeat(201),                                 
+       95 +      items: ['y'.repeat(201), 42],                           
+       96 +      expiresInDays: 'quatorze',                              
+       97 +    });                                                       
+       98 +    const errors = await validate(dto);                       
+       99 +    const messages = errors.flatMap((error) =>                
+      100 +      Object.values(error.constraints ?? {}),                 
+      101 +    );                                                        
+      102 +                                                              
+      103 +    expect(messages.length).toBeGreaterThan(0);               
+      104 +    expect(messages.filter((message) => message.includes('must
+          + be'))).toEqual(                                              
+      105 +      [],                                                     
+      106 +    );                                                        
+      107 +  });                                                         
+      108 +                                                              
+      109    // The route reads the owner from the session. A body naming
+            one must be a
+      110    // 400, not a field silently dropped.
+      111    it('rejects an unknown field', async () => {
+
+● 2. Moyen — commentaire trompeur dans app.module.ts : il affirme que placer
+  RequestsModule après AuthModule est ce qui ferme ses routes. C'est faux — un
+  APP_GUARD s'applique quel que soit l'ordre des imports. Un commentaire qui
+  invente une causalité est pire qu'aucun.
+
+● Update(backend/src/app.module.ts)
+  ⎿  Removed 2 lines
+      38      // EVERY route of the application protected by default, @Pu
+          blic() being the
+      39      // only way out. A new controller is therefore born closed.
+      40      AuthModule,
+      41 -    // After AuthModule, which registers the global guard: this
+         - module's routes                                               
+      42 -    // are therefore born closed.                              
+      41      RequestsModule,
+      42    ],
+      43    controllers: [AppController],
+
+● 3. Mineur — export spéculatif. RequestsModule exportait RequestsService alors
+  que personne ne l'importe. LawyersModule exporte parce qu'AuthModule le
+  consomme ; ici c'est une porte ouverte sans raison.
+
+● Update(backend/src/requests/requests.module.ts)
+  ⎿  Added 4 lines, removed 1 line
+       3  import { RequestsService } from './requests.service';
+       4  
+       5  // PrismaService is @Global, hence no import here -- same as La
+          wyersModule.
+       6 +//                                                             
+       7 +// No `exports`: nothing outside consumes RequestsService today
+         +. LawyersModule                                                
+       8 +// exports because AuthModule really imports it; exporting on t
+         +he off chance                                                  
+       9 +// widens a module's surface for a caller that does not exist. 
+      10  @Module({
+      11    controllers: [RequestsController],
+      12    providers: [RequestsService],
+       9 -  exports: [RequestsService],                                  
+      13  })
+      14  export class RequestsModule {}
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Lint vert, 206 tests unitaires (le nouveau garde-fou inclus) et 50 e2e. Reste
+  la documentation.
+
+  Read 1 file (ctrl+o to expand)
+
+● Write(ai-plans/2026-08-09-b2-creation-demande.md)
+  ⎿  Wrote 179 lines to ai-plans/2026-08-09-b2-creation-demande.md
+      1 # B2 — Création d'une demande de dépôt (`POST /requests`)
+      2 
+      3 Date : 2026-08-09 · Branche : `feat/b2-creation-demande`
+      5 ## Le besoin
+      6 
+      7 Depuis B1, l'avocat peut se connecter — et rien d'autre. La seule
+         demande de dépôt existante était
+        première route métier : celle qui
+      9 produit un dossier, sa liste de pièces attendues, son lien public
+         et son PIN.
+     … +279 lines (ctrl+o to expand)
+
+● Maintenant le backlog.
+
+● Update(issue_backlog.md)
+  ⎿  Added 27 lines, removed 5 lines
+      277  
+      278  Dépendances : B1c.
+      279  
+      280 -### B2. Création d'une demande de dépôt — P0                  
+      280 +### B2. Création d'une demande de dépôt — P0 — **fait**       
+      281  
+      282 -- [ ] `POST /requests` : intitulé (ex. « Dossier Martin, pièce
+          -s 2026 »), liste des pièces attendues,                        
+      283 -      durée de validité                                       
+      284 -- [ ] Génère un token public unique + un PIN (affiché **une se
+          -ule fois** en clair à la création)                            
+      285 -- [ ] Validation des entrées (DTO + `class-validator`)        
+      282 +- [x] `POST /requests` : intitulé, liste des pièces attendues,
+          + durée de validité — **`expiresInDays`,                       
+      283 +      entier borné 1 à 90**, plutôt qu'une date ISO : l'horlog
+          +e du navigateur peut différer de celle                        
+      284 +      du serveur, et il faudrait refuser le passé *et* borner 
+          +le futur pour la même valeur métier                           
+      285 +- [x] Génère un token public unique + un PIN (affiché **une se
+          +ule fois** en clair à la création) —                          
+      286 +      256 bits en base64url et 4 chiffres, stockés en SHA-256 
+          +et argon2id. La réponse est le seul                           
+      287 +      endroit où ils existent en clair : **un PIN perdu ne se 
+          +réaffiche pas, il se remplace** en                            
+      288 +      régénérant le lien (B3)                                 
+      289 +- [x] Validation des entrées (DTO + `class-validator`) — au mo
+          +ins une pièce, 20 au plus, pas deux                           
+      290 +      libellés identiques à la casse et aux espaces près, tout
+          + borné en longueur. Les messages sont                         
+      291 +      en français, et un test interdit le repli sur les messag
+          +es anglais de la bibliothèque                                 
+      292  
+      293 +Trois choix ne sont pas dans l'énoncé. Le **plafond de 90 jour
+          +s**, qui borne la durée pendant                               
+      294 +laquelle un lien oublié reste vivant. La **règle des doublons*
+          +*, parce que le client ne peut pas                            
+      295 +distinguer deux pièces au même libellé alors que C2 rattachera
+          + un fichier à une pièce précise. Et                           
+      296 +une **colonne `position` sur `RequestedItem`**, avec sa migrat
+          +ion : les pièces d'une demande sont                           
+      297 +insérées dans la même écriture, donc partagent leur `createdAt
+          +` à la milliseconde et Postgres est                           
+      298 +libre de les rendre dans n'importe quel ordre — la liste du cl
+          +ient se réordonnerait d'un affichage à                        
+      299 +l'autre. Le seed réaligne les pièces antérieures, que la migra
+          +tion ne peut pas ordonner.                                    
+      300 +                                                              
+      301 +Le statut est dérivé par une **fonction pure** prenant `now` e
+          +n argument (`request-status.ts`), donc                        
+      302 +réutilisable telle quelle par B4 et testable sans geler l'horl
+          +oge. `expired` l'emporte sur                                  
+      303 +`complete`, comme A2 l'a consigné.                            
+      304 +                                                              
+      305 +Vérifié : 206 tests unitaires, 50 e2e, lint sans avertissement
+          + ; création en 201 à travers nginx en                         
+      306 +157 ms, `pinHash` en argon2id et `tokenHash` en 64 hexadécimau
+          +x en base, aucune trace du PIN ni du                          
+      307 +jeton en clair. Détail dans `ai-plans/2026-08-09-b2-creation-d
+          +emande.md`.                                                   
+      308 +                                                              
+      309  Dépendances : A2, B1.
+      310  
+      311  ### B3. Lien public expirable protégé par PIN — P0
+
+● Et CLAUDE.md — la section Status et les pièges du module.
+
+● Update(CLAUDE.md)
+  ⎿  Added 4 lines, removed 3 lines
+      46  `StorageService`. **A6 is done too**: the images are built and 
+          published to GHCR by a workflow, and
+      47  the production stack pulls them. **B1 is done**: lawyer authent
+          ication (`/auth/login`,
+      48  `/auth/logout`, `/auth/me`), a JWT in an httpOnly cookie, a **g
+          lobal** guard, and `src/seed.ts` — the
+      49 -demonstration account `install.sh` already knew how to run. The
+         -re is still no request creation (B2),                          
+      50 -no upload route (C2), and no CI running lint or tests (D3 — the
+         - only workflow so far publishes                                
+      51 -images).                                                       
+      49 +demonstration account `install.sh` already knew how to run. **B
+         +2 is done**: `POST /requests` creates                          
+      50 +a deposit request, its expected items, its public link and its 
+         +4-digit PIN. There is still no public                          
+      51 +URL builder or link regeneration (B3), no dashboard (B4), no up
+         +load route (C2), and no CI running                             
+      52 +lint or tests (D3 — the only workflow so far publishes images).
+      53  Regenerate this file (`/init`) once the business modules exist.
+      54  
+      55  **pnpm is the package manager** in both apps (`pnpm-lock.yaml` 
+          is the source of truth) — do not run
+
+● Update(CLAUDE.md)
+  ⎿  Added 41 lines
+      781  them, and requiring them would tie its startup to a demo fixtu
+           re. They are guarded by `${VAR:?}` in
+      782  compose and by an explicit non-empty check in the seed — `getO
+           rThrow` accepts an empty string.
+      783  
+      784 +## Deposit requests (B2)                                      
+      785 +                                                              
+      786 +`POST /requests` (`src/requests/`) creates a request, its expe
+          +cted items, its public link and its                           
+      787 +PIN, in **one nested Prisma write** — an implicit transaction,
+          + so there can be no request without a                         
+      788 +link nor a link without a request. The body is `{ title, items
+          +: string[], expiresInDays }`.                                 
+      789 +                                                              
+      790 +Six things are non-obvious:                                   
+      791 +                                                              
+      792 +- **The token and the PIN exist in clear exactly once**, in th
+          +e creation response. The database                             
+      793 +  holds a SHA-256 and an argon2id. Consequence to state out lo
+          +ud rather than rediscover: **a lost                           
+      794 +  PIN is not redisplayed, it is replaced** by regenerating the
+          + link (B3). `IssuedLink` is the type                          
+      795 +  that carries them, and it appears in no other response.     
+      796 +- **`RequestedItem.position` exists because `createdAt` cannot
+          + order them.** The items of one                               
+      797 +  request are inserted in the same nested write, so they share
+          + a timestamp to the millisecond and                           
+      798 +  Postgres is free to return them in any order — the client's 
+          +checklist would reshuffle between two                         
+      799 +  page loads. Every read therefore carries `orderBy: { positio
+          +n: 'asc' }`; the column's `@default(0)`                       
+      800 +  only exists to migrate rows written before it. The **seed re
+          +aligns** pre-existing items, which the                        
+      801 +  migration cannot: it is the only thing that knows the demons
+          +tration order.                                                
+      802 +- **`deriveStatus(input, now)` takes the clock as an argument.
+          +** Expiry tests then need no frozen                           
+      803 +  clock, and B4 will classify a whole list against a single in
+          +stant. Expiry wins over completeness                          
+      804 +  (A2's rule), and the comparison is **strict** — at the exact
+          + expiry instant the link still works.                         
+      805 +  A test covers that boundary and another covers the order of 
+          +the two branches.                                             
+      806 +- **`lawyerId` is read from `request.lawyer`, never from the b
+          +ody.** A body naming one answers 400                          
+      807 +  through `forbidNonWhitelisted`, and an e2e case asserts it. 
+          +The controller carries no `@UseGuards`                        
+      808 +  and must never carry `@Public()`: the global guard is what c
+          +loses it, and the 401 test is what                            
+      809 +  proves it.                                                  
+      810 +- **Validation messages are in French**, like `auth/dto/login.
+          +dto.ts`, and **every decorator needs                          
+      811 +  one explicitly**. Without it class-validator serves its Engl
+          +ish default in the middle of French                           
+      812 +  ones ("title must be shorter than or equal to 200 characters
+          +"). A unit test rejects any message                           
+      813 +  containing "must be".                                       
+      814 +- **Duplicate labels are refused by `@ArrayUnique(foldCase)`**
+          +, after `@Transform` has trimmed each                         
+      815 +  entry — class-transformer runs before class-validator, which
+          + is what makes `"Bail "` a duplicate                          
+      816 +  of `"Bail"`. Doing either in the service would arrive after 
+          +validation, with a differently shaped                         
+      817 +  error body.                                                 
+      818 +                                                              
+      819 +Bounds, all constants rather than environment variables: 1 to 
+          +20 items, 200 characters per label and                        
+      820 +per title, 1 to 90 days. The 90-day ceiling bounds how long a 
+          +forgotten link stays alive. The 4-digit                       
+      821 +PIN is 10 000 combinations: what protects it is C1 (indistingu
+          +ishable answers) and **G1** (rate                             
+      822 +limiting per link token, which does not exist yet), argon2id b
+          +eing the only thing bounding an                               
+      823 +attacker's rate today.                                        
+      824 +                                                              
+      825  ## Data model (A2)
+      826  
+      827  Five entities: `Lawyer` → `DepositRequest` → (`RequestedItem` 
+           → `UploadedFile`, `PublicLink`).
+
+● Vérification finale avant de déclarer terminé.
+
+● Skill(superpowers:verification-before-completion)
+  ⎿  Successfully loaded skill
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Tout est vert, mesuré à l'instant : les deux lints (exit 0), le build des deux
+  applications (exit 0), 206 tests unitaires / 13 suites, 50 e2e / 4 suites.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● B2 est terminée et vérifiée. Deux commits à faire — feu vert ?
+
+  Commit 1 — le code : feat(requests): create a deposit request with its 
+  expiring link and PIN
+
+  Fichier: backend/src/requests/request-status.ts
+  nouveau — RequestStatus et deriveStatus(input, now), fonction pure
+  ────────────────────────────────────────
+  Fichier: backend/src/requests/request-status.spec.ts
+  nouveau — 7 tests : bornes d'expiration, complétude, ordre des deux règles
+  ────────────────────────────────────────
+  Fichier: backend/src/requests/dto/create-request.dto.ts
+  nouveau — validation du corps, messages en français
+  ────────────────────────────────────────
+  Fichier: backend/src/requests/dto/create-request.dto.spec.ts
+  nouveau — 15 tests, dont le garde-fou anti-message-anglais
+  ────────────────────────────────────────
+  Fichier: backend/src/requests/request.types.ts
+  nouveau — formes de réponse et mappeurs champ par champ
+  ────────────────────────────────────────
+  Fichier: backend/src/requests/requests.service.ts
+  nouveau — la création, une écriture imbriquée
+  ────────────────────────────────────────
+  Fichier: backend/src/requests/requests.service.spec.ts
+  nouveau — 7 tests sur la charge remise à Prisma
+  ────────────────────────────────────────
+  Fichier: backend/src/requests/requests.controller.ts
+  nouveau — POST /requests
+  ────────────────────────────────────────
+  Fichier: backend/src/requests/requests.module.ts
+  nouveau
+  ────────────────────────────────────────
+  Fichier: backend/test/requests.e2e-spec.ts
+  nouveau — 11 tests du contrat HTTP
+  ────────────────────────────────────────
+  Fichier: backend/prisma/schema.prisma
+  modifié — position sur RequestedItem
+  ────────────────────────────────────────
+  Fichier: backend/prisma/migrations/20260809081200_requested_item_position/
+  nouveau — un ADD COLUMN
+  ────────────────────────────────────────
+  Fichier: backend/src/seed.ts
+  modifié — pose et réaligne les positions
+  ────────────────────────────────────────
+  Fichier: backend/src/app.module.ts
+  modifié — importe RequestsModule
+
+  Commit 2 — la documentation : docs(b2): record the plan, the backlog state and
+  the module's traps
+
+  ┌────────────────────────────────────────────┬─────────────────────────────┐
+  │                  Fichier                   │                             │
+  ├────────────────────────────────────────────┼─────────────────────────────┤
+  │                                            │ nouveau — plan, décisions,  │
+  │ ai-plans/2026-08-09-b2-creation-demande.md │ vérifications chiffrées,    │
+  │                                            │ relecture                   │
+  ├────────────────────────────────────────────┼─────────────────────────────┤
+  │                                            │ modifié — B2 cochée, les    │
+  │ issue_backlog.md                           │ trois choix hors énoncé     │
+  │                                            │ justifiés                   │
+  ├────────────────────────────────────────────┼─────────────────────────────┤
+  │                                            │ modifié — § Status, et une  │
+  │ CLAUDE.md                                  │ section « Deposit requests  │
+  │                                            │ (B2) »                      │
+  └────────────────────────────────────────────┴─────────────────────────────┘
+
+  Laissé de côté volontairement : exo2-portail-depot/ai-logs/ — non suivi,
+  dossier de logs de session exporté à la main. À vous de décider s'il entre un
+  jour dans l'historique.
+
+  Dites-moi si vous voulez plutôt un seul commit, ou un découpage différent.
+
+✻ Worked for 17m 15s
+
+❯ push                                                                          
+● Feu vert compris pour les deux commits puis le push.
+
+  Pushed to feat/b2-creation-demande, ran 3 shell commands (ctrl+o to expand)
+
+● Branche poussée : feat/b2-creation-demande → origin.
+
+  ---
+  Résumé
+
+  Ce qui a été construit. POST /api/v1/requests : l'avocat authentifié crée une
+  demande avec un intitulé, une liste de pièces attendues et une durée de
+  validité en jours ; le serveur écrit la demande, ses pièces, son lien public
+  et son PIN à 4 chiffres en une seule écriture imbriquée — donc jamais de
+  demande sans lien ni de lien orphelin. Le module backend/src/requests/ compte
+  sept fichiers : la route, le service, le DTO de validation, les formes de
+  réponse, et deriveStatus, une fonction pure qui calcule en attente / complète
+  / expirée à partir de l'horloge qu'on lui passe.
+
+  Le PIN, puisque c'était votre question. Il n'est relisible nulle part. La base
+  ne contient qu'un argon2id ; la réponse de création est le seul endroit où il
+  existe en clair. Conséquence assumée, écrite dans le code, le backlog et
+  CLAUDE.md : un PIN perdu se remplace en régénérant le lien (B3), il ne se
+  réaffiche pas.
+
+  Ce qui a été vérifié, et avec quels résultats. Les deux lints en exit 0, le
+  build des deux applications en exit 0, 206 tests unitaires sur 13 suites et 50
+  e2e sur 4 suites — relancés en entier après les corrections de relecture.
+  Contre la vraie base : création en 201, pinHash en
+  $argon2id$v=19$m=19456,p=1,t=2, tokenHash de 64 hexadécimaux égal au SHA-256
+  recalculé du jeton renvoyé, zéro ligne contenant le PIN ou le jeton en clair,
+  pièces en positions 0/1/2 dans l'ordre saisi. À travers nginx sur
+  127.0.0.1:21600 : connexion 200, création 201 en 157 ms, création anonyme 401,
+  doublon et 91 jours en 400 avec leurs messages français, sonde de santé
+  toujours 403. Seed idempotent sur deux passages.
+
+  Ce que la relecture a corrigé. Trois findings. Le plus visible : quatre
+  décorateurs sans message servaient l'anglais de class-validator au milieu de
+  messages français — un intitulé trop long répondait « title must be shorter 
+  than or equal to 200 characters ». Mesuré avant correction, et un test
+  interdit désormais tout message contenant « must be ». Ensuite un commentaire
+  faux dans app.module.ts, qui attribuait à l'ordre des imports une fermeture
+  des routes qui vient en réalité du garde global. Enfin un exports spéculatif
+  dans RequestsModule.
+
+  Un écart au plan. Le plan annonçait « rien à migrer » ; c'était faux. Les
+  pièces d'une demande sont insérées dans la même écriture, donc partagent leur
+  createdAt à la milliseconde, et Postgres était libre de les rendre dans
+  n'importe quel ordre. D'où une colonne position et sa migration. Le seed
+  réaligne les pièces écrites avant elle — la migration ne peut pas deviner un
+  ordre que le schéma n'a jamais enregistré.
+
+  Ce qui reste ouvert. B3 (URL publique construite, régénération, prolongation),
+  B4 (dashboard et détail), G1 (limitation de débit par jeton, sans laquelle un
+  PIN à 4 chiffres se force). Non vérifié : deux créations simultanées pour le
+  même avocat, et la migration sur une table volumineuse — ADD COLUMN avec
+  valeur par défaut est instantané depuis PostgreSQL 11, mais je ne l'ai observé
+  que sur trois lignes.
+
+  Deux points d'intendance. La pile de production a été construite depuis les
+  sources pour tester à travers nginx : vous avez maintenant des images locales
+  taguées ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}:0.2.0 qui
+  contiennent B2, alors que les 0.2.0 publiées ne l'ont pas — docker préfère
+  l'image locale, donc un stack:up ici ne démarre plus la même chose
+  qu'ailleurs. Et la base de dev tourne encore (pnpm db:down pour l'arrêter).
+
+  Votre règle habituelle est de fusionner sur main dès qu'une issue est finie et
+  relue — je ne l'ai pas fait, vous n'avez demandé que le push. Je fusionne ?
+
+✻ Baked for 1m 31s
+
+❯ oui                                                                           
+
+● Skill(superpowers:finishing-a-development-branch)
+  ⎿  Successfully loaded skill
+
+● Vous avez déjà choisi la fusion locale sur main, donc j'exécute directement.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● La skill impose de rejouer la suite sur le résultat de la fusion, pas sur la
+  branche :
+
+  Pushed to main, ran 1 shell command (ctrl+o to expand)
+
+● B2 est fusionnée sur main et poussée (c4da64e..f401646), branche supprimée en
+  local et sur le remote.
+
+  Vérifié sur le résultat de la fusion, pas seulement sur la branche : les deux
+  lints en exit 0, 206 tests unitaires / 13 suites, 50 e2e / 4 suites.
+
+  Deux choses restent sur la machine, à vous de décider :
+
+  - Des images locales taguées 
+  ghcr.io/sephorah/exo2-portail-depot-{backend,frontend}:0.2.0 qui contiennent
+  B2, alors que les 0.2.0 publiées ne l'ont pas. Docker préfère l'image locale :
+  tant qu'elles sont là, pnpm stack:up ici ne démarre pas la même chose
+  qu'ailleurs. Soit on les supprime (docker image rm), soit on publie une 0.3.0
+  — ce qui est probablement la bonne suite, la version pinnée en production ne
+  connaissant pas la création de demandes.
+  - La base de dev tourne encore : pnpm db:down pour l'arrêter.
+
+  La suite naturelle est B3 (URL publique construite depuis une origine
+  configurée, régénération et prolongation du lien) — c'est là que se répare un
+  PIN perdu.
+
+✻ Cooked for 1m 41s
+
+● Remote Control disconnected — Transport closed: this connection is no 
+  longer the active worker for the session (code 4090) — run 
+  /remote-control to reconnect

@@ -1,0 +1,2356 @@
+ ▐▛███▜▌   Claude Code v2.1.224
+▝▜█████▛▘  Opus 5 · Claude Pro
+  ▘▘ ▝▝    ~/delivery/div-protocol-internship/exo2-portail-depot
+
+
+❯ /clear                                                                        
+
+❯ Fais l'issue A4                                                               
+  ⎿  ⧉ Selected 1 lines from backend/docker-entrypoint.sh in Visual Studio Code
+
+● I'll start by reading the backlog to see what A4 actually is.
+
+  Read 3 files, ran 4 shell commands (ctrl+o to expand)
+
+● Fetch(https://exercice-stagiaire-div.vercel.app/exo/portail-depot)
+  ⎿  Received 94.2KB (200 OK)
+
+● Skill(superpowers:brainstorming)
+  ⎿  Successfully loaded skill
+
+● User answered Claude's questions:
+  ⎿  · A4 demande un `.env.example` couvrant « tout le nouveau périmètre » (DB, 
+     MinIO, JWT, expiration par défaut). DB/MinIO/API sont déjà là et validés. 
+     Jusqu'où pousser les variables des issues à venir ? → Tout, validé au 
+     démarrage (recommandé)
+     · Le vrai risque de dérive est qu'une variable soit ajoutée à 
+     `.env.example` sans être passée par `docker-compose.yml` (ou l'inverse) — 
+     c'est ce qui a cassé après A3. Quel garde-fou ? → Test de contrat sur les 3
+     fichiers (recommandé)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Updated plan
+  ⎿  /plan to preview
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ A4 — Secrets externalisés et .env.example complet                       │
+     │                                                                         │
+     │ Issue : A4 (P1) · Branche : feat/a4-secrets-env · Dépend de : A1, A2,   │
+     │ A3 (faits)                                                              │
+     │                                                                         │
+     │ Contexte                                                                │
+     │                                                                         │
+     │ L'énoncé exige « secrets hors du repo, .env.example complet ».          │
+     │ Aujourd'hui c'est vrai pour ce qui                                      │
+     │ existe — API, base, stockage sont validés au démarrage                  │
+     │ (backend/src/config/env.validation.ts),                                 │
+     │ .env est gitignoré, git log --all -- .env est vide, install.sh génère   │
+     │ les secrets. Trois                                                      │
+     │ manques :                                                               │
+     │                                                                         │
+     │ 1. Les variables des issues suivantes ne sont ni présentes ni validées. │
+     │ JWT_SECRET /                                                            │
+     │ JWT_EXPIRES traînent dans .env.example sans validation ni passage par   │
+     │ le compose ; rien ne                                                    │
+     │ couvre l'origine publique du lien, sa durée de validité par défaut, ni  │
+     │ les limites d'upload                                                    │
+     │ (20 Mo, PDF/JPG/PNG — figées par l'énoncé, configurables par le backlog │
+     │ C2). B1, B3 et C2                                                       │
+     │ commenceraient donc chacune par re-toucher les mêmes quatre fichiers.   │
+     │ 2. Rien n'empêche la dérive entre ces fichiers. Ajouter une variable    │
+     │ suppose de toucher                                                      │
+     │ ensemble .env.example, docker-compose.yml, install.sh et                │
+     │ backend/test/setup-env.ts. C'est                                        │
+     │ une règle écrite dans CLAUDE.md, pas une garantie : après A3 un .env    │
+     │ antérieur a fait échouer                                                │
+     │ install.sh sur ${STORAGE_ACCESS_KEY:?}, et l'oubli ne se voit qu'à      │
+     │ l'exécution.                                                            │
+     │ 3. Documentation périmée : .env.example affirme encore « le bucket est  │
+     │ créé au démarrage par                                                   │
+     │ l'API », faux depuis la révision d'A3 (c'est minio-init qui             │
+     │ provisionne, l'API constate).                                           │
+     │                                                                         │
+     │ Résultat visé : toute variable requise par l'application est            │
+     │ documentée, fournie par le compose,                                     │
+     │ présente dans les tests, absente du dépôt si elle est secrète — et un   │
+     │ test le prouve en CI,                                                   │
+     │ pas une convention.                                                     │
+     │                                                                         │
+     │ Périmètre                                                               │
+     │                                                                         │
+     │ Six variables ajoutées, toutes requises et validées au démarrage (choix │
+     │ retenu : la                                                             │
+     │ configuration morte pendant une issue ou deux coûte moins cher qu'un ?? │
+     │ valeur glissé plus tard                                                 │
+     │ dans le code métier, qui est exactement le bug qu'env.validation.ts     │
+     │ existe pour empêcher).                                                  │
+     │                                                                         │
+     │ ┌─────────────────────┬──────────────────────────────┬──────┬────────── │
+     │ ──┐                                                                     │
+     │ │      Variable       │       Valeur d'exemple       │ Secr │ Consommée │
+     │  │                                                                      │
+     │ │                     │                              │  et  │    par    │
+     │  │                                                                      │
+     │ ├─────────────────────┼──────────────────────────────┼──────┼────────── │
+     │ ──┤                                                                     │
+     │ │ JWT_SECRET          │ (vide, généré)               │ oui  │ B1        │
+     │  │                                                                      │
+     │ ├─────────────────────┼──────────────────────────────┼──────┼────────── │
+     │ ──┤                                                                     │
+     │ │ JWT_EXPIRES         │ 15m                          │ non  │ B1        │
+     │  │                                                                      │
+     │ ├─────────────────────┼──────────────────────────────┼──────┼────────── │
+     │ ──┤                                                                     │
+     │ │                     │                              │      │ B2/B3     │
+     │ (URL │                                                                  │
+     │ │ PUBLIC_BASE_URL     │ http://127.0.0.1:21600       │ non  │           │
+     │ /depot/:t │                                                             │
+     │ │                     │                              │      │ oken)     │
+     │  │                                                                      │
+     │ ├─────────────────────┼──────────────────────────────┼──────┼────────── │
+     │ ──┤                                                                     │
+     │ │ LINK_DEFAULT_TTL_DA │ 7                            │ non  │ B2        │
+     │  │                                                                      │
+     │ │ YS                  │                              │      │           │
+     │  │                                                                      │
+     │ ├─────────────────────┼──────────────────────────────┼──────┼────────── │
+     │ ──┤                                                                     │
+     │ │ UPLOAD_MAX_BYTES    │ 20971520                     │ non  │ C2        │
+     │  │                                                                      │
+     │ ├─────────────────────┼──────────────────────────────┼──────┼────────── │
+     │ ──┤                                                                     │
+     │ │ UPLOAD_ALLOWED_MIME │ application/pdf,image/jpeg,i │ non  │ C2        │
+     │  │                                                                      │
+     │ │ _TYPES              │ mage/png                     │      │           │
+     │  │                                                                      │
+     │ └─────────────────────┴──────────────────────────────┴──────┴────────── │
+     │ ──┘                                                                     │
+     │                                                                         │
+     │ Aucune variable frontend. Le SPA appelle l'API en relatif sur /api/...  │
+     │ derrière le même                                                        │
+     │ proxy : introduire un VITE_API_URL créerait une valeur à figer au build │
+     │ de l'image (A6) alors                                                   │
+     │ qu'aucune n'est nécessaire. À noter dans le README, c'est une décision, │
+     │ pas un oubli.                                                           │
+     │                                                                         │
+     │ SMTP écarté : l'énoncé ne mentionne aucun envoi de mail (relu ce jour), │
+     │ l'avocat transmet le                                                    │
+     │ lien lui-même. Le backlog A4 le disait « éventuel ».                    │
+     │                                                                         │
+     │ Implémentation                                                          │
+     │                                                                         │
+     │ 1. backend/src/config/env.validation.ts                                 │
+     │                                                                         │
+     │ Trois inspecteurs sur le modèle exact de inspectApp / inspectStorage :  │
+     │ inspectAuth,                                                            │
+     │ inspectLinks, inspectUploads. Chacun pousse ses problèmes dans issues   │
+     │ et renvoie ses valeurs                                                  │
+     │ normalisées (nombres convertis, UPLOAD_ALLOWED_MIME_TYPES laissé en     │
+     │ chaîne — le découpage                                                   │
+     │ appartient à C2).                                                       │
+     │                                                                         │
+     │ - Appelés avant le court-circuit DATABASE_URL explicite et fusionnés    │
+     │ dans les deux                                                           │
+     │ return. C'est le piège d'A3 : oublier le second retour ampute           │
+     │ silencieusement la configuration                                        │
+     │ dès qu'on vise une base managée. Un test le couvre déjà pour storage, à │
+     │ étendre.                                                                │
+     │ - Aucune valeur n'entre dans un message d'erreur (règle en tête du      │
+     │ fichier : JWT_SECRET est un                                             │
+     │ secret et les messages finissent dans des logs agrégés).                │
+     │                                                                         │
+     │ Contrôles :                                                             │
+     │                                                                         │
+     │ Variable: JWT_SECRET                                                    │
+     │ Contrôle: présent, ≥ 32 caractères                                      │
+     │ Pourquoi: un secret court se bruteforce hors ligne ; install.sh en      │
+     │ génère 64                                                               │
+     │ hex                                                                     │
+     │ ────────────────────────────────────────                                │
+     │ Variable: JWT_EXPIRES                                                   │
+     │ Contrôle: ^\d+[smhd]$                                                   │
+     │ Pourquoi: format attendu par @nestjs/jwt ; un 15 minutes serait accepté │
+     │ puis                                                                    │
+     │ interprété comme… rien                                                  │
+     │ ────────────────────────────────────────                                │
+     │ Variable: PUBLIC_BASE_URL                                               │
+     │ Contrôle: new URL, protocole http/https, sans / final                   │
+     │ Pourquoi: concaténé au chemin du lien ; un //depot/x ou une origine     │
+     │ invalide                                                                │
+     │ n'apparaîtrait qu'au premier lien envoyé à un client                    │
+     │ ────────────────────────────────────────                                │
+     │ Variable: LINK_DEFAULT_TTL_DAYS                                         │
+     │ Contrôle: entier 1–365                                                  │
+     │ Pourquoi: 0 créerait des liens déjà expirés                             │
+     │ ────────────────────────────────────────                                │
+     │ Variable: UPLOAD_MAX_BYTES                                              │
+     │ Contrôle: entier > 0, ≤ 20 Mo                                           │
+     │ Pourquoi: l'énoncé plafonne à 20 Mo : une valeur supérieure est une     │
+     │ erreur de                                                               │
+     │ configuration, pas un choix                                             │
+     │ ────────────────────────────────────────                                │
+     │ Variable: UPLOAD_ALLOWED_MIME_TYPES                                     │
+     │ Contrôle: liste non vide, chaque entrée type/sous-type                  │
+     │ Pourquoi: une liste vide interdirait tout dépôt sans le dire            │
+     │                                                                         │
+     │ Les listes de clés requises (REQUIRED_APP_KEYS, REQUIRED_DB_KEYS,       │
+     │ REQUIRED_STORAGE_KEYS et                                                │
+     │ les trois nouvelles) sont exportées et agrégées dans un                 │
+     │ REQUIRED_ENV_KEYS : c'est ce que lit                                    │
+     │ le test de contrat, pour qu'il vérifie le code et non une copie de la   │
+     │ liste.                                                                  │
+     │                                                                         │
+     │ Le fichier reste un seul module malgré ses ~350 lignes : les            │
+     │ inspecteurs partagent readString                                        │
+     │ et l'accumulateur issues, et ce fichier est la réponse unique à « de    │
+     │ quoi l'application a-t-elle                                             │
+     │ besoin pour démarrer ». Un découpage en config/env/*.ts viendra s'il    │
+     │ dépasse la lecture d'une                                                │
+     │ traite.                                                                 │
+     │                                                                         │
+     │ 2. backend/src/config/env.contract.spec.ts (nouveau)                    │
+     │                                                                         │
+     │ Le garde-fou de dérive. Un seul REPO_ROOT = join(__dirname, '..', '..', │
+     │ '..') en tête (à                                                        │
+     │ ajuster en A5, quand le compose descendra sous infra/). Il lit les      │
+     │ fichiers en texte — pas de                                              │
+     │ dépendance YAML ajoutée — et extrait le bloc environment: du service    │
+     │ backend par indentation,                                                │
+     │ pour distinguer « passé au backend » de « passé à minio-init ».         │
+     │                                                                         │
+     │ Six assertions, chacune contre un oubli déjà vu ou anticipé :           │
+     │                                                                         │
+     │ 1. Chaque clé de REQUIRED_ENV_KEYS est documentée dans .env.example →   │
+     │ sans quoi install.sh                                                    │
+     │ meurt en exit 3 chez le correcteur.                                     │
+     │ 2. Chaque clé de REQUIRED_ENV_KEYS est fournie au service backend du    │
+     │ compose — soit                                                          │
+     │ ${KEY:?...}, soit une surcharge assumée (BIND_ADDRESS, DB_HOST,         │
+     │ DB_PORT,                                                                │
+     │ STORAGE_ENDPOINT, liste explicite dans le test).                        │
+     │ 3. Réciproque : chaque ${VAR...} référencé par le compose existe dans   │
+     │ .env.example — c'est le                                                 │
+     │ sens dans lequel l'incident A3 s'est produit, et il attrape aussi       │
+     │ MINIO_ROOT_*, que                                                       │
+     │ l'application ne lit jamais.                                            │
+     │ 4. Chaque clé de REQUIRED_ENV_KEYS est posée dans                       │
+     │ backend/test/setup-env.ts, sinon toutes                                 │
+     │ les suites e2e cassent à l'import (ConfigModule.forRoot() est évalué au │
+     │ chargement du module).                                                  │
+     │ 5. Les clés secrètes (DB_PASSWORD, JWT_SECRET, STORAGE_*_KEY,           │
+     │ MINIO_ROOT_*) sont présentes                                            │
+     │ et vides dans .env.example — la formulation directe de « aucun secret   │
+     │ commité ».                                                              │
+     │ 6. Aucune clé dupliquée dans .env.example : set_env_value et            │
+     │ append_missing_keys                                                     │
+     │ (install.sh) supposent une occurrence unique et ne remplaceraient que   │
+     │ la première.                                                            │
+     │                                                                         │
+     │ 3. .env.example                                                         │
+     │                                                                         │
+     │ Bloc JWT complété, trois nouveaux blocs (lien public, upload) avec le   │
+     │ commentaire qui dit qui lit                                             │
+     │ la variable et ce qu'elle coûte si elle est fausse — c'est la ligne     │
+     │ éditoriale du fichier.                                                  │
+     │ PUBLIC_BASE_URL porte l'avertissement explicite : valeur locale par     │
+     │ défaut, à passer au domaine                                             │
+     │ réel sur la machine de staging (A7). Correction du commentaire périmé   │
+     │ sur la création du bucket.                                              │
+     │                                                                         │
+     │ 4. docker-compose.yml                                                   │
+     │                                                                         │
+     │ Les six variables ajoutées au service backend, en ${VAR:?definir VAR    │
+     │ dans .env}. Rien d'autre :                                              │
+     │ aucune ne concerne db, minio ou minio-init.                             │
+     │                                                                         │
+     │ 5. backend/test/setup-env.ts                                            │
+     │                                                                         │
+     │ Les six valeurs de test, avec un JWT_SECRET de 32+ caractères pour      │
+     │ satisfaire la validation.                                               │
+     │                                                                         │
+     │ 6. install.sh — aucune modification                                     │
+     │                                                                         │
+     │ Vérifié à la lecture : set_env_default JWT_SECRET existe déjà, et les   │
+     │ cinq autres clés ne sont pas                                            │
+     │ secrètes — cp .env.example .env (nouveau .env) et append_missing_keys   │
+     │ (.env existant)                                                         │
+     │ recopient la ligne avec sa valeur et son bloc de commentaires. À        │
+     │ prouver par exécution, pas par                                          │
+     │ lecture (cf. Vérification).                                             │
+     │                                                                         │
+     │ 7. Documentation                                                        │
+     │                                                                         │
+     │ - README.md : section « Configuration » — tableau des variables (rôle,  │
+     │ secret ou non, valeur                                                   │
+     │ par défaut, qui la lit), la règle de préfixe STORAGE_* / MINIO_*,       │
+     │ l'absence délibérée de                                                  │
+     │ variable frontend, et le fait que PUBLIC_BASE_URL est la seule à        │
+     │ renseigner à la main en                                                 │
+     │ production. Sert la section « setup » du livrable.                      │
+     │ - CLAUDE.md : la règle « trois fichiers ensemble » devient quatre       │
+     │ (setup-env.ts) et cite le                                               │
+     │ test de contrat comme ce qui la fait tenir.                             │
+     │ - ai-plans/2026-08-08-a4-secrets-externalises.md : plan suivi,          │
+     │ décisions, vérification, revue.                                         │
+     │ - issue_backlog.md : les trois critères d'A4 cochés.                    │
+     │                                                                         │
+     │ Sécurité                                                                │
+     │                                                                         │
+     │ - JWT_SECRET ≥ 32 caractères imposé : c'est la seule des six variables  │
+     │ dont une valeur faible                                                  │
+     │ est directement exploitable (forge de jetons avocat). Généré en 64 hex  │
+     │ par install.sh, jamais                                                  │
+     │ écrit dans un message d'erreur.                                         │
+     │ - PUBLIC_BASE_URL vient de la configuration, jamais de l'en-tête Host.  │
+     │ À rappeler dans le                                                      │
+     │ commentaire : dériver l'origine de la requête est le vecteur classique  │
+     │ d'empoisonnement de lien,                                               │
+     │ et ici le lien porte le token de dépôt.                                 │
+     │ - UPLOAD_MAX_BYTES ne protège encore rien. La variable existe,          │
+     │ l'application ne la lit pas :                                           │
+     │ l'application effective (rejet en cours de flux, avant que MinIO        │
+     │ n'écrive) est le travail de C2.                                         │
+     │ Le dire, plutôt que de laisser croire qu'A4 plafonne quoi que ce soit.  │
+     │ - Inchangé et re-vérifié : .env gitignoré, chmod 600 après              │
+     │ substitutions, absent de tout                                           │
+     │ l'historique git, aucun port MinIO publié en production.                │
+     │                                                                         │
+     │ Risques résiduels : pas de scanner de secrets en CI (relève de D3 — un  │
+     │ gitleaks en pre-commit                                                  │
+     │ serait le complément naturel du test de contrat, qui ne regarde que     │
+     │ .env.example) ; aucune                                                  │
+     │ procédure de rotation documentée (changer JWT_SECRET invalide toutes    │
+     │ les sessions, changer                                                   │
+     │ STORAGE_SECRET_KEY exige de re-provisionner l'utilisateur MinIO) ;      │
+     │ .env.example reste un fichier                                           │
+     │ que quelqu'un peut remplir par mégarde avant de le commiter —           │
+     │ l'assertion 5 est précisément la                                        │
+     │ parade.                                                                 │
+     │                                                                         │
+     │ Tests ajoutés                                                           │
+     │                                                                         │
+     │ env.validation.spec.ts (étendu) — protège le contrat de démarrage : un  │
+     │ cas de rejet par                                                        │
+     │ contrôle (secret JWT trop court, JWT_EXPIRES mal formé, PUBLIC_BASE_URL │
+     │ non parsable / mauvais                                                  │
+     │ protocole / avec / final, TTL à 0, UPLOAD_MAX_BYTES au-delà de 20 Mo,   │
+     │ liste MIME vide ou                                                      │
+     │ malformée), un cas nominal vérifiant les valeurs normalisées, et le     │
+     │ chemin DATABASE_URL                                                     │
+     │ explicite qui doit renvoyer les trois nouveaux blocs — la régression    │
+     │ exacte qu'A3 avait failli                                               │
+     │ livrer.                                                                 │
+     │                                                                         │
+     │ env.contract.spec.ts (nouveau) — protège la cohérence des quatre        │
+     │ fichiers de configuration :                                             │
+     │ les six assertions ci-dessus. C'est la suite qui transforme « on        │
+     │ n'oublie pas » en « on ne peut pas                                      │
+     │ oublier ».                                                              │
+     │                                                                         │
+     │ Les deux tournent dans pnpm test (unitaire, aucun Docker, aucun réseau) │
+     │ : elles sont exécutables                                                │
+     │ par la CI de D3.                                                        │
+     │                                                                         │
+     │ Vérification                                                            │
+     │                                                                         │
+     │ 1. pnpm -C backend test puis pnpm -C backend test:e2e — vert.           │
+     │ 2. Ruptures délibérées, chacune doit faire échouer le test nommé et non │
+     │ un autre : retirer une                                                  │
+     │ clé de .env.example (assertion 1) ; retirer sa ligne du compose (2) ;   │
+     │ ajouter un                                                              │
+     │ ${INVENTE:?} au compose (3) ; la retirer de setup-env.ts (4) ; écrire   │
+     │ une valeur dans                                                         │
+     │ JWT_SECRET= de .env.example (5). Restaurer.                             │
+     │ 3. docker compose config >/dev/null avec un .env amputé d'une nouvelle  │
+     │ variable → échoue en la                                                 │
+     │ nommant.                                                                │
+     │ 4. ./install.sh sur le .env existant → « 6 variable(s) ajoutée(s) »,    │
+     │ exit 0, portail en HTTP                                                 │
+     │   gr. Puis mv .env .env.bak && ./install.sh → chemin .env neuf, exit 0. │
+     │ C'est la preuve du                                                      │
+     │ point 6 de l'implémentation (aucune modification d'install.sh).         │
+     │ 5. docker compose exec backend node -e                                  │
+     │ "fetch('http://127.0.0.1:21610/api/v1/health')..." → 200,               │
+     │ db et storage up.                                                       │
+     │ 6. docker compose exec backend printenv | grep -E                       │
+     │ 'JWT|UPLOAD|PUBLIC_BASE' → les six présentes ;                          │
+     │ printenv | grep MINIO_ROOT → vide (la frontière STORAGE_/MINIO_ tient   │
+     │ toujours).                                                              │
+     │ 7. git log --all -- .env vide, git status sans .env.                    │
+     │                                                                         │
+     │ Clôture                                                                 │
+     │                                                                         │
+     │ Revue de code du diff complet (findings classés par gravité, scénario   │
+     │ d'échec concret), plan écrit                                            │
+     │ dans ai-plans/, critères cochés dans issue_backlog.md, puis fusion de   │
+     │ feat/a4-secrets-env dans                                                │
+     │ main.                                                                   │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+● Vous avez raison sur le fond. Réponses factuelles d'abord :
+
+  LINK_DEFAULT_TTL_DAYS : c'était la durée de validité appliquée quand l'avocat
+  n'en choisit pas. Or B2 fait de la durée une entrée du formulaire — le défaut
+  n'est alors qu'une valeur pré-remplie dans l'UI, qui n'a rien à faire dans
+  l'environnement. Et « expiration par défaut » vient de mon backlog, pas de
+  l'énoncé, qui ne dit rien là-dessus. À supprimer.
+
+  MIME + taille max : l'énoncé les fige (20 Mo, PDF/JPG/PNG). Ce sont des règles
+  produit, pas de la configuration de déploiement. En variables d'env elles
+  gagnent un mode d'échec (valeur mal saisie, détectée à l'upload), doivent être
+  ré-exposées au frontend par une route pour la validation côté client, et le
+  client_max_body_size de nginx devrait rester synchronisé à la main de toute
+  façon — nginx ne lit pas l'environnement. Une constante typée et testée dans
+  le code est meilleure. Le « configurables » vient de mon backlog C2, pas de
+  l'énoncé.
+
+  Sur A4 elle-même : les trois critères sont effectivement déjà tenus pour tout
+  ce que le code lit — c'est un sous-produit d'A1 et A3. Il reste trois choses
+  vraies, vérifiées à la lecture :
+
+  1. JWT_SECRET est à moitié câblé : .env.example le documente, install.sh le
+  génère… et docker-compose.yml ne le passe pas au backend. En conteneur, la
+  variable n'existe pas. Le trou ne se verra qu'en B1.
+  2. Rien n'empêche la dérive entre .env.example, le compose et setup-env.ts —
+  c'est exactement ce qui a cassé après A3, et la seule chose qu'A4 puisse
+  apporter que les autres issues n'apportent pas déjà.
+  3. Un commentaire faux dans .env.example : « le bucket est créé au démarrage
+  par l'API », périmé depuis la révision d'A3.
+
+  Le reste de mon plan anticipait B1/C2 sans que ça rapporte quoi que ce soit.
+
+● User answered Claude's questions:
+  ⎿  · A4 se réduit donc à boucher ces trois trous. Quel périmètre ? → est-ce 
+     vraiment pertinent de faire un test poru savoir quels variables d'env sont 
+     là ?
+
+● Question juste. J'ai surestimé ce test. Évaluation honnête, en séparant ses
+  deux moitiés :
+
+  La moitié compose ne vaut pas son coût. Le mode d'échec qu'elle prévient — une
+  variable requise que le compose ne passe pas — est déjà bruyant : validateEnv
+  lève, le backend crash-loop, install.sh échoue en nommant la variable. Le
+  test l'avancerait de quelques minutes. En face : il faut parser du YAML à la
+  regex, maintenir une liste d'exceptions à la main (BIND_ADDRESS, DB_HOST,
+  DB_PORT, STORAGE_ENDPOINT sont surchargés exprès), et il casse en A5 quand le
+  compose descend sous infra/. Et il n'aurait pas attrapé l'incident A3, qui
+  venait d'un .env utilisateur périmé, pas d'un désaccord entre fichiers
+  versionnés — c'est append_missing_keys qui l'a réglé.
+
+  Il reste un cas réellement silencieux, mais il est petit : une variable
+  présente dans .env.example que personne ne lit ni ne passe. On la renseigne en
+  production, on redémarre, rien ne change, et rien ne le dit. C'est le cas de
+  JWT_EXPIRES aujourd'hui. Ça se couvre en cinq lignes sur un seul fichier, sans
+  YAML et sans dépendance à l'arborescence : chaque clé de REQUIRED_ENV_KEYS
+  est dans .env.example, les clés secrètes y sont vides, aucun doublon.
+
+  Donc : le test réduit à .env.example seul, oui. Le contrat sur trois fichiers,
+  non — je le retire.
+
+● Updated plan
+  ⎿  /plan to preview
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ A4 — Secrets externalisés et .env.example complet                       │
+     │                                                                         │
+     │ Issue : A4 (P1) · Branche : feat/a4-secrets-env · Dépend de : A1, A3    │
+     │ (faits)                                                                 │
+     │                                                                         │
+     │ Contexte                                                                │
+     │                                                                         │
+     │ Les trois critères d'A4 sont déjà tenus pour tout ce que le code lit,   │
+     │ comme sous-produit d'A1 et                                              │
+     │ A3 : .env.example documente API, base et stockage ; .env est gitignoré  │
+     │ et absent de tout                                                       │
+     │ l'historique (git log --all -- .env est vide) ; validateEnv refuse le   │
+     │ démarrage en nommant les                                                │
+     │ variables manquantes.                                                   │
+     │                                                                         │
+     │ A4 ne consiste donc pas à construire, mais à fermer trois trous         │
+     │ vérifiés à la lecture :                                                 │
+     │                                                                         │
+     │ 1. JWT_SECRET est à moitié câblé. .env.example le documente, install.sh │
+     │ le génère, et                                                           │
+     │ docker-compose.yml ne le passe pas au backend — en conteneur la         │
+     │ variable n'existe pas.                                                  │
+     │ Personne ne le voit, parce qu'aucun code ne la lit encore.              │
+     │ 2. JWT_EXPIRES est de la configuration morte : présente, jamais lue,    │
+     │ jamais passée. La                                                       │
+     │ renseigner en production ne produit aucun effet et rien ne le signale.  │
+     │ C'est le seul mode                                                      │
+     │ d'échec réellement silencieux du dispositif actuel.                     │
+     │ 3. Un commentaire faux dans .env.example : « le bucket est créé au      │
+     │ démarrage par l'API »,                                                  │
+     │ périmé depuis la révision d'A3 — c'est minio-init qui provisionne,      │
+     │ l'API se contente de                                                    │
+     │ constater et échoue sinon.                                              │
+     │                                                                         │
+     │ Ce que cette issue ne fait pas, et pourquoi                             │
+     │                                                                         │
+     │ - Aucune variable d'upload (UPLOAD_MAX_BYTES,                           │
+     │ UPLOAD_ALLOWED_MIME_TYPES). L'énoncé fige                               │
+     │ 20 Mo et PDF/JPG/PNG : ce sont des règles produit, pas de la            │
+     │ configuration de déploiement. En                                        │
+     │ variables d'environnement elles gagnent un mode d'échec (valeur mal     │
+     │ saisie, détectée au premier                                             │
+     │ upload), doivent être ré-exposées au frontend par une route pour la     │
+     │ validation côté client, et                                              │
+     │ n'évitent pas de synchroniser client_max_body_size à la main — nginx ne │
+     │ lit pas l'environnement.                                                │
+     │ Des constantes typées et testées, en C2, valent mieux. Le «             │
+     │ configurables » vient du backlog, pas                                   │
+     │ de l'énoncé.                                                            │
+     │ - Aucune durée de validité par défaut. B2 fait de la durée une entrée   │
+     │ du formulaire : un défaut                                               │
+     │ n'est qu'une valeur pré-remplie d'UI, qui n'a rien à faire dans         │
+     │ l'environnement. L'énoncé ne dit                                        │
+     │ rien là-dessus.                                                         │
+     │ - Aucun test de contrat sur docker-compose.yml. Envisagé puis écarté :  │
+     │ le mode d'échec qu'il                                                   │
+     │ préviendrait est déjà bruyant (validateEnv lève, le backend crash-loop, │
+     │ install.sh échoue                                                       │
+     │ en nommant la variable), il faudrait parser du YAML à la regex,         │
+     │ maintenir à la main la liste des                                        │
+     │ surcharges délibérées (BIND_ADDRESS, DB_HOST, DB_PORT,                  │
+     │ STORAGE_ENDPOINT), et il casserait                                      │
+     │ en A5 au déplacement du compose. Il n'aurait pas non plus attrapé       │
+     │ l'incident A3, qui venait d'un                                          │
+     │ .env utilisateur périmé — c'est append_missing_keys qui l'a réglé.      │
+     │ - Aucune variable frontend. Le SPA appelle l'API en relatif sur         │
+     │ /api/... derrière le même                                               │
+     │ proxy. Un VITE_API_URL figerait une valeur au build de l'image (A6)     │
+     │ sans rien apporter. C'est                                               │
+     │ une décision, pas un oubli : à noter au README.                         │
+     │ - SMTP écarté : l'énoncé (relu ce jour) ne mentionne aucun envoi de     │
+     │ mail, l'avocat transmet le                                              │
+     │ lien lui-même.                                                          │
+     │                                                                         │
+     │ Implémentation                                                          │
+     │                                                                         │
+     │ 1. backend/src/config/env.validation.ts                                 │
+     │                                                                         │
+     │ Un inspecteur inspectAuth, sur le modèle exact d'inspectApp /           │
+     │ inspectStorage : pousse ses                                             │
+     │ problèmes dans issues, renvoie ses valeurs normalisées.                 │
+     │                                                                         │
+     │ ┌─────────────┬─────────────────┬────────────────────────────────────── │
+     │ ───┐                                                                    │
+     │ │  Variable   │    Contrôle     │                Pourquoi               │
+     │   │                                                                     │
+     │ ├─────────────┼─────────────────┼────────────────────────────────────── │
+     │ ───┤                                                                    │
+     │ │ JWT_SECRET  │ présent, ≥ 32   │ un secret court se forge hors ligne ; │
+     │   │                                                                     │
+     │ │             │ caractères      │ install.sh en génère 64 hex           │
+     │   │                                                                     │
+     │ ├─────────────┼─────────────────┼────────────────────────────────────── │
+     │ ───┤                                                                    │
+     │ │             │                 │ format attendu par @nestjs/jwt ; un   │
+     │ 15  │                                                                   │
+     │ │ JWT_EXPIRES │ ^\d+[smhd]$     │ minutes serait accepté puis           │
+     │ interprété  │                                                           │
+     │ │             │                 │ comme rien                            │
+     │   │                                                                     │
+     │ └─────────────┴─────────────────┴────────────────────────────────────── │
+     │ ───┘                                                                    │
+     │                                                                         │
+     │ Deux pièges du fichier, à respecter :                                   │
+     │                                                                         │
+     │ - appelé avant le court-circuit DATABASE_URL explicite et fusionné dans │
+     │ les deux return                                                         │
+     │ — l'oubli du second ampute silencieusement la configuration dès qu'on   │
+     │ vise une base managée                                                   │
+     │ (c'est la classe de bug qu'A3 avait failli livrer ; un test la couvre   │
+     │ pour storage, à étendre) ;                                              │
+     │ - aucune valeur dans un message d'erreur : JWT_SECRET est un secret et  │
+     │ les messages finissent                                                  │
+     │ dans des logs agrégés.                                                  │
+     │                                                                         │
+     │ Les listes de clés requises sont exportées et agrégées en un            │
+     │ REQUIRED_ENV_KEYS, que lit le                                           │
+     │ test ci-dessous — pour qu'il vérifie le code, pas une copie de la       │
+     │ liste.                                                                  │
+     │                                                                         │
+     │ 2. backend/src/config/env.example.spec.ts (nouveau)                     │
+     │                                                                         │
+     │ Cinq lignes utiles, un seul fichier lu, aucun parseur :                 │
+     │ readFileSync(join(__dirname, '../../../.env.example')).                 │
+     │                                                                         │
+     │ 1. Chaque clé de REQUIRED_ENV_KEYS apparaît dans .env.example — sinon   │
+     │ install.sh meurt en                                                     │
+     │ exit 3 chez le correcteur, et c'est le cas de la variable morte décrit  │
+     │ au contexte.                                                            │
+     │ 2. Les clés secrètes (DB_PASSWORD, JWT_SECRET, STORAGE_ACCESS_KEY,      │
+     │ STORAGE_SECRET_KEY,                                                     │
+     │ MINIO_ROOT_USER, MINIO_ROOT_PASSWORD) y sont présentes et vides — la    │
+     │ formulation directe                                                     │
+     │ du critère « aucun secret commité ».                                    │
+     │ 3. Aucune clé dupliquée : set_env_value et append_missing_keys          │
+     │ (install.sh) supposent une                                              │
+     │ occurrence unique et ne traiteraient que la première.                   │
+     │                                                                         │
+     │ 3. docker-compose.yml                                                   │
+     │                                                                         │
+     │ JWT_SECRET et JWT_EXPIRES ajoutés au service backend, en ${VAR:?definir │
+     │ VAR dans .env}.                                                         │
+     │ Rien d'autre : aucune ne concerne db, minio ni minio-init.              │
+     │                                                                         │
+     │ 4. backend/test/setup-env.ts                                            │
+     │                                                                         │
+     │ Les deux valeurs, avec un JWT_SECRET d'au moins 32 caractères — sans    │
+     │ quoi toutes les suites                                                  │
+     │ e2e cassent à l'import (ConfigModule.forRoot() est évalué au chargement │
+     │ du module).                                                             │
+     │                                                                         │
+     │ 5. .env.example                                                         │
+     │                                                                         │
+     │ Bloc JWT réécrit (les variables sont désormais requises et validées,    │
+     │ dire ce que chacune coûte si                                            │
+     │ elle est fausse), correction du commentaire périmé sur la création du   │
+     │ bucket.                                                                 │
+     │                                                                         │
+     │ 6. install.sh — aucune modification                                     │
+     │                                                                         │
+     │ set_env_default JWT_SECRET existe déjà ; JWT_EXPIRES n'est pas secrète  │
+     │ et sa valeur est                                                        │
+     │ recopiée depuis .env.example par cp (nouveau .env) ou                   │
+     │ append_missing_keys (.env existant),                                    │
+     │ avec son bloc de commentaires. À prouver par exécution, pas par         │
+     │ lecture.                                                                │
+     │                                                                         │
+     │ 7. Documentation                                                        │
+     │                                                                         │
+     │ - README.md : section « Configuration » — tableau des variables (rôle,  │
+     │ secret ou non, défaut,                                                  │
+     │ qui la lit), la règle de préfixe STORAGE_* (lue par l'app) / MINIO_*    │
+     │ (jamais), et l'absence                                                  │
+     │ délibérée de variable frontend. Sert la section « setup » du livrable.  │
+     │ - ai-plans/2026-08-08-a4-secrets-externalises.md : plan suivi,          │
+     │ décisions — dont les quatre                                             │
+     │ refus ci-dessus, qui sont l'essentiel du contenu de cette issue —       │
+     │ vérification, revue.                                                    │
+     │ - issue_backlog.md : les trois critères d'A4 cochés, avec la mention    │
+     │ que le périmètre a été                                                  │
+     │ réduit et pourquoi.                                                     │
+     │                                                                         │
+     │ Sécurité                                                                │
+     │                                                                         │
+     │ - JWT_SECRET ≥ 32 caractères imposé : c'est la seule variable de cette  │
+     │ issue dont une valeur                                                   │
+     │ faible est directement exploitable (forge de jetons avocat, donc accès  │
+     │ à tous les dossiers).                                                   │
+     │ Jamais recopiée dans un message d'erreur.                               │
+     │ - Inchangé et re-vérifié : .env gitignoré, chmod 600 après              │
+     │ substitutions, absent de tout                                           │
+     │ l'historique git, aucun port MinIO publié en production, MINIO_ROOT_*   │
+     │ inatteignable depuis le                                                 │
+     │ backend.                                                                │
+     │                                                                         │
+     │ Risques résiduels : pas de scanner de secrets en CI (relève de D3 ; un  │
+     │ gitleaks en pre-commit                                                  │
+     │ serait le vrai complément — le test ci-dessus ne regarde que            │
+     │ .env.example) ; aucune procédure de                                     │
+     │ rotation documentée (changer JWT_SECRET invalidera toutes les sessions  │
+     │ une fois B1 livrée,                                                     │
+     │ changer STORAGE_SECRET_KEY exige de re-provisionner l'utilisateur       │
+     │ MinIO) ; le désaccord entre                                             │
+     │ .env.example et le compose reste détecté au démarrage seulement, choix  │
+     │ assumé ci-dessus.                                                       │
+     │                                                                         │
+     │ Tests ajoutés                                                           │
+     │                                                                         │
+     │ env.validation.spec.ts (étendu) — protège le contrat de démarrage :     │
+     │ rejet d'un JWT_SECRET                                                   │
+     │ absent puis trop court, rejet d'un JWT_EXPIRES mal formé, cas nominal,  │
+     │ et chemin DATABASE_URL                                                  │
+     │ explicite qui doit toujours renvoyer le bloc auth — la régression       │
+     │ exacte qu'A3 avait failli                                               │
+     │ livrer.                                                                 │
+     │                                                                         │
+     │ env.example.spec.ts (nouveau) — protège contre la variable requise      │
+     │ absente de la                                                           │
+     │ documentation et contre le secret renseigné par mégarde dans un fichier │
+     │ versionné.                                                              │
+     │                                                                         │
+     │ Les deux tournent dans pnpm test : unitaires, aucun Docker, aucun       │
+     │ réseau, exécutables par la CI                                           │
+     │ de D3.                                                                  │
+     │                                                                         │
+     │ Vérification                                                            │
+     │                                                                         │
+     │ 1. pnpm -C backend test puis pnpm -C backend test:e2e — vert.           │
+     │ 2. Ruptures délibérées, chacune doit faire échouer le test attendu :    │
+     │ vider JWT_SECRET du                                                     │
+     │ .env.example (assertion 1), y écrire une valeur (assertion 2),          │
+     │ dupliquer la ligne                                                      │
+     │ (assertion 3). Restaurer.                                               │
+     │ 3. docker compose config >/dev/null avec un .env amputé de JWT_SECRET → │
+     │ échoue en le nommant.                                                   │
+     │ 4. ./install.sh sur le .env existant → « 1 variable(s) ajoutée(s) »     │
+     │ (JWT_EXPIRES), exit 0,                                                  │
+     │ portail en HTTP 200. Puis mv .env .env.bak && ./install.sh → chemin     │
+     │ .env neuf, exit 0. C'est                                                │
+     │ la preuve du point 6 (aucune modification d'install.sh).                │
+     │ 5. docker compose exec backend printenv | grep JWT → les deux présentes │
+     │ ;                                                                       │
+     │ printenv | grep MINIO_ROOT → vide.                                      │
+     │ 6. Sonde interne /api/v1/health → 200, db et storage up.                │
+     │ 7. git log --all -- .env vide, git status sans .env.                    │
+     │                                                                         │
+     │ Clôture                                                                 │
+     │                                                                         │
+     │ Revue de code du diff complet (findings par gravité, scénario d'échec   │
+     │ concret), plan dans                                                     │
+     │ ai-plans/, critères cochés dans issue_backlog.md, fusion de             │
+     │ feat/a4-secrets-env dans main.                                          │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+● inspectApp/inspectStorage suivent une convention : ils reçoivent le tableau
+  issues: string[] et y ajoutent leurs messages au lieu de lever, pour que
+  validateEnv lève une fois avec tous les problèmes listés — sinon on corrige
+  une variable, on relance, on en découvre une autre. Et ils retournent les
+  valeurs nettoyées (trim, Number(PORT)), que validateEnv fusionne dans l'objet
+  rendu à ConfigModule : c'est ce qui fait que configService.get('PORT') donne
+  un nombre et pas " 21610 ". inspectAuth fera pareil.
+
+  Plan raccourci :
+● Updated plan
+  ⎿  /plan to preview
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ A4 — Secrets externalisés et .env.example complet                       │
+     │                                                                         │
+     │ Branche : feat/a4-secrets-env                                           │
+     │                                                                         │
+     │ Contexte                                                                │
+     │                                                                         │
+     │ Les trois critères d'A4 sont déjà tenus pour tout ce que le code lit,   │
+     │ comme sous-produit d'A1 et A3 :                                         │
+     │ .env.example documente API/base/stockage, .env est gitignoré et absent  │
+     │ de l'historique                                                         │
+     │ (git log --all -- .env vide), validateEnv refuse le démarrage en        │
+     │ nommant les variables                                                   │
+     │ manquantes. Restent trois trous vérifiés à la lecture :                 │
+     │                                                                         │
+     │ 1. JWT_SECRET est à moitié câblé : documenté, généré par install.sh,    │
+     │ mais docker-compose.yml                                                 │
+     │ ne le passe pas au backend — en conteneur la variable n'existe pas.     │
+     │ 2. JWT_EXPIRES est de la configuration morte : la renseigner en         │
+     │ production ne produit rien et                                           │
+     │ rien ne le signale. C'est le seul mode d'échec réellement silencieux du │
+     │ dispositif.                                                             │
+     │ 3. Commentaire faux dans .env.example : « le bucket est créé au         │
+     │ démarrage par l'API », périmé                                           │
+     │ depuis la révision d'A3 (minio-init provisionne, l'API constate).       │
+     │                                                                         │
+     │ Hors périmètre, et pourquoi                                             │
+     │                                                                         │
+     │ - Variables d'upload : l'énoncé fige 20 Mo et PDF/JPG/PNG. Règles       │
+     │ produit, pas configuration de                                           │
+     │ déploiement — en env elles gagnent un mode d'échec, devraient être      │
+     │ ré-exposées au frontend par une                                         │
+     │ route, et n'évitent pas de synchroniser client_max_body_size à la main. │
+     │ Constantes typées en C2.                                                │
+     │ - Durée de validité par défaut : B2 en fait une entrée du formulaire ;  │
+     │ un défaut est une valeur                                                │
+     │ d'UI. L'énoncé ne dit rien.                                             │
+     │ - Test de contrat sur le compose : le mode d'échec est déjà bruyant     │
+     │ (crash au démarrage,                                                    │
+     │ variable nommée), le test exigerait de parser du YAML à la regex, de    │
+     │ maintenir la liste des                                                  │
+     │ surcharges délibérées, et casserait en A5. Il n'aurait pas non plus     │
+     │ attrapé l'incident A3, qui                                              │
+     │ venait d'un .env utilisateur périmé.                                    │
+     │ - Variable frontend : le SPA appelle /api/... en relatif. Un            │
+     │ VITE_API_URL figerait une valeur                                        │
+     │ au build de l'image. Décision, pas oubli — à noter au README.           │
+     │ - SMTP : absent de l'énoncé, l'avocat transmet le lien lui-même.        │
+     │                                                                         │
+     │ Implémentation                                                          │
+     │                                                                         │
+     │ backend/src/config/env.validation.ts — un inspectAuth, sur le modèle    │
+     │ d'inspectApp :                                                          │
+     │ JWT_SECRET présent et ≥ 32 caractères (une valeur faible se forge hors  │
+     │ ligne), JWT_EXPIRES au                                                  │
+     │ format ^\d+[smhd]$ (un 15 minutes serait accepté puis interprété comme  │
+     │ rien). Appelé avant le                                                  │
+     │ court-circuit DATABASE_URL et fusionné dans les deux return — l'oubli   │
+     │ du second ampute la                                                     │
+     │ configuration dès qu'on vise une base managée, la classe de bug qu'A3   │
+     │ avait failli livrer. Aucune                                             │
+     │ valeur dans un message d'erreur. Les listes de clés requises deviennent │
+     │ exportées, agrégées en                                                  │
+     │ REQUIRED_ENV_KEYS.                                                      │
+     │                                                                         │
+     │ backend/src/config/env.example.spec.ts (nouveau) — lit le seul          │
+     │ .env.example, sans parseur :                                            │
+     │ chaque clé de REQUIRED_ENV_KEYS y figure ; les clés secrètes            │
+     │ (DB_PASSWORD, JWT_SECRET,                                               │
+     │ STORAGE_*_KEY, MINIO_ROOT_*) y sont vides ; aucun doublon               │
+     │ (set_env_value ne traiterait que                                        │
+     │ la première occurrence).                                                │
+     │                                                                         │
+     │ docker-compose.yml — JWT_SECRET et JWT_EXPIRES au service backend, en   │
+     │ ${VAR:?...}.                                                            │
+     │                                                                         │
+     │ backend/test/setup-env.ts — les deux valeurs, JWT_SECRET ≥ 32           │
+     │ caractères, sinon toutes les                                            │
+     │ suites e2e cassent à l'import.                                          │
+     │                                                                         │
+     │ .env.example — bloc JWT réécrit (variables désormais requises),         │
+     │ commentaire périmé corrigé.                                             │
+     │                                                                         │
+     │ install.sh — aucune modification : set_env_default JWT_SECRET existe,   │
+     │ et JWT_EXPIRES est                                                      │
+     │ recopiée avec sa valeur par cp ou append_missing_keys. À prouver par    │
+     │ exécution.                                                              │
+     │                                                                         │
+     │ Documentation — README : section « Configuration » (tableau des         │
+     │ variables, règle de préfixe                                             │
+     │ STORAGE_* lue par l'app / MINIO_* jamais, absence délibérée de variable │
+     │ frontend).                                                              │
+     │ ai-plans/2026-08-08-a4-secrets-externalises.md et cases cochées dans    │
+     │ issue_backlog.md, en                                                    │
+     │ mentionnant la réduction de périmètre.                                  │
+     │                                                                         │
+     │ Sécurité                                                                │
+     │                                                                         │
+     │ JWT_SECRET est la seule variable ici dont une valeur faible est         │
+     │ directement exploitable (forge de                                       │
+     │ jetons avocat, donc accès à tous les dossiers) : longueur minimale      │
+     │ imposée, jamais recopiée dans une                                       │
+     │ erreur. Le reste est inchangé et re-vérifié : .env gitignoré et chmod   │
+     │ 600, absent de                                                          │
+     │ l'historique, aucun port MinIO publié, MINIO_ROOT_* inatteignable       │
+     │ depuis le backend.                                                      │
+     │                                                                         │
+     │ Risques résiduels : pas de scanner de secrets en CI (D3 ; le test ne    │
+     │ regarde que .env.example),                                              │
+     │ pas de procédure de rotation documentée, désaccord .env.example/compose │
+     │ détecté au démarrage                                                    │
+     │ seulement — choix assumé ci-dessus.                                     │
+     │                                                                         │
+     │ Tests                                                                   │
+     │                                                                         │
+     │ - env.validation.spec.ts étendu : JWT_SECRET absent puis trop court,    │
+     │ JWT_EXPIRES mal formé,                                                  │
+     │ cas nominal, et chemin DATABASE_URL explicite renvoyant bien le bloc    │
+     │ auth.                                                                   │
+     │ - env.example.spec.ts : la variable requise non documentée, et le       │
+     │ secret renseigné par mégarde                                            │
+     │ dans un fichier versionné.                                              │
+     │                                                                         │
+     │ Unitaires, sans Docker ni réseau : exécutables par la CI de D3.         │
+     │                                                                         │
+     │ Vérification                                                            │
+     │                                                                         │
+     │ 1. pnpm -C backend test et test:e2e verts.                              │
+     │ 2. Ruptures délibérées, chacune doit faire échouer le test attendu :    │
+     │ vider JWT_SECRET de                                                     │
+     │ .env.example, y écrire une valeur, dupliquer la ligne. Restaurer.       │
+     │ 3. docker compose config avec un .env amputé de JWT_SECRET → échoue en  │
+     │ le nommant.                                                             │
+     │ 4. ./install.sh sur le .env existant → JWT_EXPIRES ajoutée, exit 0,     │
+     │ HTTP 200 ; puis                                                         │
+     │ mv .env .env.bak && ./install.sh → chemin neuf, exit 0.                 │
+     │ 5. docker compose exec backend printenv | grep JWT → les deux ; grep    │
+     │ MINIO_ROOT → vide.                                                      │
+     │ 6. /api/v1/health interne → 200, db et storage up. git status sans      │
+     │ .env.                                                                   │
+     │                                                                         │
+     │ Clôture                                                                 │
+     │                                                                         │
+     │ Revue de code du diff, plan dans ai-plans/, backlog coché, fusion dans  │
+     │ main.                                                                   │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+❯ on n'affiche pas les secrets avec inspectApp?                                 
+
+● Non — inspectApp ne met que des noms de clés dans ses messages (Application 
+  variables missing or empty: PORT, BIND_ADDRESS., PORT is not a valid port…),
+  jamais une valeur, et aucune des trois n'est un secret de toute façon.
+  inspectAuth suivra la même règle, elle est déjà écrite en tête du fichier :
+  JWT_SECRET trop court donnera « JWT_SECRET is shorter than 32 characters »,
+  sans le montrer.
+
+  Concrètement, six modifications :
+
+  1. docker-compose.yml — ajouter JWT_SECRET et JWT_EXPIRES au service backend.
+  Elles sont dans .env et générées par install.sh, mais le compose ne les passe
+  pas : en conteneur elles n'existent pas.
+  2. env.validation.ts — un inspectAuth : JWT_SECRET présent et ≥ 32 caractères,
+  JWT_EXPIRES au format 15m. Sans ça, les deux restent de la configuration
+  morte (on les renseigne, rien ne change, rien ne le dit).
+  3. test/setup-env.ts — les deux valeurs, sinon les suites e2e cassent à
+  l'import.
+  4. .env.example — corriger le commentaire faux (« le bucket est créé par l'API
+  » : c'est minio-init depuis la révision d'A3) et le bloc JWT qui dit « pas
+  encore lues par le code ».
+  5. env.example.spec.ts — un petit test : chaque clé requise par validateEnv
+  est dans .env.example, les clés secrètes y sont vides, pas de doublon.
+  6. README — une section « Configuration » avec le tableau des variables.
+
+  Plus : deux tests dans env.validation.spec.ts (secret trop court, format
+  d'expiration invalide), ./install.sh rejoué pour vérifier qu'il n'y a rien à y
+  changer, revue du diff, backlog coché, merge.
+
+  Rien d'autre : pas de variables d'upload (l'énoncé fige 20 Mo / PDF-JPG-PNG,
+  ce sont des constantes de C2), pas de durée par défaut (B2 en fait une entrée
+  de formulaire), pas de test sur le compose (il casserait en A5 pour un échec
+  déjà bruyant au démarrage).
+
+● Updated plan
+  ⎿  /plan to preview
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ A4 — Secrets externalisés et .env.example complet                       │
+     │                                                                         │
+     │ Branche : feat/a4-secrets-env                                           │
+     │                                                                         │
+     │ Contexte                                                                │
+     │                                                                         │
+     │ Les trois critères d'A4 sont déjà tenus pour tout ce que le code lit,   │
+     │ comme sous-produit d'A1 et A3 :                                         │
+     │ .env gitignoré et absent de l'historique, secrets générés par           │
+     │ install.sh, validateEnv qui                                             │
+     │ refuse le démarrage en nommant les variables manquantes. Il reste que   │
+     │ JWT_SECRET et                                                           │
+     │ JWT_EXPIRES sont à moitié câblées : documentées et générées, mais ni    │
+     │ passées par le compose ni                                               │
+     │ validées — en conteneur elles n'existent pas, et les renseigner ne      │
+     │ produit rien sans que rien ne le                                        │
+     │ signale. Plus un commentaire faux dans .env.example depuis la révision  │
+     │ d'A3.                                                                   │
+     │                                                                         │
+     │ Modifications                                                           │
+     │                                                                         │
+     │ 1. docker-compose.yml — JWT_SECRET et JWT_EXPIRES ajoutées au service   │
+     │ backend, en                                                             │
+     │ ${VAR:?definir VAR dans .env}.                                          │
+     │ 2. backend/src/config/env.validation.ts — un inspectAuth sur le modèle  │
+     │ d'inspectApp :                                                          │
+     │ JWT_SECRET présent et ≥ 32 caractères (une valeur faible se forge hors  │
+     │ ligne, install.sh en                                                    │
+     │ génère 64 hex), JWT_EXPIRES au format ^\d+[smhd]$. Appelé avant le      │
+     │ court-circuit                                                           │
+     │ DATABASE_URL et fusionné dans les deux return — l'oubli du second       │
+     │ ampute la configuration                                                 │
+     │ dès qu'on vise une base managée. Messages sans aucune valeur, comme les │
+     │ inspecteurs existants.                                                  │
+     │ Listes de clés requises exportées, agrégées en REQUIRED_ENV_KEYS.       │
+     │ 3. backend/test/setup-env.ts — les deux valeurs, JWT_SECRET ≥ 32        │
+     │ caractères, sinon toutes les                                            │
+     │ suites e2e cassent à l'import.                                          │
+     │ 4. .env.example — bloc JWT réécrit (« pas encore lues par le code »     │
+     │ devient faux), et                                                       │
+     │ correction du commentaire sur la création du bucket : c'est minio-init  │
+     │ qui provisionne, l'API                                                  │
+     │ constate.                                                               │
+     │ 5. backend/src/config/env.example.spec.ts (nouveau) — lit le seul       │
+     │ .env.example, sans                                                      │
+     │ parseur : chaque clé de REQUIRED_ENV_KEYS y figure, les clés secrètes   │
+     │ (DB_PASSWORD,                                                           │
+     │ JWT_SECRET, STORAGE_*_KEY, MINIO_ROOT_*) y sont vides, aucun doublon.   │
+     │ 6. README.md — section « Configuration » : tableau des variables (rôle, │
+     │ secret ou non, défaut),                                                 │
+     │ règle de préfixe STORAGE_* lue par l'app / MINIO_* jamais, et absence   │
+     │ délibérée de variable                                                   │
+     │ frontend (le SPA appelle /api/... en relatif).                          │
+     │                                                                         │
+     │ install.sh n'est pas modifié : set_env_default JWT_SECRET existe déjà   │
+     │ et JWT_EXPIRES est                                                      │
+     │ recopiée avec sa valeur. À prouver par exécution, pas par lecture.      │
+     │                                                                         │
+     │ Hors périmètre                                                          │
+     │                                                                         │
+     │ - Variables d'upload : l'énoncé fige 20 Mo et PDF/JPG/PNG. Règles       │
+     │ produit, pas configuration —                                            │
+     │ constantes typées en C2, qui évitent un mode d'échec, une route         │
+     │ d'exposition au frontend, et ne                                         │
+     │ dispensent pas de synchroniser client_max_body_size à la main.          │
+     │ - Durée de validité par défaut : B2 en fait une entrée du formulaire.   │
+     │ - Test de contrat sur le compose : parserait du YAML à la regex et      │
+     │ casserait en A5, pour un                                                │
+     │ échec déjà bruyant au démarrage.                                        │
+     │                                                                         │
+     │ Sécurité                                                                │
+     │                                                                         │
+     │ JWT_SECRET est la seule variable dont une valeur faible est directement │
+     │ exploitable (forge de                                                   │
+     │ jetons avocat, donc accès à tous les dossiers) : longueur minimale      │
+     │ imposée, jamais recopiée dans une                                       │
+     │ erreur. Risques résiduels : pas de scanner de secrets en CI (D3), pas   │
+     │ de procédure de rotation                                                │
+     │ documentée, désaccord .env.example/compose détecté au démarrage         │
+     │ seulement.                                                              │
+     │                                                                         │
+     │ Tests                                                                   │
+     │                                                                         │
+     │ - env.validation.spec.ts : JWT_SECRET absent puis trop court,           │
+     │ JWT_EXPIRES mal formé, cas                                              │
+     │ nominal, et chemin DATABASE_URL explicite renvoyant bien le bloc auth.  │
+     │ - env.example.spec.ts : variable requise non documentée, secret         │
+     │ renseigné par mégarde.                                                  │
+     │                                                                         │
+     │ Unitaires, sans Docker ni réseau.                                       │
+     │                                                                         │
+     │ Vérification                                                            │
+     │                                                                         │
+     │ 1. pnpm -C backend test et test:e2e verts.                              │
+     │ 2. Ruptures délibérées : vider JWT_SECRET de .env.example, y écrire une │
+     │ valeur, dupliquer la                                                    │
+     │ ligne — chacune doit faire échouer le test attendu. Restaurer.          │
+     │ 3. docker compose config avec un .env amputé de JWT_SECRET → échoue en  │
+     │ le nommant.                                                             │
+     │ 4. ./install.sh sur le .env existant, puis sur un .env neuf → exit 0,   │
+     │ portail en HTTP 200.                                                    │
+     │ 5. docker compose exec backend printenv | grep JWT → les deux ; grep    │
+     │ MINIO_ROOT → vide.                                                      │
+     │                                                                         │
+     │ Clôture                                                                 │
+     │                                                                         │
+     │ Revue de code du diff, plan dans ai-plans/, backlog coché, fusion dans  │
+     │ main.                                                                   │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+● Updated plan
+  ⎿  /plan to preview
+
+● Noté pour la suite : plans courts, sans redites.
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ A4 — Secrets externalisés et .env.example complet                       │
+     │                                                                         │
+     │ Branche : feat/a4-secrets-env                                           │
+     │                                                                         │
+     │ Contexte                                                                │
+     │                                                                         │
+     │ Les trois critères d'A4 sont déjà tenus pour ce que le code lit         │
+     │ (sous-produit d'A1/A3). Il reste que                                    │
+     │ JWT_SECRET et JWT_EXPIRES sont à moitié câblées : documentées et        │
+     │ générées par install.sh, mais                                           │
+     │ ni passées par le compose ni validées — en conteneur elles n'existent   │
+     │ pas, et les renseigner ne                                               │
+     │ produit rien sans que rien ne le signale. Plus un commentaire faux dans │
+     │ .env.example depuis la                                                  │
+     │ révision d'A3.                                                          │
+     │                                                                         │
+     │ Modifications                                                           │
+     │                                                                         │
+     │ 1. docker-compose.yml — les deux variables au service backend, en       │
+     │ ${VAR:?...}.                                                            │
+     │ 2. env.validation.ts — un inspectAuth : JWT_SECRET ≥ 32 caractères,     │
+     │ JWT_EXPIRES au format                                                   │
+     │ ^\d+[smhd]$. Fusionné dans les deux return (l'oubli du second ampute la │
+     │ configuration sur                                                       │
+     │ le chemin DATABASE_URL explicite). Messages sans valeur. Clés requises  │
+     │ exportées en                                                            │
+     │ REQUIRED_ENV_KEYS.                                                      │
+     │ 3. test/setup-env.ts — les deux valeurs, sinon les suites e2e cassent à │
+     │ l'import.                                                               │
+     │ 4. .env.example — bloc JWT réécrit ; corriger « le bucket est créé par  │
+     │ l'API » (c'est                                                          │
+     │ minio-init).                                                            │
+     │ 5. env.example.spec.ts (nouveau) — chaque clé de REQUIRED_ENV_KEYS      │
+     │ documentée, clés secrètes                                               │
+     │ vides, aucun doublon.                                                   │
+     │ 6. README.md — section « Configuration » : tableau des variables,       │
+     │ préfixe STORAGE_* lu par                                                │
+     │ l'app / MINIO_* jamais, absence délibérée de variable frontend.         │
+     │                                                                         │
+     │ install.sh inchangé (set_env_default JWT_SECRET existe), à confirmer    │
+     │ par exécution.                                                          │
+     │                                                                         │
+     │ Hors périmètre                                                          │
+     │                                                                         │
+     │ Variables d'upload (l'énoncé fige 20 Mo / PDF-JPG-PNG : constantes de   │
+     │ C2), durée de validité par                                              │
+     │ défaut (entrée de formulaire en B2), test de contrat sur le compose     │
+     │ (casserait en A5 pour un échec                                          │
+     │ déjà bruyant au démarrage).                                             │
+     │                                                                         │
+     │ Sécurité                                                                │
+     │                                                                         │
+     │ JWT_SECRET est la seule variable ici dont une valeur faible est         │
+     │ exploitable (forge de jetons                                            │
+     │ avocat) : longueur minimale imposée, jamais recopiée dans une erreur.   │
+     │ Résiduel : pas de scanner de                                            │
+     │ secrets en CI (D3), pas de procédure de rotation, dérive                │
+     │ .env.example/compose visible au démarrage                               │
+     │ seulement.                                                              │
+     │                                                                         │
+     │ Tests                                                                   │
+     │                                                                         │
+     │ - env.validation.spec.ts : secret absent puis trop court, expiration    │
+     │ mal formée, cas nominal,                                                │
+     │ chemin DATABASE_URL explicite renvoyant le bloc auth.                   │
+     │ - env.example.spec.ts : variable requise non documentée, secret         │
+     │ renseigné par mégarde.                                                  │
+     │                                                                         │
+     │ Vérification                                                            │
+     │                                                                         │
+     │ pnpm -C backend test et test:e2e verts ; ruptures délibérées de         │
+     │ .env.example (clé vidée,                                                │
+     │ secret rempli, ligne dupliquée) qui doivent échouer puis être           │
+     │ restaurées ; docker compose config                                      │
+     │ sans JWT_SECRET → échoue en le nommant ; ./install.sh sur .env existant │
+     │ puis neuf → exit 0 et                                                   │
+     │ HTTP 200 ; printenv | grep JWT dans le conteneur → les deux, grep       │
+     │ MINIO_ROOT → vide.                                                      │
+     │                                                                         │
+     │ Puis revue du diff, plan dans ai-plans/, backlog coché, fusion dans     │
+     │ main.                                                                   │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+✻ Baked for 8m 8s
+
+❯ prends l'avant derniere version du plan                                       
+   fais un résumé à la fin de chaque plan (mémorise le)                         
+
+  Recalled 1 memory, wrote 1 memory (ctrl+o to expand)
+
+● Updated plan
+  ⎿  /plan to preview
+
+● Mémorisé : résumé systématique en fin de plan, et plan dimensionné à l'enjeu
+  (ajouté à plan-comparatif-et-resume).
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ A4 — Secrets externalisés et .env.example complet                       │
+     │                                                                         │
+     │ Branche : feat/a4-secrets-env                                           │
+     │                                                                         │
+     │ Contexte                                                                │
+     │                                                                         │
+     │ Les trois critères d'A4 sont déjà tenus pour tout ce que le code lit,   │
+     │ comme sous-produit d'A1 et A3 :                                         │
+     │ .env gitignoré et absent de l'historique, secrets générés par           │
+     │ install.sh, validateEnv qui                                             │
+     │ refuse le démarrage en nommant les variables manquantes. Il reste que   │
+     │ JWT_SECRET et                                                           │
+     │ JWT_EXPIRES sont à moitié câblées : documentées et générées, mais ni    │
+     │ passées par le compose ni                                               │
+     │ validées — en conteneur elles n'existent pas, et les renseigner ne      │
+     │ produit rien sans que rien ne le                                        │
+     │ signale. Plus un commentaire faux dans .env.example depuis la révision  │
+     │ d'A3.                                                                   │
+     │                                                                         │
+     │ Modifications                                                           │
+     │                                                                         │
+     │ 1. docker-compose.yml — JWT_SECRET et JWT_EXPIRES ajoutées au service   │
+     │ backend, en                                                             │
+     │ ${VAR:?definir VAR dans .env}.                                          │
+     │ 2. backend/src/config/env.validation.ts — un inspectAuth sur le modèle  │
+     │ d'inspectApp :                                                          │
+     │ JWT_SECRET présent et ≥ 32 caractères (une valeur faible se forge hors  │
+     │ ligne, install.sh en                                                    │
+     │ génère 64 hex), JWT_EXPIRES au format ^\d+[smhd]$. Appelé avant le      │
+     │ court-circuit                                                           │
+     │ DATABASE_URL et fusionné dans les deux return — l'oubli du second       │
+     │ ampute la configuration                                                 │
+     │ dès qu'on vise une base managée. Messages sans aucune valeur, comme les │
+     │ inspecteurs existants.                                                  │
+     │ Listes de clés requises exportées, agrégées en REQUIRED_ENV_KEYS.       │
+     │ 3. backend/test/setup-env.ts — les deux valeurs, JWT_SECRET ≥ 32        │
+     │ caractères, sinon toutes les                                            │
+     │ suites e2e cassent à l'import.                                          │
+     │ 4. .env.example — bloc JWT réécrit (« pas encore lues par le code »     │
+     │ devient faux), et                                                       │
+     │ correction du commentaire sur la création du bucket : c'est minio-init  │
+     │ qui provisionne, l'API                                                  │
+     │ constate.                                                               │
+     │ 5. backend/src/config/env.example.spec.ts (nouveau) — lit le seul       │
+     │ .env.example, sans                                                      │
+     │ parseur : chaque clé de REQUIRED_ENV_KEYS y figure, les clés secrètes   │
+     │ (DB_PASSWORD,                                                           │
+     │ JWT_SECRET, STORAGE_*_KEY, MINIO_ROOT_*) y sont vides, aucun doublon.   │
+     │ 6. README.md — section « Configuration » : tableau des variables (rôle, │
+     │ secret ou non, défaut),                                                 │
+     │ règle de préfixe STORAGE_* lue par l'app / MINIO_* jamais, et absence   │
+     │ délibérée de variable                                                   │
+     │ frontend (le SPA appelle /api/... en relatif).                          │
+     │                                                                         │
+     │ install.sh n'est pas modifié : set_env_default JWT_SECRET existe déjà   │
+     │ et JWT_EXPIRES est                                                      │
+     │ recopiée avec sa valeur. À prouver par exécution, pas par lecture.      │
+     │                                                                         │
+     │ Hors périmètre                                                          │
+     │                                                                         │
+     │ - Variables d'upload : l'énoncé fige 20 Mo et PDF/JPG/PNG. Règles       │
+     │ produit, pas configuration —                                            │
+     │ constantes typées en C2, qui évitent un mode d'échec, une route         │
+     │ d'exposition au frontend, et ne                                         │
+     │ dispensent pas de synchroniser client_max_body_size à la main.          │
+     │ - Durée de validité par défaut : B2 en fait une entrée du formulaire.   │
+     │ - Test de contrat sur le compose : parserait du YAML à la regex et      │
+     │ casserait en A5, pour un                                                │
+     │ échec déjà bruyant au démarrage.                                        │
+     │                                                                         │
+     │ Sécurité                                                                │
+     │                                                                         │
+     │ JWT_SECRET est la seule variable ici dont une valeur faible est         │
+     │ directement exploitable (forge de                                       │
+     │ jetons avocat, donc accès à tous les dossiers) : longueur minimale      │
+     │ imposée, jamais recopiée dans une                                       │
+     │ erreur. Risques résiduels : pas de scanner de secrets en CI (D3), pas   │
+     │ de procédure de rotation                                                │
+     │ documentée, désaccord .env.example/compose détecté au démarrage         │
+     │ seulement.                                                              │
+     │                                                                         │
+     │ Tests                                                                   │
+     │                                                                         │
+     │ - env.validation.spec.ts : JWT_SECRET absent puis trop court,           │
+     │ JWT_EXPIRES mal formé, cas                                              │
+     │ nominal, et chemin DATABASE_URL explicite renvoyant bien le bloc auth.  │
+     │ - env.example.spec.ts : variable requise non documentée, secret         │
+     │ renseigné par mégarde dans un                                           │
+     │ fichier versionné.                                                      │
+     │                                                                         │
+     │ Unitaires, sans Docker ni réseau.                                       │
+     │                                                                         │
+     │ Vérification                                                            │
+     │                                                                         │
+     │ 1. pnpm -C backend test et test:e2e verts.                              │
+     │ 2. Ruptures délibérées : vider JWT_SECRET de .env.example, y écrire une │
+     │ valeur, dupliquer la                                                    │
+     │ ligne — chacune doit faire échouer le test attendu. Restaurer.          │
+     │ 3. docker compose config avec un .env amputé de JWT_SECRET → échoue en  │
+     │ le nommant.                                                             │
+     │ 4. ./install.sh sur le .env existant, puis sur un .env neuf → exit 0,   │
+     │ portail en HTTP 200.                                                    │
+     │ 5. docker compose exec backend printenv | grep JWT → les deux ; grep    │
+     │ MINIO_ROOT → vide.                                                      │
+     │                                                                         │
+     │ Résumé                                                                  │
+     │                                                                         │
+     │ A4 est en grande partie déjà satisfaite : le plan ne livre donc pas de  │
+     │ fonctionnalité, il ferme le                                             │
+     │ seul trou réel — deux variables JWT documentées mais absentes du        │
+     │ conteneur et non validées — et                                          │
+     │ corrige une documentation devenue fausse. Six fichiers touchés, un test │
+     │ unitaire ajouté pour que                                                │
+     │ « toute clé requise est documentée, toute clé secrète est vide » cesse  │
+     │ d'être une convention.                                                  │
+     │                                                                         │
+     │ Trois ajouts sont écartés faute d'apport réel : les variables d'upload  │
+     │ (règles figées par                                                      │
+     │ l'énoncé, donc constantes en C2), la durée de validité par défaut       │
+     │ (entrée de formulaire en B2), et                                        │
+     │ un test de contrat sur le compose (coûteux, fragile en A5, pour un      │
+     │ échec déjà bruyant au démarrage).                                       │
+     │                                                                         │
+     │ Ce que ça coûte : la dérive entre .env.example et docker-compose.yml    │
+     │ reste détectée au démarrage                                             │
+     │ et non en CI, et aucun scanner de secrets ne protège le dépôt tant que  │
+     │ D3 n'existe pas.                                                        │
+     │                                                                         │
+     │ Clôture habituelle : revue du diff, plan dans ai-plans/, backlog coché, │
+     │ fusion dans main.                                                       │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+❯ D'ailleurs, vérifie le backlog avec les consignes sur le site pour vérifier   
+  d'éventuelles incohérences                                                    
+
+● Fetch(https://exercice-stagiaire-div.vercel.app/exo/portail-depot)
+  ⎿  Received 94.2KB (200 OK)
+
+● Fetch(https://exercice-stagiaire-div.vercel.app/exo/portail-depot)
+  ⎿  Received 94.2KB (200 OK)
+
+  Ran 1 shell command, wrote 1 memory (ctrl+o to expand)
+
+❯ enlève le test env example spec ts je ne vois pas l'interet                   
+
+● Updated plan
+  ⎿  /plan to preview
+● Test supprimé. Mémorisé : mise en évidence des changements en tête du plan dès
+  la 2ᵉ version, y compris dans une même session.
+
+  Vérification backlog / énoncé (relu à l'instant) — trois écarts, tous de ma
+  rédaction :
+
+  - A4 invente « expiration par défaut, SMTP éventuel » : l'énoncé ne parle
+  jamais d'envoi de mail.
+  - C2 dit types et taille « configurables » alors que l'énoncé les fige (20 Mo,
+  PDF/JPG/PNG).
+  - C4 est en P1 alors que l'énoncé range antivirus et vérification de type dans
+  les bonus → P2, en remontant le contrôle des magic bytes dans C2 (P0), sans
+  quoi l'allowlist se contourne avec un Content-Type menti.
+
+  Deux priorités discutables, signalées sans les changer : D2 (runner frontend)
+  n'a aucune base dans l'énoncé, qui ne demande du Jest que sur la logique
+  métier ; E2 (densité UI constante) est au contraire cité parmi les critères de
+  différenciation design. Le reste concorde : huit éliminatoires en P0, cinq
+  attendus en P1, cinq bonus en P2.
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ A4 — Secrets externalisés et .env.example complet                       │
+     │                                                                         │
+     │ Branche : feat/a4-secrets-env                                           │
+     │                                                                         │
+     │ Changements de cette version                                            │
+     │                                                                         │
+     │ - Le test env.example.spec.ts est supprimé du plan. Il n'y a plus aucun │
+     │ fichier de test                                                         │
+     │ nouveau : les seuls ajouts sont deux cas dans env.validation.spec.ts.   │
+     │ - Un point 6 est ajouté : correction du texte d'A4, de C2 et de C4 dans │
+     │ issue_backlog.md, où                                                    │
+     │ trois exigences ne viennent pas de l'énoncé mais de ma rédaction        │
+     │ (détail en fin de plan).                                                │
+     │ - N'ont pas bougé : la modification du compose, inspectAuth,            │
+     │ setup-env.ts, les corrections de                                        │
+     │ .env.example, la section README, le hors-périmètre, la sécurité et la   │
+     │ vérification.                                                           │
+     │                                                                         │
+     │ Contexte                                                                │
+     │                                                                         │
+     │ Les trois critères d'A4 sont déjà tenus pour tout ce que le code lit,   │
+     │ comme sous-produit d'A1 et A3 :                                         │
+     │ .env gitignoré et absent de l'historique, secrets générés par           │
+     │ install.sh, validateEnv qui                                             │
+     │ refuse le démarrage en nommant les variables manquantes. Il reste que   │
+     │ JWT_SECRET et                                                           │
+     │ JWT_EXPIRES sont à moitié câblées : documentées et générées, mais ni    │
+     │ passées par le compose ni                                               │
+     │ validées — en conteneur elles n'existent pas, et les renseigner ne      │
+     │ produit rien sans que rien ne le                                        │
+     │ signale. Plus un commentaire faux dans .env.example depuis la révision  │
+     │ d'A3.                                                                   │
+     │                                                                         │
+     │ Modifications                                                           │
+     │                                                                         │
+     │ 1. docker-compose.yml — JWT_SECRET et JWT_EXPIRES ajoutées au service   │
+     │ backend, en                                                             │
+     │ ${VAR:?definir VAR dans .env}.                                          │
+     │ 2. backend/src/config/env.validation.ts — un inspectAuth sur le modèle  │
+     │ d'inspectApp :                                                          │
+     │ JWT_SECRET présent et ≥ 32 caractères (une valeur faible se forge hors  │
+     │ ligne, install.sh en                                                    │
+     │ génère 64 hex), JWT_EXPIRES au format ^\d+[smhd]$. Appelé avant le      │
+     │ court-circuit                                                           │
+     │ DATABASE_URL et fusionné dans les deux return — l'oubli du second       │
+     │ ampute la configuration                                                 │
+     │ dès qu'on vise une base managée. Messages sans aucune valeur, comme les │
+     │ inspecteurs existants.                                                  │
+     │ 3. backend/test/setup-env.ts — les deux valeurs, JWT_SECRET ≥ 32        │
+     │ caractères, sinon toutes les                                            │
+     │ suites e2e cassent à l'import.                                          │
+     │ 4. .env.example — bloc JWT réécrit (« pas encore lues par le code »     │
+     │ devient faux), et                                                       │
+     │ correction du commentaire sur la création du bucket : c'est minio-init  │
+     │ qui provisionne, l'API                                                  │
+     │ constate.                                                               │
+     │ 5. README.md — section « Configuration » : tableau des variables (rôle, │
+     │ secret ou non, défaut),                                                 │
+     │ règle de préfixe STORAGE_* lue par l'app / MINIO_* jamais, et absence   │
+     │ délibérée de variable                                                   │
+     │ frontend (le SPA appelle /api/... en relatif).                          │
+     │ 6. issue_backlog.md — corriger les trois écarts avec l'énoncé relevés   │
+     │ ci-dessous, en plus des                                                 │
+     │ cases d'A4.                                                             │
+     │                                                                         │
+     │ install.sh n'est pas modifié : set_env_default JWT_SECRET existe déjà   │
+     │ et JWT_EXPIRES est                                                      │
+     │ recopiée avec sa valeur. À prouver par exécution, pas par lecture.      │
+     │                                                                         │
+     │ Hors périmètre                                                          │
+     │                                                                         │
+     │ - Variables d'upload : l'énoncé fige 20 Mo et PDF/JPG/PNG. Règles       │
+     │ produit, pas configuration —                                            │
+     │ constantes typées en C2.                                                │
+     │ - Durée de validité par défaut : B2 en fait une entrée du formulaire.   │
+     │ - Tout test de cohérence entre fichiers de configuration : l'oubli      │
+     │ d'une variable fait déjà                                                │
+     │ échouer le démarrage en la nommant.                                     │
+     │                                                                         │
+     │ Écarts backlog / énoncé                                                 │
+     │                                                                         │
+     │ Relecture de l'énoncé faite ce jour. Trois exigences du backlog n'en    │
+     │ viennent pas :                                                          │
+     │                                                                         │
+     │ - A4 : « expiration par défaut, SMTP éventuel » — l'énoncé ne mentionne │
+     │ ni l'un ni l'autre                                                      │
+     │ (aucun envoi de mail nulle part). À retirer du texte de l'issue.        │
+     │ - C2 : « taille max et types autorisés configurables » — l'énoncé les   │
+     │ fige (20 Mo,                                                            │
+     │ PDF/JPG/PNG). Reformuler en « appliqués », ce qui justifie des          │
+     │ constantes plutôt que des variables.                                    │
+     │ - C4 : marquée P1, alors que l'énoncé range l'antivirus et la           │
+     │ vérification de type dans les                                           │
+     │ bonus. À passer en P2, en remontant le contrôle des magic bytes dans C2 │
+     │ (P0) : c'est la                                                         │
+     │ validation de type réelle, sans elle le plafond de 20 Mo et l'allowlist │
+     │ se contournent avec un                                                  │
+     │ simple Content-Type menti.                                              │
+     │                                                                         │
+     │ Deux points de priorité discutables, signalés sans les changer : D2     │
+     │ (runner de tests frontend)                                              │
+     │ n'a aucune base dans l'énoncé, qui ne demande du Jest que sur la        │
+     │ logique métier — P2 plutôt que P1 ;                                     │
+     │ E2 (densité UI constante) est au contraire cité parmi les critères de   │
+     │ différenciation design —                                                │
+     │ P1 plutôt que P2. Le reste des priorités correspond : les cinq «        │
+     │ attendus » sont en P1, les cinq                                         │
+     │ bonus en P2, les huit éliminatoires en P0.                              │
+     │                                                                         │
+     │ Sécurité                                                                │
+     │                                                                         │
+     │ JWT_SECRET est la seule variable ici dont une valeur faible est         │
+     │ directement exploitable (forge de                                       │
+     │ jetons avocat, donc accès à tous les dossiers) : longueur minimale      │
+     │ imposée, jamais recopiée dans une                                       │
+     │ erreur. Risques résiduels : pas de scanner de secrets en CI (D3), pas   │
+     │ de procédure de rotation                                                │
+     │ documentée, dérive .env.example/compose visible au démarrage seulement. │
+     │                                                                         │
+     │ Tests                                                                   │
+     │                                                                         │
+     │ Deux cas ajoutés à env.validation.spec.ts : JWT_SECRET absent puis trop │
+     │ court, JWT_EXPIRES mal                                                  │
+     │ formé — plus l'extension du cas existant sur le chemin DATABASE_URL     │
+     │ explicite, qui doit renvoyer le                                         │
+     │ bloc auth (la régression qu'A3 avait failli livrer).                    │
+     │                                                                         │
+     │ Vérification                                                            │
+     │                                                                         │
+     │ 1. pnpm -C backend test et test:e2e verts.                              │
+     │ 2. docker compose config avec un .env amputé de JWT_SECRET → échoue en  │
+     │ le nommant.                                                             │
+     │ 3. ./install.sh sur le .env existant, puis sur un .env neuf → exit 0,   │
+     │ portail en HTTP 200.                                                    │
+     │ 4. docker compose exec backend printenv | grep JWT → les deux ; grep    │
+     │ MINIO_ROOT → vide.                                                      │
+     │                                                                         │
+     │ Résumé                                                                  │
+     │                                                                         │
+     │ A4 est en grande partie déjà satisfaite par A1 et A3 : le plan ne livre │
+     │ pas de fonctionnalité, il                                               │
+     │ ferme le seul trou réel — deux variables JWT documentées mais absentes  │
+     │ du conteneur et non validées                                            │
+     │ — corrige une documentation devenue fausse, ajoute la section           │
+     │ Configuration au README, et remet le                                    │
+     │ texte du backlog en accord avec l'énoncé. Cinq fichiers de code et de   │
+     │ config touchés, deux cas de                                             │
+     │ test ajoutés, aucun fichier de test nouveau.                            │
+     │                                                                         │
+     │ Écartés faute d'apport : variables d'upload (valeurs figées par         │
+     │ l'énoncé → constantes en C2), durée                                     │
+     │ de validité par défaut (entrée de formulaire en B2), et tout test de    │
+     │ cohérence entre fichiers de                                             │
+     │ configuration (l'échec au démarrage nomme déjà la variable).            │
+     │                                                                         │
+     │ Ce que ça coûte : la dérive entre .env.example et docker-compose.yml    │
+     │ reste détectée au démarrage                                             │
+     │ et non en CI, et aucun scanner de secrets ne protège le dépôt tant que  │
+     │ D3 n'existe pas.                                                        │
+     │                                                                         │
+     │ Clôture habituelle : revue du diff, plan dans ai-plans/, backlog coché, │
+     │ fusion dans main.                                                       │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● C'est la suite existante de validateEnv, 17 cas — pas un fichier nouveau. Elle
+  protège le contrat de démarrage, et quatre de ses cas correspondent à des
+  bugs réellement vécus sur ce projet :
+
+  - accepts a password containing reserved characters — le mot de passe
+  contenant / ou # qui produisait une URL invalide, db démarrant très bien et
+  backend échouant sans lien visible avec le mot de passe.
+  - does NOT waive PORT, API_PREFIX or BIND_ADDRESS et survives an explicitly 
+  supplied DATABASE_URL — le court-circuit DATABASE_URL qui amputait
+  silencieusement la config applicative et stockage (la régression qu'A3 avait
+  failli livrer).
+  - names every missing variable at once — sinon on corrige une variable, on
+  relance, on en découvre une autre.
+  - never copies a secret into the error message — DB_PASSWORD et JWT_SECRET
+  finissent dans des logs agrégés.
+
+  Mon ajout A4 y met deux cas : JWT_SECRET absent puis trop court, JWT_EXPIRES
+  mal formé. Sans eux, la validation que j'ajoute dans inspectAuth n'est prouvée
+  par rien — et le troisième critère de l'issue (« démarrage en échec explicite
+  ») repose précisément dessus.
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ A4 — Secrets externalisés et .env.example complet                       │
+     │                                                                         │
+     │ Branche : feat/a4-secrets-env                                           │
+     │                                                                         │
+     │ Changements de cette version                                            │
+     │                                                                         │
+     │ - Le test env.example.spec.ts est supprimé du plan. Il n'y a plus aucun │
+     │ fichier de test                                                         │
+     │ nouveau : les seuls ajouts sont deux cas dans env.validation.spec.ts.   │
+     │ - Un point 6 est ajouté : correction du texte d'A4, de C2 et de C4 dans │
+     │ issue_backlog.md, où                                                    │
+     │ trois exigences ne viennent pas de l'énoncé mais de ma rédaction        │
+     │ (détail en fin de plan).                                                │
+     │ - N'ont pas bougé : la modification du compose, inspectAuth,            │
+     │ setup-env.ts, les corrections de                                        │
+     │ .env.example, la section README, le hors-périmètre, la sécurité et la   │
+     │ vérification.                                                           │
+     │                                                                         │
+     │ Contexte                                                                │
+     │                                                                         │
+     │ Les trois critères d'A4 sont déjà tenus pour tout ce que le code lit,   │
+     │ comme sous-produit d'A1 et A3 :                                         │
+     │ .env gitignoré et absent de l'historique, secrets générés par           │
+     │ install.sh, validateEnv qui                                             │
+     │ refuse le démarrage en nommant les variables manquantes. Il reste que   │
+     │ JWT_SECRET et                                                           │
+     │ JWT_EXPIRES sont à moitié câblées : documentées et générées, mais ni    │
+     │ passées par le compose ni                                               │
+     │ validées — en conteneur elles n'existent pas, et les renseigner ne      │
+     │ produit rien sans que rien ne le                                        │
+     │ signale. Plus un commentaire faux dans .env.example depuis la révision  │
+     │ d'A3.                                                                   │
+     │                                                                         │
+     │ Modifications                                                           │
+     │                                                                         │
+     │ 1. docker-compose.yml — JWT_SECRET et JWT_EXPIRES ajoutées au service   │
+     │ backend, en                                                             │
+     │ ${VAR:?definir VAR dans .env}.                                          │
+     │ 2. backend/src/config/env.validation.ts — un inspectAuth sur le modèle  │
+     │ d'inspectApp :                                                          │
+     │ JWT_SECRET présent et ≥ 32 caractères (une valeur faible se forge hors  │
+     │ ligne, install.sh en                                                    │
+     │ génère 64 hex), JWT_EXPIRES au format ^\d+[smhd]$. Appelé avant le      │
+     │ court-circuit                                                           │
+     │ DATABASE_URL et fusionné dans les deux return — l'oubli du second       │
+     │ ampute la configuration                                                 │
+     │ dès qu'on vise une base managée. Messages sans aucune valeur, comme les │
+     │ inspecteurs existants.                                                  │
+     │ 3. backend/test/setup-env.ts — les deux valeurs, JWT_SECRET ≥ 32        │
+     │ caractères, sinon toutes les                                            │
+     │ suites e2e cassent à l'import.                                          │
+     │ 4. .env.example — bloc JWT réécrit (« pas encore lues par le code »     │
+     │ devient faux), et                                                       │
+     │ correction du commentaire sur la création du bucket : c'est minio-init  │
+     │ qui provisionne, l'API                                                  │
+     │ constate.                                                               │
+     │ 5. README.md — section « Configuration » : tableau des variables (rôle, │
+     │ secret ou non, défaut),                                                 │
+     │ règle de préfixe STORAGE_* lue par l'app / MINIO_* jamais, et absence   │
+     │ délibérée de variable                                                   │
+     │ frontend (le SPA appelle /api/... en relatif).                          │
+     │ 6. issue_backlog.md — corriger les trois écarts avec l'énoncé relevés   │
+     │ ci-dessous, en plus des                                                 │
+     │ cases d'A4.                                                             │
+     │                                                                         │
+     │ install.sh n'est pas modifié : set_env_default JWT_SECRET existe déjà   │
+     │ et JWT_EXPIRES est                                                      │
+     │ recopiée avec sa valeur. À prouver par exécution, pas par lecture.      │
+     │                                                                         │
+     │ Hors périmètre                                                          │
+     │                                                                         │
+     │ - Variables d'upload : l'énoncé fige 20 Mo et PDF/JPG/PNG. Règles       │
+     │ produit, pas configuration —                                            │
+     │ constantes typées en C2.                                                │
+     │ - Durée de validité par défaut : B2 en fait une entrée du formulaire.   │
+     │ - Tout test de cohérence entre fichiers de configuration : l'oubli      │
+     │ d'une variable fait déjà                                                │
+     │ échouer le démarrage en la nommant.                                     │
+     │                                                                         │
+     │ Écarts backlog / énoncé                                                 │
+     │                                                                         │
+     │ Relecture de l'énoncé faite ce jour. Trois exigences du backlog n'en    │
+     │ viennent pas :                                                          │
+     │                                                                         │
+     │ - A4 : « expiration par défaut, SMTP éventuel » — l'énoncé ne mentionne │
+     │ ni l'un ni l'autre                                                      │
+     │ (aucun envoi de mail nulle part). À retirer du texte de l'issue.        │
+     │ - C2 : « taille max et types autorisés configurables » — l'énoncé les   │
+     │ fige (20 Mo,                                                            │
+     │ PDF/JPG/PNG). Reformuler en « appliqués », ce qui justifie des          │
+     │ constantes plutôt que des variables.                                    │
+     │ - C4 : marquée P1, alors que l'énoncé range l'antivirus et la           │
+     │ vérification de type dans les                                           │
+     │ bonus. À passer en P2, en remontant le contrôle des magic bytes dans C2 │
+     │ (P0) : c'est la                                                         │
+     │ validation de type réelle, sans elle le plafond de 20 Mo et l'allowlist │
+     │ se contournent avec un                                                  │
+     │ simple Content-Type menti.                                              │
+     │                                                                         │
+     │ Deux points de priorité discutables, signalés sans les changer : D2     │
+     │ (runner de tests frontend)                                              │
+     │ n'a aucune base dans l'énoncé, qui ne demande du Jest que sur la        │
+     │ logique métier — P2 plutôt que P1 ;                                     │
+     │ E2 (densité UI constante) est au contraire cité parmi les critères de   │
+     │ différenciation design —                                                │
+     │ P1 plutôt que P2. Le reste des priorités correspond : les cinq «        │
+     │ attendus » sont en P1, les cinq                                         │
+     │ bonus en P2, les huit éliminatoires en P0.                              │
+     │                                                                         │
+     │ Sécurité                                                                │
+     │                                                                         │
+     │ JWT_SECRET est la seule variable ici dont une valeur faible est         │
+     │ directement exploitable (forge de                                       │
+     │ jetons avocat, donc accès à tous les dossiers) : longueur minimale      │
+     │ imposée, jamais recopiée dans une                                       │
+     │ erreur. Risques résiduels : pas de scanner de secrets en CI (D3), pas   │
+     │ de procédure de rotation                                                │
+     │ documentée, dérive .env.example/compose visible au démarrage seulement. │
+     │                                                                         │
+     │ Tests                                                                   │
+     │                                                                         │
+     │ Deux cas ajoutés à env.validation.spec.ts : JWT_SECRET absent puis trop │
+     │ court, JWT_EXPIRES mal                                                  │
+     │ formé — plus l'extension du cas existant sur le chemin DATABASE_URL     │
+     │ explicite, qui doit renvoyer le                                         │
+     │ bloc auth (la régression qu'A3 avait failli livrer).                    │
+     │                                                                         │
+     │ Vérification                                                            │
+     │                                                                         │
+     │ 1. pnpm -C backend test et test:e2e verts.                              │
+     │ 2. docker compose config avec un .env amputé de JWT_SECRET → échoue en  │
+     │ le nommant.                                                             │
+     │ 3. ./install.sh sur le .env existant, puis sur un .env neuf → exit 0,   │
+     │ portail en HTTP 200.                                                    │
+     │ 4. docker compose exec backend printenv | grep JWT → les deux ; grep    │
+     │ MINIO_ROOT → vide.                                                      │
+     │                                                                         │
+     │ Résumé                                                                  │
+     │                                                                         │
+     │ A4 est en grande partie déjà satisfaite par A1 et A3 : le plan ne livre │
+     │ pas de fonctionnalité, il                                               │
+     │ ferme le seul trou réel — deux variables JWT documentées mais absentes  │
+     │ du conteneur et non validées                                            │
+     │ — corrige une documentation devenue fausse, ajoute la section           │
+     │ Configuration au README, et remet le                                    │
+     │ texte du backlog en accord avec l'énoncé. Cinq fichiers de code et de   │
+     │ config touchés, deux cas de                                             │
+     │ test ajoutés, aucun fichier de test nouveau.                            │
+     │                                                                         │
+     │ Écartés faute d'apport : variables d'upload (valeurs figées par         │
+     │ l'énoncé → constantes en C2), durée                                     │
+     │ de validité par défaut (entrée de formulaire en B2), et tout test de    │
+     │ cohérence entre fichiers de                                             │
+     │ configuration (l'échec au démarrage nomme déjà la variable).            │
+     │                                                                         │
+     │ Ce que ça coûte : la dérive entre .env.example et docker-compose.yml    │
+     │ reste détectée au démarrage                                             │
+     │ et non en CI, et aucun scanner de secrets ne protège le dépôt tant que  │
+     │ D3 n'existe pas.                                                        │
+     │                                                                         │
+     │ Clôture habituelle : revue du diff, plan dans ai-plans/, backlog coché, │
+     │ fusion dans main.                                                       │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+✻ Sautéed for 3m 22s
+
+❯ /superpowers:executing-plans                                                  
+
+● I'm using the executing-plans skill to implement this plan.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(backend/src/config/env.validation.ts)
+  ⎿  Added 19 lines
+      44    'STORAGE_SECRET_KEY',
+      45  ] as const;
+      46  
+      47 +const REQUIRED_AUTH_KEYS = ['JWT_SECRET', 'JWT_EXPIRES'] as con
+         +st;                                                            
+      48 +                                                               
+      49 +/**                                                            
+      50 + * A JWT secret is the whole of the lawyer authentication: whoe
+         +ver knows it                                                   
+      51 + * forges a token for any account, hence reads every client's d
+         +ocuments. The                                                  
+      52 + * threat is offline -- an attacker with one captured token bru
+         +te-forces the                                                  
+      53 + * secret without touching the API, so no rate limiting can hel
+         +p. 32 characters                                               
+      54 + * is the floor; install.sh generates 64 hexadecimal ones.     
+      55 + */                                                            
+      56 +const JWT_SECRET_MIN_LENGTH = 32;                              
+      57 +                                                               
+      58 +/**                                                            
+      59 + * A duration always carries its unit. jsonwebtoken reads a bar
+         +e number as                                                    
+      60 + * seconds but a numeric *string* as milliseconds, so "900" wou
+         +ld mean 15                                                     
+      61 + * minutes or 0.9 second depending on a quote -- a session life
+         +time is not                                                    
+      62 + * something to leave to that. Accepted: 60s, 15m, 2h, 7d.     
+      63 + */                                                            
+      64 +const DURATION_PATTERN = /^\d+[smhd]$/;                        
+      65 +                                                               
+      66  const URL_PROTOCOLS = new Set(['postgres:', 'postgresql:']);
+      67  
+      68  const HTTP_PROTOCOLS = new Set(['http:', 'https:']);
+
+● Update(backend/src/config/env.validation.ts)
+  ⎿  Added 39 lines
+      164  };
+      165  
+      166  /**
+      167 + * Checks the lawyer authentication configuration and returns 
+          +the normalised                                                
+      168 + * values.                                                    
+      169 + *                                                            
+      170 + * These two variables predate the code that reads them (B1): 
+          +they were                                                     
+      171 + * documented in .env.example and generated by install.sh whil
+          +e nothing passed                                              
+      172 + * them to the container and nothing checked them. That is the
+          + one failure mode                                             
+      173 + * this file exists to forbid and could not catch -- a variabl
+          +e that is set,                                                
+      174 + * looks configured, and does nothing.                        
+      175 + */                                                           
+      176 +const inspectAuth = (                                         
+      177 +  raw: Record<string, unknown>,                               
+      178 +  issues: string[],                                           
+      179 +): Record<(typeof REQUIRED_AUTH_KEYS)[number], string> => {   
+      180 +  const missing = REQUIRED_AUTH_KEYS.filter(                  
+      181 +    (key) => readString(raw, key).length === 0,               
+      182 +  );                                                          
+      183 +  if (missing.length > 0) {                                   
+      184 +    issues.push(`Auth variables missing or empty: ${missing.jo
+          +in(', ')}.`);                                                 
+      185 +  }                                                           
+      186 +                                                              
+      187 +  const secret = readString(raw, 'JWT_SECRET');               
+      188 +  if (!missing.includes('JWT_SECRET') && secret.length < JWT_S
+          +ECRET_MIN_LENGTH) {                                           
+      189 +    // The length, never the value: this message ends up in ag
+          +gregated logs.                                                
+      190 +    issues.push(                                              
+      191 +      `JWT_SECRET is shorter than ${JWT_SECRET_MIN_LENGTH} cha
+          +racters.`,                                                    
+      192 +    );                                                        
+      193 +  }                                                           
+      194 +                                                              
+      195 +  const expires = readString(raw, 'JWT_EXPIRES');             
+      196 +  if (!missing.includes('JWT_EXPIRES') && !DURATION_PATTERN.te
+          +st(expires)) {                                                
+      197 +    issues.push(                                              
+      198 +      'JWT_EXPIRES is not a duration with its unit (expected: 
+          +60s, 15m, 2h, 7d).',                                          
+      199 +    );                                                        
+      200 +  }                                                           
+      201 +                                                              
+      202 +  return { JWT_SECRET: secret, JWT_EXPIRES: expires };        
+      203 +};                                                            
+      204 +                                                              
+      205 +/**                                                           
+      206   * Checks the object storage configuration and returns the nor
+           malised values.
+      207   *
+      208   * Like the application keys, these are checked on both databa
+           se paths: whether
+
+● Maintenant les deux return de validateEnv — c'est là que se joue la régression
+  d'A3 :
+
+● Update(backend/src/config/env.validation.ts)
+  ⎿  Added 1 line
+      266  ): Record<string, unknown> => {
+      267    const issues: string[] = [];
+      268    const app = inspectApp(raw, issues);
+      269 +  const auth = inspectAuth(raw, issues);                      
+      270    const storage = inspectStorage(raw, issues);
+      271  
+      272    // An explicitly supplied DATABASE_URL wins: that is what ma
+           kes it possible to
+
+● Update(backend/src/config/env.validation.ts)
+  ⎿  Added 1 line, removed 1 line
+      281      if (issues.length > 0) {
+      282        throw new Error(formatError(issues));
+      283      }
+      284 -    return { ...raw, ...app, ...storage, DATABASE_URL: explici
+          -tUrl };                                                       
+      284 +    return { ...raw, ...app, ...auth, ...storage, DATABASE_URL
+          +: explicitUrl };                                              
+      285    }
+      286  
+      287    const missing = REQUIRED_DB_KEYS.filter(
+
+● Update(backend/src/config/env.validation.ts)  ⎿  Added 1 line
+      317      ...raw,
+      318      ...env,
+      319      ...app,
+      320 +    ...auth,                                                  
+      321      ...storage,
+      322      DATABASE_URL: buildDatabaseUrl(env),
+      323    };
+
+● Les tests. D'abord la fixture partagée, puis le bloc auth :
+
+● Update(backend/src/config/env.validation.spec.ts)
+  ⎿  Added 6 lines, removed 1 line
+      17      BIND_ADDRESS: '127.0.0.1',
+      18    };
+      19  
+      20 -  const app = { ...appOnly, ...storage };                      
+      20 +  const auth = {                                               
+      21 +    JWT_SECRET: 'a'.repeat(32),                                
+      22 +    JWT_EXPIRES: '15m',                                        
+      23 +  };                                                           
+      24  
+      25 +  const app = { ...appOnly, ...auth, ...storage };             
+      26 +                                                               
+      27    const db = {
+      28      ...app,
+      29      DB_HOST: 'db',
+
+● Update(backend/src/config/env.validation.spec.ts)
+  ⎿  Added 57 lines
+      226      });
+      227    });
+      228  
+      229 +  describe('lawyer authentication', () => {                   
+      230 +    it.each(['JWT_SECRET', 'JWT_EXPIRES'])(                   
+      231 +      'rejects a configuration without %s',                   
+      232 +      (key) => {                                              
+      233 +        // Both were documented and generated long before anyt
+          +hing read them.                                               
+      234 +        // Unvalidated, they stayed dead configuration: settin
+          +g them changed                                                
+      235 +        // nothing and nothing said so.                       
+      236 +        expect(() => validateEnv({ ...db, [key]: '' })).toThro
+          +w(                                                            
+      237 +          new RegExp(`Auth variables missing or empty.*${key}`
+          +),                                                            
+      238 +        );                                                    
+      239 +      },                                                      
+      240 +    );                                                        
+      241 +                                                              
+      242 +    it('rejects a JWT_SECRET shorter than 32 characters', () =
+          +> {                                                           
+      243 +      // The attack is offline: one captured token is enough t
+          +o brute-force the                                             
+      244 +      // secret without ever calling the API, so no rate limit
+          +ing protects it.                                              
+      245 +      expect(() =>                                            
+      246 +        validateEnv({ ...db, JWT_SECRET: 'a'.repeat(31) }),   
+      247 +      ).toThrow(/JWT_SECRET is shorter than 32 characters/);  
+      248 +    });                                                       
+      249 +                                                              
+      250 +    it('accepts a JWT_SECRET of exactly 32 characters', () => 
+          +{                                                             
+      251 +      expect(() =>                                            
+      252 +        validateEnv({ ...db, JWT_SECRET: 'a'.repeat(32) }),   
+      253 +      ).not.toThrow();                                        
+      254 +    });                                                       
+      255 +                                                              
+      256 +    it.each(['900', '15 m', '15min', 'quinze minutes', 'm15'])
+          +(                                                             
+      257 +      'rejects a JWT_EXPIRES without a usable unit (%s)',     
+      258 +      (expires) => {                                          
+      259 +        // "900" is the dangerous one: jsonwebtoken reads a ba
+          +re number as                                                  
+      260 +        // seconds and a numeric string as milliseconds, so a 
+          +quote decides                                                 
+      261 +        // between a 15-minute session and a 0.9-second one.  
+      262 +        expect(() => validateEnv({ ...db, JWT_EXPIRES: expires
+          + })).toThrow(                                                 
+      263 +          /JWT_EXPIRES is not a duration with its unit/,      
+      264 +        );                                                    
+      265 +      },                                                      
+      266 +    );                                                        
+      267 +                                                              
+      268 +    it.each(['60s', '15m', '2h', '7d'])('accepts %s', (expires
+          +) => {                                                        
+      269 +      expect(() =>                                            
+      270 +        validateEnv({ ...db, JWT_EXPIRES: expires }),         
+      271 +      ).not.toThrow();                                        
+      272 +    });                                                       
+      273 +                                                              
+      274 +    it('survives an explicitly supplied DATABASE_URL', () => {
+      275 +      // Same trap as the storage block: that path returns ear
+          +ly, and forgetting                                            
+      276 +      // to merge the auth keys into it would strip them silen
+          +tly.                                                          
+      277 +      expect(                                                 
+      278 +        validateEnv({                                         
+      279 +          ...app,                                             
+      280 +          DATABASE_URL: 'postgresql://user:pwd@elsewhere:5432/
+          +managed',                                                     
+      281 +        }),                                                   
+      282 +      ).toMatchObject(auth);                                  
+      283 +    });                                                       
+      284 +  });                                                         
+      285 +                                                              
+      286    it('never copies a secret into the error message', () => {
+      287      expect(() =>
+      288        validateEnv({
+
+  Ran 1 shell command (ctrl+o to expand)
+
+❯ Mémorise : en général fais des commentaires dans le cas si c'est pertinent    
+  (pas de pavés inutiles)                                                       
+
+  Wrote 2 memories (ctrl+o to expand)
+
+● Mémorisé. Je resserre du coup les commentaires que je viens d'écrire, et je
+  corrige le test cassé :
+
+● Update(backend/src/config/env.validation.ts)
+  ⎿  Added 5 lines, removed 13 lines
+      46  
+      47  const REQUIRED_AUTH_KEYS = ['JWT_SECRET', 'JWT_EXPIRES'] as con
+          st;
+      48  
+      49 -/**                                                            
+      50 - * A JWT secret is the whole of the lawyer authentication: whoe
+         -ver knows it                                                   
+      51 - * forges a token for any account, hence reads every client's d
+         -ocuments. The                                                  
+      52 - * threat is offline -- an attacker with one captured token bru
+         -te-forces the                                                  
+      53 - * secret without touching the API, so no rate limiting can hel
+         -p. 32 characters                                               
+      54 - * is the floor; install.sh generates 64 hexadecimal ones.     
+      55 - */                                                            
+      49 +// Brute-forcing this secret is an offline attack -- one captur
+         +ed token is                                                    
+      50 +// enough, the API is never called -- so no rate limiting prote
+         +cts it.                                                        
+      51 +// install.sh generates 64 hexadecimal characters.             
+      52  const JWT_SECRET_MIN_LENGTH = 32;
+      53  
+      58 -/**                                                            
+      59 - * A duration always carries its unit. jsonwebtoken reads a bar
+         -e number as                                                    
+      60 - * seconds but a numeric *string* as milliseconds, so "900" wou
+         -ld mean 15                                                     
+      61 - * minutes or 0.9 second depending on a quote -- a session life
+         -time is not                                                    
+      62 - * something to leave to that. Accepted: 60s, 15m, 2h, 7d.     
+      63 - */                                                            
+      54 +// The unit is mandatory: jsonwebtoken reads a bare number as s
+         +econds and a                                                   
+      55 +// numeric string as milliseconds, so "900" would mean 15 minut
+         +es or 0.9 second.                                              
+      56  const DURATION_PATTERN = /^\d+[smhd]$/;
+      57  
+      58  const URL_PROTOCOLS = new Set(['postgres:', 'postgresql:']);
+
+● Update(backend/src/config/env.validation.ts)
+  ⎿  Added 5 lines, removed 7 lines
+      156  };
+      157  
+      158  /**
+      159 - * Checks the lawyer authentication configuration and returns 
+          -the normalised                                                
+      160 - * values.                                                    
+      159 + * Checks the lawyer authentication configuration (read by B1)
+          + and returns the                                              
+      160 + * normalised values.                                         
+      161   *
+      162 - * These two variables predate the code that reads them (B1): 
+          -they were                                                     
+      163 - * documented in .env.example and generated by install.sh whil
+          -e nothing passed                                              
+      164 - * them to the container and nothing checked them. That is the
+          - one failure mode                                             
+      165 - * this file exists to forbid and could not catch -- a variabl
+          -e that is set,                                                
+      166 - * looks configured, and does nothing.                        
+      162 + * Validated before anything reads them, precisely because tha
+          +t is the failure                                              
+      163 + * mode this file cannot otherwise catch: a variable that is s
+          +et, looks                                                     
+      164 + * configured, and does nothing.                              
+      165   */
+      166  const inspectAuth = (
+      167    raw: Record<string, unknown>,
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(backend/src/config/env.validation.spec.ts)
+  ⎿  Added 3 lines, removed 2 lines
+      40    });
+      41  
+      42    it('preserves the other variables', () => {
+      43 -    expect(validateEnv({ ...db, JWT_SECRET: 'x' })).toMatchObje
+         -ct({                                                           
+      44 -      JWT_SECRET: 'x',                                         
+      43 +    // Whatever the validation does not know about reaches Conf
+         +igService intact.                                              
+      44 +    expect(validateEnv({ ...db, NODE_ENV: 'production' })).toMa
+         +tchObject({                                                    
+      45 +      NODE_ENV: 'production',                                  
+      46      });
+      47    });
+      48  
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(docker-compose.yml)
+  ⎿  Added 5 lines
+      115        STORAGE_BUCKET: ${STORAGE_BUCKET:?definir STORAGE_BUCKET
+            dans .env}
+      116        STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:?definir STORAG
+           E_ACCESS_KEY dans .env}
+      117        STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:?definir STORAG
+           E_SECRET_KEY dans .env}
+      118 +      # Lues par l'authentification avocat (B1). Passees des m
+          +aintenant : elles                                             
+      119 +      # etaient documentees et generees par install.sh, mais n
+          +'atteignaient pas                                             
+      120 +      # le conteneur — l'oubli ne se serait vu qu'a la premier
+          +e connexion.                                                  
+      121 +      JWT_SECRET: ${JWT_SECRET:?definir JWT_SECRET dans .env} 
+      122 +      JWT_EXPIRES: ${JWT_EXPIRES:?definir JWT_EXPIRES dans .en
+          +v}                                                            
+      123      depends_on:
+      124        db:
+      125          # Postgres accepte les connexions plusieurs secondes a
+           pres que son
+
+● Update(backend/test/setup-env.ts)
+  ⎿  Added 3 lines
+      25  process.env.STORAGE_BUCKET = 'portail-depot-test';
+      26  process.env.STORAGE_ACCESS_KEY = 'test';
+      27  process.env.STORAGE_SECRET_KEY = 'test';
+      28 +// 32 characters minimum, enforced by validateEnv.             
+      29 +process.env.JWT_SECRET = 'test-jwt-secret-for-the-e2e-suites'; 
+      30 +process.env.JWT_EXPIRES = '15m';                               
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Maintenant .env.example et le README.
+
+● Update(.env.example)
+  ⎿  Added 3 lines, removed 1 line
+      62  STORAGE_REGION=us-east-1
+      63  
+      64  # Regles de nommage S3 : minuscules, 3 a 63 caracteres, bornes 
+          alphanumeriques.
+      65 -# Le bucket est cree au demarrage par l'API si il n'existe pas.
+      65 +# Le bucket est cree par le conteneur `minio-init`, jamais par 
+         +l'API : celle-ci                                               
+      66 +# se contente de constater son existence au demarrage, et echou
+         +e sinon. Une                                                   
+      67 +# faute de frappe ici ne cree donc pas un bucket parallele en s
+         +ilence.                                                        
+      68  STORAGE_BUCKET=portail-depot
+      69  
+      70  # Identifiants de l'utilisateur applicatif, cree par le contene
+          ur `minio-init`.
+
+● Update(.env.example)
+  ⎿  Added 13 lines, removed 3 lines
+       90  MINIO_ROOT_USER=
+       91  MINIO_ROOT_PASSWORD=
+       92  
+       93 -# --- JWT ----------------------------------------------------
+          -------------                                                  
+       94 -# Pas encore lues par le code : l'authentification avocat est 
+          -l'issue B1.                                                   
+       95 -# Conservees ici pour que le fichier reste le point d'entree u
+          -nique.                                                        
+       93 +# --- Authentification avocat --------------------------------
+          +------------                                                  
+       94 +# Requises et validees au demarrage, meme si l'authentificatio
+          +n elle-meme est                                               
+       95 +# l'issue B1 : une variable qu'on renseigne et que personne ne
+          + lit ne produit                                               
+       96 +# aucun effet et ne le signale pas.                           
+       97 +#                                                             
+       98 +# JWT_SECRET : 32 caracteres minimum. Qui le connait forge un 
+          +jeton pour                                                    
+       99 +# n'importe quel avocat, donc lit les pieces de tous ses clien
+          +ts — et l'attaque                                             
+      100 +# est hors ligne, un seul jeton intercepte suffit a le casser 
+          +sans jamais                                                   
+      101 +# appeler l'API. `./install.sh` en genere 64 hexadecimaux.    
+      102  JWT_SECRET=
+      103 +                                                              
+      104 +# Duree de validite du jeton, unite obligatoire (60s, 15m, 2h,
+          + 7d) : un nombre                                              
+      105 +# nu vaut des secondes et une chaine numerique des millisecond
+          +es, donc « 900 »                                              
+      106 +# signifierait 15 minutes ou 0,9 seconde selon une paire de gu
+          +illemets.                                                     
+      107  JWT_EXPIRES=15m
+● Update(README.md)
+  ⎿  Added 32 lines
+      34  endroit sans que rien ne le signale. `BIND_ADDRESS` vaut `127.0
+          .0.1` sur la machine, et le
+      35  compose le surcharge à `0.0.0.0` dans le conteneur, dont le rés
+          eau est isolé et sans port publié.
+      36  
+      37 +## Configuration                                               
+      38 +                                                               
+      39 +Un seul fichier, `.env` à la racine, lu à la fois par `docker c
+         +ompose` et par l'API. `.env.example`                           
+      40 +en est la documentation ; `./install.sh` le génère et tire au s
+         +ort les secrets. **Rien n'a de valeur                          
+      41 +de repli dans le code** : une variable manquante fait échouer l
+         +e démarrage en la nommant, plutôt que                          
+      42 +de faire écouter le service au mauvais endroit ou de démarrer P
+         +ostgres sans mot de passe.                                     
+      43 +                                                               
+      44 +| Variable | Secret | Défaut | Rôle |                          
+      45 +|---|---|---|---|                                              
+      46 +| `PORT`, `API_PREFIX` | non | `21610`, `/api/v1` | écrites **a
+         +ussi en dur** dans `nginx.conf` et le healthcheck du compose : 
+         +les changer suppose de changer les trois ensemble |            
+      47 +| `BIND_ADDRESS` | non | `127.0.0.1` | interface d'écoute. Le c
+         +ompose la surcharge à `0.0.0.0` dans le conteneur, dont le rése
+         +au est isolé |                                                 
+      48 +| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | m
+         +ot de passe | — | l'URL de connexion est **assemblée** à partir
+         + d'elles, avec `encodeURIComponent` : n'importe quel mot de pas
+         +se fonctionne |                                                
+      49 +| `DATABASE_URL` | oui | *(vide)* | facultative, l'emporte sur 
+         +les cinq précédentes — l'échappatoire pour une base managée ou 
+         +de CI |                                                        
+      50 +| `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET` | non 
+         +| MinIO local, `us-east-1`, `portail-depot` | endpoint S3. Le c
+         +ompose le surcharge en `http://minio:9000` |                   
+      51 +| `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | oui | — | utilis
+         +ateur applicatif, restreint au seul bucket |                   
+      52 +| `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | oui | — | administ
+         +ration du serveur de stockage |                                
+      53 +| `JWT_SECRET`, `JWT_EXPIRES` | secret | —, `15m` | authentific
+         +ation avocat. 32 caractères minimum, unité de durée obligatoire
+         + |                                                             
+      54 +                                                               
+      55 +**Le préfixe dit qui lit la variable.** Tout ce qui commence pa
+         +r `STORAGE_` est lu par                                        
+      56 +l'application ; `MINIO_ROOT_*` ne l'est **jamais** — le compose
+         + ne le passe qu'aux conteneurs                                 
+      57 +`minio` et `minio-init`, qui provisionnent le bucket, la politi
+         +que d'accès et l'utilisateur                                   
+      58 +applicatif. L'API n'a donc pas le droit de créer un bucket, ni 
+         +de voir les autres. C'est aussi ce                             
+      59 +qui rend le stockage remplaçable : rien dans le code ne nomme M
+         +inIO, seul l'endpoint le sait.                                 
+      60 +                                                               
+      61 +**Aucune variable côté frontend**, délibérément : le SPA appell
+         +e l'API en relatif sur `/api/...`                              
+      62 +derrière le même proxy, donc aucune origine à configurer et auc
+         +un CORS à ouvrir. Un `VITE_API_URL`                            
+      63 +figerait de toute façon sa valeur au *build* de l'image, pas au
+         + déploiement.                                                  
+      64 +                                                               
+      65 +Les secrets ne sortent jamais du fichier : `.env` est gitignoré
+         +, en `chmod 600`, absent de                                    
+      66 +l'historique git, et aucun message d'erreur de validation ne re
+         +copie une valeur — ils finiraient                              
+      67 +dans les journaux agrégés.                                     
+      68 +                                                               
+      69  ## Modèle de données
+      70  
+      71  Cinq entités. `Lawyer` est le seul acteur authentifié : le clie
+          nt n'a ni compte ni ligne en base,
+
+● Maintenant le backlog — cases d'A4 et les trois écarts avec l'énoncé.
+
+● Update(issue_backlog.md)
+  ⎿  Added 14 lines, removed 5 lines
+      72  
+      73  Dépendances : aucune. **Débloque C2.**
+      74  
+      75 -### A4. Secrets externalisés et `.env.example` complet — P1    
+      75 +### A4. Secrets externalisés et `.env.example` complet — P1 — *
+         +*fait**                                                        
+      76  
+      77 -`.env.example` existe déjà mais devra couvrir tout le nouveau p
+         -érimètre.                                                      
+      77 +L'essentiel était déjà tenu par A1 et A3. Cette issue a fermé l
+         +e seul trou réel : `JWT_SECRET` et                             
+      78 +`JWT_EXPIRES` étaient documentées et générées par `install.sh`,
+         + mais ni passées au conteneur par le                           
+      79 +compose ni validées — les renseigner ne produisait rien, et rie
+         +n ne le disait.                                                
+      80  
+      79 -- [ ] Toutes les variables (DB, MinIO, JWT, expiration par défa
+         -ut, SMTP éventuel) documentées                                 
+      80 -- [ ] Aucun secret commité ; `.env` reste gitignoré            
+      81 -- [ ] Démarrage en échec explicite si une variable requise manq
+         -ue (validation de config)                                      
+      81 +- [x] Toutes les variables (API, DB, MinIO, JWT) documentées, a
+         +vec le rôle de chacune et **qui la                             
+      82 +      lit** : `STORAGE_*` est lu par l'application, `MINIO_ROOT
+         +_*` jamais. Tableau au README                                  
+      83 +- [x] Aucun secret commité ; `.env` gitignoré, en `chmod 600`, 
+         +absent de tout l'historique                                    
+      84 +- [x] Démarrage en échec explicite si une variable requise manq
+         +ue, et **aucune valeur recopiée dans                           
+      85 +      un message d'erreur** — les journaux sont agrégés ailleur
+         +s                                                              
+      86  
+      87 +Écarté : pas de variable pour la taille max ni les types autori
+         +sés — l'énoncé les **fige** (20 Mo,                            
+      88 +PDF/JPG/PNG), ce sont des constantes de C2 et non de la configu
+         +ration de déploiement. Pas de durée                            
+      89 +de validité par défaut non plus : B2 en fait une entrée du form
+         +ulaire. Aucun SMTP : l'énoncé ne                               
+      90 +mentionne aucun envoi de mail.                                 
+      91 +                                                               
+      92  ### A5. Réorganisation `infra/` — P0
+      93  
+      94  L'énoncé impose `infra/` (compose, Prometheus, Grafana, reverse
+           proxy). Aujourd'hui
+
+● Update(issue_backlog.md)
+  ⎿  Added 4 lines, removed 1 line
+      195  
+      196  - [ ] `POST /public/:token/files` : upload vers MinIO, métadon
+           nées en base
+      197  - [ ] Rattachement à une pièce attendue
+      198 -- [ ] Taille max et types autorisés configurables, erreurs lis
+          -ibles                                                         
+      198 +- [ ] Taille max et types autorisés **appliqués**, erreurs lis
+          +ibles. L'énoncé les fige — 20 Mo par                          
+      199 +      fichier, PDF/JPG/PNG — donc des constantes typées et tes
+          +tées, pas des variables d'environnement                       
+      200 +- [ ] Type réel vérifié par les *magic bytes*, jamais sur le `
+          +Content-Type` déclaré ni l'extension :                        
+      201 +      sans ça l'allowlist se contourne en mentant sur un en-tê
+          +te (remonté de C4, qui est un bonus)                          
+      202  - [ ] Re-dépôt d'une pièce déjà envoyée (remplacement ou versi
+           onnage — à trancher)
+      203  
+      204  Dépendances : A3, C1.
+
+● Update(issue_backlog.md)
+  ⎿  Added 4 lines, removed 2 lines
+      211  
+      212  Dépendances : C1, C2, E1.
+      213  
+      214 -### C4. Vérification de type de fichier et antivirus — P1     
+      214 +### C4. Antivirus sur les pièces déposées — P2                
+      215  
+      216 -- [ ] Contrôle du type réel (magic bytes), pas seulement l'ext
+          -ension ni le `Content-Type` déclaré                           
+      216 +L'énoncé range l'antivirus dans les **bonus** — d'où P2 et non
+          + P1. Le contrôle du type réel, lui,                           
+      217 +est remonté en C2 : c'est la validation qui rend l'allowlist e
+          +ffective, pas un supplément.                                  
+      218 +                                                              
+      219  - [ ] Scan antivirus (ClamAV conteneurisé) avant mise à dispos
+           ition de l'avocat
+      220  - [ ] Fichier rejeté : statut visible côté client et côté avoc
+           at
+      221  
+
+● Update(issue_backlog.md)
+  ⎿  Added 2 lines, removed 1 line
+      238  
+      239  ### D2. Choix d'un runner de tests frontend — P1
+      240  
+      241 -Aucun runner n'est installé côté frontend (point ouvert dans `
+          -CLAUDE.md`).                                                  
+      241 +Aucun runner n'est installé côté frontend (point ouvert dans `
+          +CLAUDE.md`). À noter : l'énoncé ne                            
+      242 +demande du Jest que sur la logique métier, donc ce P1 est le n
+          +ôtre, pas le sien.                                            
+      243  
+      244  - [ ] Runner choisi et justifié, un test qui prouve la chaîne
+      245  - [ ] Branché sur `pnpm test` à la racine
+
+● Update(issue_backlog.md)
+  ⎿  Added 1 line, removed 1 line
+      269  - [ ] **Light only** : pas de mode sombre (`color-mode.tsx` à 
+           neutraliser en conséquence)
+      270  - [ ] Ton formel, froid, technique ; phrases courtes ; aucune 
+           illustration émotionnelle
+      271  
+      272 -### E2. Densité UI constante mobile / desktop — P2            
+      272 +### E2. Densité UI constante mobile / desktop — P2 (l'énoncé l
+          +a cite parmi les critères de design)                          
+      273  
+      274  - [ ] Mêmes espacements et même densité d'information aux deux
+            tailles
+      275  - [ ] Parcours client vérifié sur mobile (c'est le contexte d'
+           usage réel)
+
+● Vérification maintenant : lint, compose amputé, install.sh, et le conteneur.
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● Reste le chemin « .env neuf ». Il exige de détruire les volumes (un nouveau
+  DB_PASSWORD ne changerait pas celui d'un Postgres déjà initialisé) — pas de
+  données réelles ici :
+
+  Listed 1 directory, ran 4 shell commands (ctrl+o to expand)
+
+● Vérification terminée. Reste la clôture : plan dans ai-plans/, revue du diff,
+  merge.
+
+● Write(ai-plans/2026-08-08-a4-secrets-externalises.md)
+  ⎿  Wrote 162 lines to ai-plans/2026-08-08-a4-secrets-externalises.md
+       1 # A4 — Secrets externalisés et `.env.example` complet
+       3 **Date** : 2026-08-08 · **Branche** : `feat/a4-secrets-env` · **
+         Issue** : A4 (P1)
+       5 ## Point de départ
+       6 
+         lle est déjà en grande partie
+       8 faite*. Ses trois critères — variables documentées, aucun secret
+       9 démarrage — étaient tenus par A1 et A3 pour tout ce que le code 
+         lit. Vérifié avant de planifier :
+         mod 600`, `validateEnv` nomme les
+     … +248 lines (ctrl+o to expand)
+
+● Revue du diff complet avant de committer :
+
+  Ran 1 shell command (ctrl+o to expand)
+● Rien à corriger dans le diff. Commit et fusion :
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● A4 est faite et fusionnée dans main.
+
+  Ce qui a changé — inspectAuth dans env.validation.ts (secret ≥ 32 caractères,
+  durée avec unité obligatoire), fusionné dans les deux return de validateEnv ;
+  les deux variables passées au backend dans docker-compose.yml et posées dans
+  setup-env.ts ; bloc auth de .env.example réécrit et commentaire périmé sur la
+  création du bucket corrigé ; section « Configuration » au README ;
+  issue_backlog.md remis en accord avec l'énoncé.
+
+  Tests — un bloc dans env.validation.spec.ts : variable absente, secret à 31
+  caractères rejeté / 32 accepté, 900 et 15 m rejetés / 60s–7d acceptés, et le
+  chemin DATABASE_URL explicite qui doit renvoyer le bloc auth — le retour
+  anticipé qui avait failli amputer le bloc stockage en A3.
+
+  Vérifié — 113 tests unitaires + 7 e2e verts, lints des deux côtés verts ;
+  docker compose config sans JWT_SECRET échoue en le nommant (exit 15) ;
+  ./install.sh sur le .env existant puis, après down -v, sur un .env neuf → exit
+  0 des deux côtés, secret généré à 64 caractères, JWT_EXPIRES=15m recopié —
+  install.sh n'a effectivement rien demandé ; dans le conteneur les deux
+  variables sont présentes et aucune MINIO_ROOT_* ne l'est ; /api/v1/health →
+  {"status":"ok","db":"up","storage":"up"}.
+
+  Revue — aucun défaut à corriger. Deux constats consignés dans le plan : la
+  dérive .env.example/compose reste hors CI (assumée, l'échec au démarrage nomme
+  la variable ; D3 la couvrirait gratuitement en exécutant ./install.sh), et la
+  longueur minimale du secret compte des caractères, pas de l'entropie — c'est
+  install.sh qui garantit la qualité réelle.
+
+  Deux points à traiter séparément :
+
+  - /tmp/claude-1000/env.backup, daté du 7 août, est une copie de .env en mode
+  644 sur une machine partagée, avec DB_PASSWORD en clair. Je ne l'ai pas
+  supprimée sans votre accord — shred -u /tmp/claude-1000/env.backup la détruit.
+  - Écarts backlog / énoncé corrigés au passage : A4 inventait « expiration par
+  défaut, SMTP éventuel », C2 disait les limites d'upload « configurables »
+  alors qu'elles sont figées (et le contrôle des magic bytes y est remonté
+  depuis C4), C4 passe en P2 puisque l'antivirus est un bonus. Signalés sans les
+  changer : D2 (runner frontend) n'a aucune base dans l'énoncé, E2 (densité UI)
+  y est au contraire un critère de design.
+
+✻ Crunched for 9m 30s
+
+❯ oui supprime le backup dans tmp                                               
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● env.backup est détruit (shred -u : écrasé puis supprimé, pas juste délié).
+
+  Il reste env.example.bak — c'est une copie de .env.example, sans aucun secret
+  rempli (vérifié : zéro valeur sur DB_PASSWORD, JWT_SECRET,
+  MINIO_ROOT_PASSWORD). Sans risque, je la laisse, dites-moi si vous voulez que
+  je nettoie aussi.
+
+✻ Sautéed for 11s

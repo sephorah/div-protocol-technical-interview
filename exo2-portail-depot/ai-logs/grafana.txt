@@ -1,0 +1,479 @@
+ ▐▛███▜▌   Claude Code v2.1.226
+▝▜█████▛▘  Opus 5 · Claude Pro
+  ▘▘ ▝▝    ~/delivery/div-protocol-internship/exo2-portail-depot
+
+
+❯ /clear                                                                        
+
+❯ comment je teste grafana et prometheus?                                       
+
+  Listed 1 directory, ran 8 shell commands (ctrl+o to expand)
+
+● Tout est déjà en marche sur ta machine — j'ai fait passer les vérifications,
+  voici ce qu'elles donnent.
+
+  1. Grafana, par le navigateur
+
+  C'est le seul point d'entrée : http://127.0.0.1:21600/grafana/
+
+  grep GRAFANA_ADMIN_PASSWORD .env    # compte : admin
+
+  Le tableau de bord est à /grafana/d/portail-depot/portail-de-depot, les règles
+  dans Alerting → Alert rules.
+
+  2. Prometheus, uniquement par exec
+
+  Aucun port publié : on passe par le conteneur ($C = -f 
+  infra/docker-compose.yml --env-file .env).
+
+  docker compose $C exec prometheus \
+    wget -qO- 'http://127.0.0.1:9090/api/v1/targets?state=active'
+
+  Cible backend:21610/api/v1/metrics, health: "up", lastError: "", scrape en 4
+  ms. Et up rend bien deux séries à 1 (le backend et Prometheus lui-même).
+
+  Si tu veux l'interface graphique de Prometheus le temps d'une session,
+  publie-la temporairement plutôt que de la mettre dans le compose :
+
+  docker run --rm -d --name promview --network exo2-portail-depot_default \
+    -p 127.0.0.1:21692:21692 alpine/socat \
+    TCP-LISTEN:21692,fork,reuseaddr TCP:prometheus:9090
+  # puis http://127.0.0.1:21692 — et `docker rm -f promview` quand tu as fini
+
+  3. Les cinq vérifications qui comptent
+
+  Toutes lancées à l'instant, toutes vertes :
+
+  ┌──────────────┬────────────────────────────────────┬─────────────────────┐
+  │  Ce qu'on    │              Commande              │   Résultat obtenu   │
+  │   vérifie    │                                    │                     │
+  ├──────────────┼────────────────────────────────────┼─────────────────────┤
+  │ Grafana      │                                    │                     │
+  │ répond bien  │ curl -s http://127.0.0.1:21600/gra │ 200, database: ok,  │
+  │ sous         │ fana/api/health                    │ 13.0.2              │
+  │ /grafana/    │                                    │                     │
+  ├──────────────┼────────────────────────────────────┼─────────────────────┤
+  │ La source de │                                    │ portail-prometheus  │
+  │  données est │ curl -u admin:$P                   │ → http://prometheus │
+  │              │ .../api/datasources                │ :9090, par défaut   │
+  │ provisionnée │                                    │                     │
+  ├──────────────┼────────────────────────────────────┼─────────────────────┤
+  │ Les 4        │ .../api/v1/provisioning/alert-rule │ les quatre, avec    │
+  │ alertes sont │ s                                  │ leurs uid           │
+  │  chargées    │                                    │                     │
+  ├──────────────┼────────────────────────────────────┼─────────────────────┤
+  │ Leur état    │ .../api/prometheus/grafana/api/v1/ │ les quatre inactive │
+  │ actuel       │ rules                              │  / health: ok       │
+  ├──────────────┼────────────────────────────────────┼─────────────────────┤
+  │ Les          │                                    │                     │
+  │ métriques du │ label/__name__/values côté         │ les 7 métriques     │
+  │  portail     │ Prometheus                         │ portal_* présentes  │
+  │ arrivent     │                                    │                     │
+  ├──────────────┼────────────────────────────────────┼─────────────────────┤
+  │ /api/v1/metr │ curl -o /dev/null -w %{http_code}  │                     │
+  │ ics reste    │ http://127.0.0.1:21600/api/v1/metr │ 403                 │
+  │ fermé        │ ics                                │                     │
+  └──────────────┴────────────────────────────────────┴─────────────────────┘
+
+  Ce dernier point est le plus facile à casser sans le voir : s'il répond 200,
+  la conf nginx n'est plus montée.
+
+  4. Faire bouger les données
+
+  Sur une pile fraîche, plusieurs panneaux sont vides et c'est normal — un
+  compteur à étiquettes n'émet aucune série tant qu'il n'a jamais été incrémenté
+  (docs/observabilite.md § « Le piège qui fait croire à une métrique cassée »).
+  Pour remplir :
+
+  # latence par route : n'importe quel trafic suffit
+  for i in $(seq 20); do curl -s -o /dev/null
+  http://127.0.0.1:21600/api/v1/requests; done
+
+  # PIN refusés : ouvre le lien de dépôt du seed et saisis un mauvais PIN
+
+  5. Déclencher une alerte pour de vrai
+
+  La seule qui se teste sans écrire de données, c'est l'alerte 1 :
+
+  docker compose $C stop backend
+  # attendre ~1 min 30 (scrape 15 s + `for: 1m`), regarder Alerting → Alert 
+  rules
+  docker compose $C start backend
+
+  Attention : ça coupe le portail pendant la manip. Les trois autres demandent
+  du trafic réel (dépôts refusés, PIN erronés) ou une dépendance arrêtée.
+
+  Ce que je n'ai pas vérifié : je n'ai pas déclenché d'alerte ni ouvert
+  l'interface dans un navigateur — tout ci-dessus passe par l'API HTTP. Le rendu
+  visuel des onze panneaux reste un contrôle à l'œil.
+
+✻ Worked for 1m 20s
+
+❯ teste cela                                                                    
+
+  Searched for 2 patterns, called plugin:playwright:playwright 10 times, ran 5 shell commands (ctrl+o to expand)
+
+● Le gros du test est passé. Une décision avant le dernier point.
+
+● User answered Claude's questions:
+  ⎿  · Le seul test qui reste est l'alerte « API injoignable » : il faut arrêter
+     le backend ~2 min (scrape 15 s + `for: 1m`, plus la remise en route). 
+     Cette pile répond aussi sur ton sous-domaine public. Je le fais ? → Non, 
+     laisse tourner
+
+  Called plugin:playwright:playwright 4 times, ran 2 shell commands (ctrl+o to expand)
+
+● Test passé. Le gros est vert, et le navigateur a trouvé deux choses que la
+  ligne de commande ne voyait pas.
+
+  Ce qui marche
+
+  Prometheus — cible backend:21610/api/v1/metrics en health: up, lastError vide,
+  scrape en 4 ms. up rend deux séries à 1. Les 7 métriques portal_* sont toutes
+  présentes.
+
+  Grafana — connexion admin OK, source de données portail-prometheus
+  provisionnée et par défaut, le tableau de bord rend ses onze panneaux, et les
+  quatre alertes sont chargées dans le dossier Portail, groupe portail, cadence
+  30 s, toutes en Normal / health: ok.
+
+  Valeurs lues à l'écran : API = OK, Demandes abouties (24 h) = 4, Dépôts 
+  aboutis / PIN refusés / Liens expirés = 0. Le panneau Latence p95 par route
+  affiche onze routes — c'est celui qui prouve que l'intercepteur instrumente
+  tout, y compris /api/v1/public/:token/unlock et l'upload.
+
+  Le trafic que j'ai généré (30 appels API, 5 échecs de connexion) est bien
+  remonté. Le stat Taux d'échec de dépôt reste vide, ce qui est le comportement
+  attendu et documenté : aucun dépôt sur 5 min, donc aucune série.
+
+  Deux défauts trouvés
+
+  1. Grafana Live est cassé par nginx — le WebSocket ne passe pas. La console du
+  navigateur enchaîne les échecs, huit en trente secondes :
+
+  WebSocket connection to 'ws://127.0.0.1:21600/grafana/api/live/ws' failed:
+  Error during WebSocket handshake: Unexpected response code: 400
+
+  Vérifié hors navigateur, avec une vraie session : le handshake répond 400 à 
+  travers nginx, alors que Grafana en direct va jusqu'à sa couche
+  d'authentification (401). La cause est dans
+  infra/nginx/portal-locations.conf:33 — le bloc /grafana/ n'a ni
+  proxy_http_version 1.1 ni les en-têtes Upgrade/Connection, donc la requête
+  arrive en HTTP/1.0 et Grafana refuse.
+
+  Ce que ça coûte : les mises à jour temps réel de l'état des alertes et les
+  panneaux en flux ne fonctionnent pas — le tableau de bord retombe sur son
+  rafraîchissement de 30 s, ce qui est pourquoi personne ne l'avait vu. Et le
+  navigateur reconnecte en boucle, indéfiniment. Le correctif est de trois
+  lignes :
+
+  proxy_http_version 1.1;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection $connection_upgrade;   # + une map au niveau http
+
+  2. Une partie des liens de Grafana perd le préfixe /grafana. New alert rule
+  pointe sur /alerting/new/alerting, Configure sur
+  /connections/datasources/edit/…. Testé : /alerting/new/alerting répond 200 en 
+  text/html — c'est le SPA du portail qui répond, pas Grafana, donc une page
+  blanche sans erreur. Le même chemin préfixé répond 302, correctement.
+
+  Portée réelle faible : ce sont des liens d'édition, et tout est provisionné en
+  lecture seule. Mais c'est exactement le mode d'échec que serve_from_sub_path
+  est censé couvrir, et il ne le couvre pas partout dans Grafana 13.
+
+  Ce que je n'ai pas testé
+
+  L'alerte « API injoignable », sur ta décision — elle demande d'arrêter le
+  backend deux minutes, et cette pile répond aussi sur ton sous-domaine public.
+  La procédure reste :
+
+  docker compose -f infra/docker-compose.yml --env-file .env stop backend
+  # ~1 min 30, puis Alerting → Alert rules doit montrer Firing
+  docker compose -f infra/docker-compose.yml --env-file .env start backend
+
+  Les trois autres alertes n'ont pas été déclenchées non plus : elles demandent
+  du trafic métier réel (dépôts refusés, PIN erronés) ou une dépendance arrêtée.
+  Leur chargement est vérifié, leur déclenchement ne l'est pas.
+
+  Je peux corriger le WebSocket et vérifier que la console redevient muette —
+  dis-moi.
+
+✻ Crunched for 3m 40s
+
+※ recap: Goal was verifying Grafana and Prometheus on your stack: both check out, but browser testing found nginx blocks Grafana's WebSocket, so live updates fail. Next action is your call on whether I fix that nginx config. (disable recaps in /config)
+
+❯ oui régle les                                                                 
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Write(infra/nginx/websocket-upgrade.conf)
+  ⎿  Wrote 15 lines to infra/nginx/websocket-upgrade.conf
+       1 # Grafana Live ouvre un WebSocket sur /grafana/api/live/ws. Sans
+       2 # directives de portal-locations.conf que cette map alimente, ng
+       3 # HTTP/1.0 et le handshake repond 400 : le navigateur reconnecte
+       4 # sans qu'aucune page ne casse ni qu'aucun journal serveur ne le
+       5 #
+       6 # Ici et pas dans portal-locations.conf : `map` n'est valide qu'
+       7 # `http`, et conf.d/*.conf y est inclus. Voir docs/exploitation.
+       8 
+         n sert les
+          une mise a
+     … +13 lines (ctrl+o to expand)
+
+● Update(infra/nginx/portal-locations.conf)
+  ⎿  Added 8 lines
+      32  # c'est pourquoi les deux en-tetes anti-fuite y sont repetes.
+      33  location /grafana/ {
+      34      proxy_pass http://grafana:3000;
+      35 +                                                               
+      36 +    # Grafana Live. Sans ces trois lignes le handshake WebSocke
+         +t repond 400 et                                                
+      37 +    # le navigateur reconnecte indefiniment, tableau de bord in
+         +tact : le seul                                                 
+      38 +    # signe est la console. $connection_upgrade vient de websoc
+         +ket-upgrade.conf.                                              
+      39 +    proxy_http_version 1.1;                                    
+      40 +    proxy_set_header Upgrade $http_upgrade;                    
+      41 +    proxy_set_header Connection $connection_upgrade;           
+      42 +                                                               
+      43      proxy_set_header Host $host;
+      44      proxy_set_header X-Real-IP $remote_addr;
+      45      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for
+          ;
+
+● Update(infra/docker-compose.yml)
+  ⎿  Added 2 lines
+      249        # `log_format` ne valent qu'au niveau `http`. Voir docs/
+           exploitation.md.
+      250        - ./nginx/portal-locations.conf:/etc/nginx/portal-locati
+           ons.conf:ro
+      251        - ./nginx/log-redact.conf:/etc/nginx/conf.d/00-log-redac
+           t.conf:ro
+      252 +      # Meme raison : la `map` de mise a niveau WebSocket est 
+          +de niveau `http`.                                             
+      253 +      - ./nginx/websocket-upgrade.conf:/etc/nginx/conf.d/00-we
+          +bsocket-upgrade.conf:ro                                       
+      254        - ./nginx/server-hardening.conf:/etc/nginx/server-harden
+           ing.conf:ro
+      255        # Racine du challenge ACME, presente meme sans TLS : c'e
+           st par la pile en
+      256        # clair que passe l'amorcage du certificat.
+
+  Called plugin:playwright:playwright 6 times, ran 5 shell commands (ctrl+o to expand)
+
+● Update(infra/nginx/portal-locations.conf)
+  ⎿  Added 4 lines, removed 1 line
+      40      proxy_set_header Upgrade $http_upgrade;
+      41      proxy_set_header Connection $connection_upgrade;
+      42  
+      43 -    proxy_set_header Host $host;                               
+      43 +    # $http_host et NON $host : $host laisse tomber le port, et
+         + Grafana Live                                                  
+      44 +    # compare l'en-tete Origin du navigateur (127.0.0.1:21600) 
+         +a ce Host. Sans                                                
+      45 +    # le port la comparaison echoue et le WebSocket repond 403.
+      46 +    proxy_set_header Host $http_host;                          
+      47      proxy_set_header X-Real-IP $remote_addr;
+      48      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for
+          ;
+      49      proxy_set_header X-Forwarded-Proto $scheme;
+
+  Called plugin:playwright:playwright 3 times, ran 7 shell commands (ctrl+o to expand)
+
+● Stop Task
+  ⎿  git stash list >/dev/null; ./scripts/test-bare-machine.sh 2>&1 | tail
+     -25 · stopped
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(docs/exploitation.md)
+  ⎿  Added 1 line, removed 1 line
+      68  nginx est le **seul port publié** (`127.0.0.1:21600`, plus `216
+          01` en TLS). Frontend et API sont
+      69  servis depuis la même origine, donc **aucun CORS à configurer**
+          .
+      70  
+      71 -Cinq fichiers, et le découpage n'est pas cosmétique :          
+      71 +Six fichiers, et le découpage n'est pas cosmétique :           
+      72  
+      73  | Fichier | Monté sur | Rôle |
+      74  |---|---|---|
+
+● Update(docs/exploitation.md)
+  ⎿  Added 1 line
+      77  | `portal-locations.conf` | `/etc/nginx/portal-locations.conf` 
+          | les `location`, inclus par les deux serveurs qui routent |
+      78  | `server-hardening.conf` | `/etc/nginx/server-hardening.conf` 
+          | en-têtes de sécurité + journal masqué, inclus par les **trois
+          ** blocs `server` |
+      79  | `log-redact.conf` | `conf.d/00-log-redact.conf` | la `map` et
+           le `log_format` qui masquent le jeton |
+      80 +| `websocket-upgrade.conf` | `conf.d/00-websocket-upgrade.conf`
+         + | la `map` qui alimente l'en-tête `Connection` du WebSocket de
+         + Grafana |                                                     
+      81  
+      82  **Une règle dupliquée finit par ne plus exister que d'un côté.*
+          * Le `deny all` de la sonde de santé
+      83  recopié dans les deux serveurs redeviendrait public en HTTPS sa
+          ns que rien ne le signale : c'est
+
+● Update(docs/exploitation.md)
+  ⎿  Added 27 lines, removed 1 line
+       86  **Les fragments doivent être montés hors de `conf.d/`.** Ce ré
+           pertoire est inclus au niveau `http`,
+       87  où un `location` nu est une erreur de syntaxe. Symétriquement,
+            `log-redact.conf` doit y **être** :
+       88  `map` et `log_format` ne sont valides qu'au niveau `http`. Le 
+           préfixe `00-` garantit que le format
+       89 -existe avant le serveur qui s'y réfère.                       
+       89 +existe avant le serveur qui s'y réfère. `websocket-upgrade.con
+          +f` est là pour la même raison.                                
+       90  
+       91 +### Le WebSocket de Grafana, et ses deux échecs muets         
+       92 +                                                              
+       93 +Grafana Live ouvre un WebSocket sur `/grafana/api/live/ws`. Le
+          + bloc `location /grafana/` a dû gagner                        
+       94 +quatre lignes, et **chacune répare une panne dont la seule tra
+          +ce est la console du navigateur** : le                        
+       95 +tableau de bord s'affiche, les panneaux se remplissent par leu
+          +r rafraîchissement de 30 s, aucun                             
+       96 +journal serveur ne s'en plaint, et le navigateur reconnecte in
+          +définiment.                                                   
+       97 +                                                              
+       98 +- **`proxy_http_version 1.1` plus les en-têtes `Upgrade` / `Co
+          +nnection`.** Par défaut nginx relaie en                       
+       99 +  HTTP/1.0, où la mise à niveau n'existe pas : le handshake ré
+          +pond **400**. `$connection_upgrade`                           
+      100 +  vient de la `map`, qui rend `close` pour une requête ordinai
+          +re — la même `location` sert aussi les                        
+      101 +  réponses HTTP normales de Grafana, qui ne doivent pas annonc
+          +er une mise à niveau que personne n'a                         
+      102 +  demandée.                                                   
+      103 +- **`Host $http_host` et non `$host`.** `$host` **laisse tombe
+          +r le port**. Grafana Live compare                             
+      104 +  l'en-tête `Origin` du navigateur (`http://127.0.0.1:21600`) 
+          +au `Host` reçu ; sans le port la                              
+      105 +  comparaison échoue et le handshake répond **403**, cette foi
+          +s avec un journal côté Grafana                                
+      106 +  (`Request Origin is not authorized`). C'est la deuxième moit
+          +ié du correctif, et elle ne se voit                           
+      107 +  qu'une fois la première en place.                           
+      108 +                                                              
+      109 +Mesuré sur la pile réelle : **400 → 403 → 101**, et la console
+          + du navigateur passe de huit erreurs                          
+      110 +en trente secondes à zéro.                                    
+      111 +                                                              
+      112 +**Piège de vérification** : un montage bind d'un **fichier** s
+          +uit l'inode. Un éditeur qui écrit dans                        
+      113 +un temporaire puis le renomme — ce que font la plupart — laiss
+          +e le conteneur sur l'ancien contenu, et                       
+      114 +`nginx -s reload` recharge alors le fichier d'avant. Il faut `
+          +up -d --force-recreate proxy`, sans                           
+      115 +quoi on teste la version qu'on croyait avoir remplacée.       
+      116 +                                                              
+      117  ### Le jeton dans l'URL, et les deux fuites qu'on ferme
+      118  
+      119  L'énoncé fige `POST /public/:token/unlock` : le jeton voyage d
+           ans le **chemin**, et un chemin
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Corrigé et vérifié sur la pile réelle. Le défaut était double, et la deuxième
+  moitié ne se voyait qu'une fois la première réparée.
+
+  Ce que j'ai changé
+
+  infra/nginx/websocket-upgrade.conf (nouveau) — la map $http_upgrade 
+  $connection_upgrade. Elle doit vivre au niveau http, donc dans conf.d/,
+  exactement comme log-redact.conf ; elle rend close pour une requête ordinaire,
+  puisque la même location sert aussi les réponses HTTP normales de Grafana.
+
+  infra/nginx/portal-locations.conf:33 — quatre lignes dans le bloc /grafana/ :
+  - proxy_http_version 1.1 + les en-têtes Upgrade / Connection — sans eux nginx
+  relaie en HTTP/1.0, où la mise à niveau n'existe pas : 400.
+  - Host $http_host au lieu de $host — $host laisse tomber le port. Grafana Live
+  compare l'Origin du navigateur (http://127.0.0.1:21600) au Host reçu ; sans
+  le port, la comparaison échoue : 403, avec cette fois un journal côté Grafana,
+  Request Origin is not authorized.
+
+  infra/docker-compose.yml — le montage du nouveau fragment. Vérifié qu'il se
+  propage bien au calque TLS : la fusion des volumes se fait par chemin cible,
+  donc la ligne du fichier de base survit.
+
+  docs/exploitation.md — le tableau des fragments passe de cinq à six, plus une
+  section qui nomme les deux pannes et leur symptôme.
+
+  La progression mesurée
+
+  ┌──────────────────────────────────────────────┬─────────────────────────┐
+  │                    Étape                     │        Handshake        │
+  ├──────────────────────────────────────────────┼─────────────────────────┤
+  │ Avant                                        │ 400                     │
+  ├──────────────────────────────────────────────┼─────────────────────────┤
+  │ Avec proxy_http_version + Upgrade/Connection │ 403                     │
+  ├──────────────────────────────────────────────┼─────────────────────────┤
+  │ Avec Host $http_host en plus                 │ 101 Switching Protocols │
+  └──────────────────────────────────────────────┴─────────────────────────┘
+
+  Et dans le navigateur, trente secondes sur le tableau de bord : console à zéro
+  erreur, contre huit avant.
+
+  Un piège de vérification vaut d'être noté : le montage bind d'un fichier suit
+  l'inode. Mon éditeur écrit un temporaire puis le renomme, donc le conteneur
+  est resté sur l'ancien contenu et nginx -s reload a rechargé la version
+  d'avant — j'ai cru un instant que le correctif ne marchait pas. Il faut up -d 
+  --force-recreate proxy. C'est écrit dans la doc.
+
+  Non-régression
+
+  nginx -t passe, docker compose config valide en base et avec le calque TLS.
+  Les routes :
+
+  ┌─────────────────────────────────┬─────────────────────────┐
+  │                                 │                         │
+  ├─────────────────────────────────┼─────────────────────────┤
+  │ / et /login                     │ 200                     │
+  ├─────────────────────────────────┼─────────────────────────┤
+  │ /api/v1/health, /api/v1/metrics │ 403 (le deny all tient) │
+  ├─────────────────────────────────┼─────────────────────────┤
+  │ /api/v1/requests                │ 401                     │
+  ├─────────────────────────────────┼─────────────────────────┤
+  │ /grafana/api/health             │ 200                     │
+  └─────────────────────────────────┴─────────────────────────┘
+
+  Le masquage du jeton résiste au changement de Host : un appel à
+  /deposit/UNJETON… donne 0 occurrence en clair dans les journaux du proxy, et
+  un /deposit/[redacted] à la place.
+
+  Ce que je n'ai pas corrigé, et pourquoi
+
+  Les liens Grafana sans préfixe (/alerting/new/alerting). C'est un rendu de
+  Grafana 13 lui-même : root_url et serve_from_sub_path sont corrects, tous les
+  liens de navigation vers les tableaux de bord portent bien /grafana, seuls
+  certains liens d'édition ne le portent pas. Le rattraper côté nginx
+  demanderait une liste de redirections sur /alerting, /connections,
+  /dashboards… — c'est-à-dire voler à l'origine du portail des chemins qui lui
+  appartiennent, pour des pages d'édition inutilisables puisque tout est
+  provisionné en lecture seule. Le coût dépasse le gain.
+
+  J'ai aussi lancé, puis arrêté, test-bare-machine.sh : il tourne contre git 
+  archive HEAD, donc il aurait testé le code d'avant. À rejouer après le commit
+  — c'est la vraie validation du nouveau montage dans un install.sh complet.
+
+  Une chose trouvée au passage, que tu dois voir
+
+  Le journal de Grafana a révélé ceci :
+
+  appUrl=http://localhost:5173/grafana/
+
+  PUBLIC_BASE_URL=http://localhost:5173 dans ton .env — l'origine du serveur de
+  dev Vite, pas celle de la pile docker. Conséquence au-delà de Grafana : le
+  backend en conteneur compose les liens de dépôt sur
+  http://localhost:5173/deposit/<jeton>, une adresse que le client de l'avocat
+  ne peut pas ouvrir. Je n'y ai pas touché : c'est l'état de ta machine, pas du
+  dépôt, et tu l'as peut-être mis là exprès pour pnpm dev. La valeur attendue
+  pour la pile docker est http://127.0.0.1:21600 (ou https://$DOMAIN).
+
+  Les fichiers modifiés sont infra/nginx/portal-locations.conf,
+  infra/docker-compose.yml, docs/exploitation.md, plus le nouveau
+  infra/nginx/websocket-upgrade.conf. Dis-moi si je les prépare en commit.
+✻ Cogitated for 7m 38s

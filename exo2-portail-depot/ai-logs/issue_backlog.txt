@@ -1,0 +1,67 @@
+ ▐▛███▜▌   Claude Code v2.1.223
+▝▜█████▛▘  Opus 5 · Claude Pro
+  ▘▘ ▝▝    ~/delivery/div-protocol-internship/exo2-portail-depot
+
+
+❯ https://exercice-stagiaire-div.vercel.app/exo/portail-depot?t=6.8fc07af8cfd14 
+  f07116efdcf2f2bc7a2                                                           
+  Consulte ce lien et crée un issue_backlog.md basé sur les features demandées  
+  à la racine                                                                   
+
+● Fetch(https://exercice-stagiaire-div.vercel.app/exo/portail-depot?t=6.8fc07af8
+       cfd14f07116efdcf2f2bc7a2)
+  ⎿  Received 95.6KB (200 OK)
+
+  Listed 1 directory (ctrl+o to expand)
+
+● Write(issue_backlog.md)
+  ⎿  Wrote 320 lines to issue_backlog.md
+       1 # Issue backlog — Exercice 2, Portail de dépôt
+       2 
+         el.app/exo/portail-depot`).
+       4 Chaque entrée est une issue candidate : périmètre, critères d'ac
+         ceptation, dépendances.
+       6 Légende priorité :
+       7 
+       8 - **P0 — éliminatoire** : son absence invalide le rendu.
+         noncé.
+      10 - **P2 — bonus** : listé comme bonus.
+     … +374 lines (ctrl+o to expand)
+
+● issue_backlog.md créé à la racine du projet.
+
+  Il traduit l'énoncé en 8 épiques / ~30 issues, chacune avec périmètre,
+  critères d'acceptation cochables, dépendances et priorité (P0 éliminatoire, P1
+  attendu, P2 bonus) :
+
+  - A — Socle : base de données, modèle de données, MinIO, secrets, infra/,
+  image publiée, HTTPS, install.sh complet
+  - B — Avocat : auth JWT, création de demande, lien+PIN expirable, dashboard,
+  écrans
+  - C — Client : unlock PIN, dépôt vers l'objet, progression, antivirus/type de
+  fichier
+  - D — Tests : Jest expiration/PIN/transitions, runner frontend, CI
+  - E — Design : thème Chakra v3 aux tokens DIV (dont l'inversion du bouton
+  primaire, light only), densité mobile
+  - F — Observabilité : Prometheus, Grafana + alertes
+  - G — Sécurité : rate limiting/lockout, audit d'accès, URLs pré-signées
+  - H — Livrables : README, seed démo, export IA caviardé
+
+  Quelques écarts entre l'énoncé et l'état actuel que le backlog acte
+  explicitement :
+
+  - L'énoncé impose infra/ — docker-compose.yml et nginx.conf sont aujourd'hui à
+  la racine (A5).
+  - La charte est light only, ce qui rend le color-mode.tsx généré par Chakra à
+  neutraliser (E1).
+  - L'image doit être tirée en production, donc le compose actuel (build: 
+  ./backend) ne convient pas tel quel pour la prod (A6).
+
+  Deux points restent à trancher au moment du design plutôt qu'ici : le re-dépôt
+  d'une pièce (remplacement vs versionnage, C2) et l'articulation antivirus /
+  URLs pré-signées, puisque le scan devient post-upload si le fichier ne
+  transite plus par l'API (G3).
+
+✻ Brewed for 2m 1s
+
+※ recap: I fetched the exercise spec and created issue_backlog.md at the project root, covering 8 epics of prioritized issues for the deposit portal. Next: start on the database and data model, which most other work depends on. (disable recaps in /config)

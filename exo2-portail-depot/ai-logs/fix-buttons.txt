@@ -1,0 +1,1074 @@
+ ▐▛███▜▌   Claude Code v2.1.226
+▝▜█████▛▘  Opus 5 · Claude Pro
+  ▘▘ ▝▝    ~/delivery/div-protocol-internship/exo2-portail-depot
+
+
+❯ je teste l'app                                                                
+  premier écart que je vois: le visuel du lien généré n'est pas pareil que      
+  celui dans l'ui kit (image.png le visuel attendu, image copy.png ce qu'il y a 
+  actuellement)                                                                 
+                                                                                
+  également lorsqu'on hover ur certains boutons comme "copier", "copier le      
+  code" ou "creer une autre demande" dans http://localhost:5173/requests/new,   
+  le visuel est censé etre comme dans image copy2.png                           
+  Or seul le fond est un peu violet voir image copy 3.png"                      
+                                                                                
+  + le bouton "déposer" devrait etre comme le bouton "créer une demande" non?   
+  ⎿  ⧉ Selected 1 lines from .env in Visual Studio Code
+
+  Listed 2 directories (ctrl+o to expand)
+
+● Les images sont dans le repo. Je les regarde.
+
+  Read 5 files (ctrl+o to expand)
+
+● Skill(superpowers:brainstorming)
+  ⎿  Successfully loaded skill
+
+● Je regarde le code concerné avant de poser quoi que ce soit.
+
+  Searched for 1 pattern, read 13 files, ran 14 shell commands (ctrl+o to expand)
+
+● J'ai mesuré les trois écarts au pixel. Deux points restent des choix produit,
+  je te les pose.
+
+● User answered Claude's questions:
+  ⎿  · Le kit dessine le bloc « lien généré » sans étiquette au-dessus (juste la
+     boîte, puis la légende d'expiration). Aujourd'hui il y a « Lien a envoyer 
+     au client ». On garde ? → Garder l'étiquette (recommandé)
+     · Sur l'écran client, chaque pièce attendue a son bouton. Le kit dessine « 
+     Deposer » en primaire (violet plein). Jusqu'où on applique ? → Primaire si 
+     en attente (recommandé)
+
+  Read 1 file, ran 2 shell commands (ctrl+o to expand)
+● Updated plan
+  ⎿  /plan to preview
+
+● Plan écrit. Ce qu'il contient :
+
+  Trois écarts, mesurés au pixel sur tes captures plutôt qu'estimés à l'œil — et
+  les six couleurs attendues existent déjà dans le thème, il n'y a rien de
+  nouveau à inventer, juste à câbler :
+
+  - Boîte du lien : fond #F7F6FF = bg.subtle, bordure 1 px #E9E9E9 = border, URL
+  et « Copier » en #5100FF = brand.fg.
+  - Survol secondaire : fond déjà bon, mais texte et anneau doivent passer au
+  violet — l'anneau mesuré est #DDD0FF, soit border.accent.
+
+  Ce que j'ai trouvé en cours de route et qui n'était pas dans ta liste : la
+  variante secondary n'a pas de bloc _disabled, alors que la pagination du
+  tableau de bord rend « Précédent »/« Suivant » désactivés. Une fois le survol
+  violet posé, un bouton désactivé deviendrait violet au survol et se lirait
+  comme cliquable. Le plan le corrige dans le même geste.
+
+  Un choix technique à signaler : je garde le <Input readOnly> dans la boîte au
+  lieu de le remplacer par du texte. Ce n'est pas de la timidité — CopyField
+  appelle select() sur cet input quand le presse-papier refuse, ce qui
+  transforme « recopiez à la main » en un seul Ctrl+C, et le lien comme le PIN
+  ne s'affichent qu'une fois. C'est donc la boîte qui porte la bordure et le
+  fond, et l'input qui devient transparent, via deux nouvelles variantes de
+  thème (input: bare, button: link) plutôt que des styles écrits dans la page.
+
+  Pas de test unitaire de thème ajouté, volontairement : docs/tests-manuels.md
+  acte que les 35 cas du dossier theme/ ont été retirés parce qu'ils relisaient
+  des jetons sans rien prouver — jsdom ne calcule aucun style. La vérification
+  passe donc par le navigateur, avec capture Playwright et mesure des pixels
+  confrontée au tableau de hex.
+
+● User approved Claude's plan
+  ⎿  Plan saved to: ~/.claude/plans/je-teste-l-app-premier-wondrous-walrus.md · 
+     /plan to edit
+     Aligner trois écarts visuels sur l'UI kit
+
+     Contexte
+
+     En testant l'application, trois endroits ne rendent pas ce que dessine
+     uikit.png :
+
+     1. Le bloc « lien généré » est dessiné par le kit comme une seule boîte
+     contenant l'URL en
+     violet monospace et l'action « Copier » en texte violet à l'intérieur.
+     Aujourd'hui ce sont
+     deux objets : un champ bordé au texte noir, puis un bouton à contour gris
+     posé à côté.
+     2. Le survol des boutons secondaires (« Copier », « Copier le code », «
+     Créer une autre
+     demande », « Annuler », la pagination, « Déconnexion »…) ne change que le
+     fond. Le visuel attendu
+     fait aussi passer le texte et la bordure au violet.
+     3. Le bouton « Déposer » de l'écran client est un bouton secondaire
+     (contour gris), alors que le
+     kit le dessine en primaire (violet plein), à côté de « Annuler ».
+
+     Les valeurs ci-dessous sont mesurées au pixel sur les captures de référence
+     (image.png, image copy 2.png), pas estimées à l'œil :
+
+     ┌───────────────────────────────┬─────────────────┬───────────────────────┐
+     │            Élément            │    Attendu      │    Jeton du thème     │
+     │                               │    (mesuré)     │       existant        │
+     ├───────────────────────────────┼─────────────────┼───────────────────────┤
+     │ Fond de la boîte du lien      │ #F7F6FF         │ bg.subtle             │
+     ├───────────────────────────────┼─────────────────┼───────────────────────┤
+     │ Bordure de la boîte du lien   │ 1 px #E9E9E9    │ border                │
+     ├───────────────────────────────┼─────────────────┼───────────────────────┤
+     │ Texte de l'URL et « Copier »  │ violet #5100FF  │ brand.fg              │
+     ├───────────────────────────────┼─────────────────┼───────────────────────┤
+     │ Fond au survol d'un           │ #F7F6FF         │ bg.subtle (déjà bon)  │
+     │ secondaire                    │                 │                       │
+     ├───────────────────────────────┼─────────────────┼───────────────────────┤
+     │ Bordure au survol d'un        │ #DDD0FF ≈       │ border.accent         │
+     │ secondaire                    │ #DBCDFF         │                       │
+     ├───────────────────────────────┼─────────────────┼───────────────────────┤
+     │ Texte au survol d'un          │ violet #5100FF  │ brand.fg              │
+     │ secondaire                    │                 │                       │
+     └───────────────────────────────┴─────────────────┴───────────────────────┘
+
+     Aucune couleur nouvelle n'est nécessaire : les six valeurs existent déjà
+     dans
+     frontend/src/theme/tokens.ts et semantic-tokens.ts. Le travail est de les
+     câbler.
+
+     Décisions prises avec l'utilisateur :
+     - L'étiquette « Lien a envoyer au client » est conservée au-dessus de la
+     boîte (l'écran réel
+     affiche deux secrets côte à côte, le kit n'en montre qu'un isolé).
+     - « Déposer un fichier » devient primaire uniquement sur les pièces en 
+     attente ; « Remplacer le
+     fichier » reste secondaire.
+
+     ---
+     1. Le survol des boutons secondaires
+
+     Fichier : frontend/src/theme/recipes/button.ts
+
+     La variante secondary ne définit aujourd'hui que _hover: { bg: 'bg.subtle' 
+     }. Lui ajouter la
+     couleur de texte et remplacer l'anneau gris par l'anneau lavande :
+
+     _hover: {
+       bg: 'bg.subtle',
+       color: 'brand.fg',
+       boxShadow: 'inset 0 0 0 1px var(--chakra-colors-border-accent)',
+     },
+
+     L'anneau reste un boxShadow: inset, jamais une bordure — la règle déjà
+     documentée dans
+     docs/architecture.md : une bordure qui apparaît au survol décale le libellé
+     d'un pixel.
+
+     Point que la demande ne couvre pas mais qu'il faut traiter dans le même 
+     geste : la variante
+     secondary n'a pas de bloc _disabled, contrairement à primary. La pagination
+     du tableau de
+     bord (dashboard-page.tsx:154 et :165) rend « Précédent » / « Suivant »
+     désactivés. Sans garde, un
+     bouton désactivé deviendrait violet au survol et se lirait comme cliquable.
+     Ajouter, sur le modèle
+     exact de primary :
+
+     _disabled: {
+       opacity: 0.5,
+       _hover: {
+         bg: 'bg',
+         color: 'fg.muted',
+         boxShadow: 'inset 0 0 0 1px var(--chakra-colors-border)',
+       },
+     },
+
+     2. Le bloc « lien généré »
+
+     Fichiers : frontend/src/components/copy-field.tsx,
+     frontend/src/theme/recipes/button.ts,
+     frontend/src/theme/recipes/field.ts
+
+     Le champ reste un <Input readOnly> — ce n'est pas cosmétique : CopyField
+     appelle
+     inputRef.current.select() quand le presse-papier refuse (useCopy(value, 
+     selectValue)), ce qui
+     transforme « recopiez à la main » en un seul Ctrl+C. Remplacer l'input par
+     du texte casserait ce
+     repli, et le PIN comme le lien ne s'affichent qu'une fois. La boîte devient
+     donc un conteneur qui
+     porte la bordure, le fond et le rayon, avec un input transparent dedans.
+
+     Structure visée dans copy-field.tsx :
+
+     Field.Root
+     ├─ Field.Label            ← conservée
+     ├─ Box  (bordure 1px `border`, radius `l2`, bg `bg.subtle`, px 12px, py
+     10px,
+     │        display flex, align center, gap 12px, w 100%,
+     │        _focusWithin → anneau `brand.solid`)
+     │  ├─ Input   variant="bare"  flex=1  minW=0  textStyle="codeLink"
+     textOverflow="ellipsis"
+     │  └─ Button  variant="link"  flexShrink=0   → « Copier » / « Copie »
+     └─ Text role="status"     ← retour de copie, inchangé
+
+     L'anneau de focus monte sur le conteneur (_focusWithin) : laissé sur
+     l'input, il dessinerait un
+     second anneau à l'intérieur de la boîte.
+
+     Deux variantes à créer dans le thème — la règle du projet est qu'un
+     composant manquant se crée dans
+     le thème, jamais dans la page :
+
+     - inputRecipe, variante bare : bg: 'transparent', borderWidth: 0,
+     borderColor: 'transparent', boxShadow: 'none', paddingInline: 0,
+     paddingBlock: 0,
+     color: 'brand.fg', et _focusVisible neutralisé (boxShadow: 'none', outline:
+     'none',
+     borderColor: 'transparent'). La déclarer en variante et non dans base est 
+     obligatoire :
+     field.ts documente déjà que la variante outline de Chakra est celle par
+     défaut et bat base.
+     - buttonRecipe, variante link : bg: 'transparent', color: 'brand.fg',
+     fontWeight: 600,
+     fontSize: '13px', paddingInline: 0, paddingBlock: 0, boxShadow: 'none',
+     _hover: { textDecoration: 'underline' } — un soulignement ne prend pas de
+     place, contrairement à
+     un fond ou un anneau qui décaleraient le texte de l'URL à côté. Le
+     _focusVisible de base lui
+     donne déjà son anneau clavier. Chakra v3 n'a ni variante link sur le bouton
+     ni bare sur
+     l'input : pas de collision de nom.
+
+     pnpm -C frontend theme:typegen doit être relancé après l'ajout des deux
+     variantes : les unions
+     ButtonVariant / InputVariant sont fermées et le tsc -b échoue sinon. Le
+     script tourne déjà en
+     tête de build et de lint, donc pnpm -C frontend lint suffit à le
+     déclencher.
+
+     Nommage accessible : le bouton affichera « Copier » ; lui donner
+     aria-label="Copier le lien"
+     pour qu'il se distingue de « Copier le code » du bloc PIN dans la même
+     carte.
+     copy-field.test.tsx cible getByRole('button', { name: /copier/i }), qui
+     continue de le trouver.
+
+     3. Le bouton « Déposer » de l'écran client
+
+     Fichier : frontend/src/pages/deposit-page.tsx
+
+     DepositButton force variant="secondary" (ligne 171). Lui ajouter une prop
+     variant et la
+     décider au point d'appel (ligne 397), où l'état de la pièce est déjà connu
+     :
+
+     <DepositButton
+       variant={state === 'received' ? 'secondary' : 'primary'}
+       label={state === 'received' ? TEXT.replace : TEXT.choose}
+       onPick={(file) => void onPick(item, file)}
+     />
+
+     Le size={{ base: 'md', md: 'sm' }} reste tel quel : il vient d'une décision
+     d'ergonomie mobile
+     documentée dans le commentaire au-dessus, sans rapport avec la couleur.
+
+     4. Documentation
+
+     - docs/architecture.md, section « Le frontend » : ajouter que le survol
+     d'un secondaire fait passer
+     le texte et l'anneau au violet, et que la boîte du lien porte la bordure
+     pendant que l'input
+     est transparent (avec la raison : le select() du repli presse-papier).
+     - docs/tests-manuels.md, section B3 : la liste dit explicitement que les
+     tests de thème ont été
+     retirés et que ces cases sont la seule preuve de la charte. Y ajouter deux
+     cases :
+     survol d'un secondaire → texte + anneau violets, libellé immobile ; et le
+     bloc « lien généré » →
+     une seule boîte, URL violette tronquée, « Copier » dedans.
+
+     Pas de test unitaire de thème ajouté : docs/tests-manuels.md acte que les
+     35 cas du dossier
+     theme/ ont été supprimés parce qu'ils relisaient des jetons sans rien
+     prouver (jsdom ne calcule
+     aucun style). En rajouter un ici referait exactement l'erreur documentée.
+     Les deux cas conservés
+     (badge.test.tsx, field.test.tsx) le sont pour de vrais pièges Chakra, pas
+     pour des couleurs.
+
+     ---
+     Vérification
+
+     1. pnpm -C frontend lint — déclenche theme:typegen, le canari type-aware,
+     puis oxlint. C'est ce
+     qui prouve que les deux nouvelles variantes sont typées.
+     2. pnpm -C frontend test — la suite Vitest. Les trois cas de
+     copy-field.test.tsx et les deux de
+     issued-link-card.test.tsx doivent rester verts sans modification : ils
+     ciblent des rôles et des
+     noms accessibles, que la restructuration conserve. S'ils cassent, c'est le
+     signal que le nom
+     accessible a bougé.
+     3. pnpm -C frontend build — le tsc -b complet.
+     4. Au navigateur, seul moyen réel de vérifier une couleur (pnpm db:up && 
+     pnpm dev, puis
+     http://localhost:5173) :
+       - /requests/new : créer une demande → comparer la boîte du lien à
+     image.png ; survoler
+     « Copier », « Copier le code », « Créer une autre demande » → comparer à
+     image copy 2.png ;
+       - /dashboard avec plus d'une page : survoler « Précédent » désactivé → il
+     ne doit pas
+     devenir violet ;
+       - l'écran client /depot/<token> : « Déposer un fichier » violet plein, «
+     Remplacer le fichier »
+     à contour après un dépôt réussi.
+     Capture d'écran à chaque point via Playwright, et mesure des pixels avec
+     magick … txt: pour
+     confronter aux hex du tableau plutôt qu'au jugement à l'œil.
+     5. Relecture du diff complet (superpowers:requesting-code-review) avant de
+     considérer la série
+     terminée, puis mise à jour de issue_backlog.md si une issue couvre ces
+     écarts.
+
+     Fichiers touchés
+
+     ┌────────────────────────────────────────┬─────────────────────────────────
+     ┐
+     │                Fichier                 │             Nature
+     │
+     ├────────────────────────────────────────┼─────────────────────────────────
+     ┤
+     │ frontend/src/theme/recipes/button.ts   │ survol secondary, _disabled
+     │
+     │                                        │ secondary, variante link
+     │
+     ├────────────────────────────────────────┼─────────────────────────────────
+     ┤
+     │ frontend/src/theme/recipes/field.ts    │ variante bare de l'input
+     │
+     ├────────────────────────────────────────┼─────────────────────────────────
+     ┤
+     │ frontend/src/components/copy-field.tsx │ restructuration en une seule
+     │
+     │                                        │ boîte
+     │
+     ├────────────────────────────────────────┼─────────────────────────────────
+     ┤
+     │ frontend/src/pages/deposit-page.tsx    │ prop variant sur DepositButton
+     │
+     │                                        │ + point d'appel
+     │
+     ├────────────────────────────────────────┼─────────────────────────────────
+     ┤
+     │ docs/architecture.md                   │ deux règles de charte
+     │
+     ├────────────────────────────────────────┼─────────────────────────────────
+     ┤
+     │ docs/tests-manuels.md                  │ deux cases en B3
+     │
+     └────────────────────────────────────────┴─────────────────────────────────
+     ┘
+
+● Skill(superpowers:executing-plans)
+  ⎿  Successfully loaded skill
+
+● Je suis la skill executing-plans. D'abord l'état du dépôt.
+
+  Searched for 1 pattern, ran 2 shell commands (ctrl+o to expand)
+
+● On est sur main avec des modifications non commitées d'un autre sujet (grafana
+  / nginx websocket). Je crée une branche dédiée — elles restent dans l'arbre
+  de travail et n'entreront dans aucun de mes commits.
+
+  Pas de worktree ici : frontend/node_modules devrait être réinstallé pour un
+  changement de quatre fichiers.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Tâches 1 et 2 touchent le même fichier, je les fais ensemble.
+
+● Update(frontend/src/theme/recipes/button.ts)
+  ⎿  Added 27 lines, removed 1 line
+      37          color: 'fg.muted',
+      38          fontWeight: 400,
+      39          boxShadow: 'inset 0 0 0 1px var(--chakra-colors-border)
+          ',
+      40 -        _hover: { bg: 'bg.subtle' },                           
+      40 +        // Le survol prend le violet sur les trois plans, pas s
+         +eulement le fond.                                              
+      41 +        _hover: {                                              
+      42 +          bg: 'bg.subtle',                                     
+      43 +          color: 'brand.fg',                                   
+      44 +          boxShadow: 'inset 0 0 0 1px var(--chakra-colors-borde
+         +r-accent)',                                                    
+      45 +        },                                                     
+      46 +        // Sans ce bloc, « Precedent » desactive vire au violet
+         + au survol et se                                               
+      47 +        // lit comme cliquable (pagination du tableau de bord).
+      48 +        _disabled: {                                           
+      49 +          opacity: 0.5,                                        
+      50 +          _hover: {                                            
+      51 +            bg: 'bg',                                          
+      52 +            color: 'fg.muted',                                 
+      53 +            boxShadow: 'inset 0 0 0 1px var(--chakra-colors-bor
+         +der)',                                                         
+      54 +          },                                                   
+      55 +        },                                                     
+      56        },
+      57 +      // L'action de copie posee DANS la boite du lien : le kit
+         + la dessine en                                                 
+      58 +      // texte violet, sans fond ni contour. Le survol souligne
+         + plutot qu'il ne                                               
+      59 +      // remplit -- un fond decalerait l'URL a cote.           
+      60 +      link: {                                                  
+      61 +        bg: 'transparent',                                     
+      62 +        color: 'brand.fg',                                     
+      63 +        fontWeight: 600,                                       
+      64 +        fontSize: '13px',                                      
+      65 +        boxShadow: 'none',                                     
+      66 +        _hover: { textDecoration: 'underline' },               
+      67 +      },                                                       
+      68      },
+      69      size: {
+      70        md: { paddingInline: '24px', paddingBlock: '14px', fontSi
+          ze: '16px' },
+
+● size est déclaré après variant, donc il l'emporte sur fontSize et le padding —
+  exactement le piège documenté dans le CLAUDE.md. L'action en texte n'a pas de
+  boîte, il lui faut donc sa propre taille.
+
+● Update(frontend/src/theme/recipes/button.ts)
+  ⎿  Added 4 lines, removed 1 line
+      61          bg: 'transparent',
+      62          color: 'brand.fg',
+      63          fontWeight: 600,
+      64 -        fontSize: '13px',                                      
+      64          boxShadow: 'none',
+      65          _hover: { textDecoration: 'underline' },
+      66        },
+     ...
+      68      size: {
+      69        md: { paddingInline: '24px', paddingBlock: '14px', fontSi
+          ze: '16px' },
+      70        sm: { paddingInline: '16px', paddingBlock: '10px', fontSi
+          ze: '14px' },
+      71 +      // `size` est declare APRES `variant`, donc il l'emporte 
+         +: la taille et la                                              
+      72 +      // marge de la variante `link` doivent vivre ici, pas dan
+         +s la variante,                                                 
+      73 +      // sinon `md` les ecrase en silence.                     
+      74 +      inline: { paddingInline: '0', paddingBlock: '0', fontSize
+         +: '13px' },                                                    
+      75      },
+      76    },
+      77    defaultVariants: { variant: 'primary', size: 'md' },
+
+● Maintenant la variante bare de l'input.
+
+● Update(frontend/src/theme/recipes/field.ts)  ⎿  Added 13 lines
+      40    variants: {
+      41      variant: {
+      42        outline: { bg: 'bg', borderWidth: '1px', borderColor: 'bo
+          rder' },
+      43 +      // Le champ du lien genere : c'est la boite qui l'entoure
+         + qui porte la                                                  
+      44 +      // bordure, le fond et l'anneau de focus. Laisse ici, l'a
+         +nneau en                                                       
+      45 +      // dessinerait un second a l'interieur de cette boite.   
+      46 +      bare: {                                                  
+      47 +        bg: 'transparent',                                     
+      48 +        borderWidth: '0',                                      
+      49 +        borderColor: 'transparent',                            
+      50 +        boxShadow: 'none',                                     
+      51 +        color: 'brand.fg',                                     
+      52 +        paddingInline: '0',                                    
+      53 +        paddingBlock: '0',                                     
+      54 +        _focusVisible: { borderColor: 'transparent', boxShadow:
+         + 'none', outline: 'none' },                                    
+      55 +      },                                                       
+      56      },
+      57    },
+      58  })
+
+● Update(frontend/src/components/copy-field.tsx)
+  ⎿  Added 43 lines, removed 16 lines
+      20    return (
+      21      <Field.Root>
+      22        <Field.Label>{label}</Field.Label>
+      23 -      <Stack direction="row" gap="8px" align="center" w="100%">
+      24 -        <Box flex="1" minW="0">                                
+      25 -          <Input                                               
+      26 -            ref={inputRef}                                     
+      27 -            readOnly                                           
+      28 -            value={value}                                      
+      29 -            textStyle="codeLink"                               
+      30 -            textOverflow="ellipsis"                            
+      31 -            onFocus={(event) => {                              
+      32 -              event.currentTarget.select()                     
+      33 -            }}                                                 
+      34 -          />                                                   
+      35 -        </Box>                                                 
+      36 -        {/* Stack stretches its children; the button keeps its 
+         -own box. */}                                                   
+      37 -        <Button variant="secondary" size="sm" flexShrink="0" al
+         -ignSelf="center" onClick={() => void copy()}>                  
+      23 +      {/* One box, as the kit draws it: the frame is the contai
+         +ner's, and the                                                 
+      24 +          field inside it is transparent. The input survives th
+         +e redesign                                                     
+      25 +          because a refused clipboard selects its text -- repla
+         +cing it with a                                                 
+      26 +          Text would drop that fallback on a value shown exactl
+         +y once. */}                                                    
+      27 +      <Box                                                     
+      28 +        display="flex"                                         
+      29 +        alignItems="center"                                    
+      30 +        gap="12px"                                             
+      31 +        w="100%"                                               
+      32 +        borderWidth="1px"                                      
+      33 +        borderColor="border"                                   
+      34 +        borderRadius="l2"                                      
+      35 +        bg="bg.subtle"                                         
+      36 +        paddingInline="12px"                                   
+      37 +        paddingBlock="10px"                                    
+      38 +        _focusWithin={{                                        
+      39 +          borderColor: 'brand.solid',                          
+      40 +          boxShadow: '0 0 0 1px var(--chakra-colors-brand-solid
+         +)',                                                            
+      41 +        }}                                                     
+      42 +      >                                                        
+      43 +        <Input                                                 
+      44 +          ref={inputRef}                                       
+      45 +          readOnly                                             
+      46 +          variant="bare"                                       
+      47 +          value={value}                                        
+      48 +          flex="1"                                             
+      49 +          minW="0"                                             
+      50 +          textStyle="codeLink"                                 
+      51 +          textOverflow="ellipsis"                              
+      52 +          onFocus={(event) => {                                
+      53 +            event.currentTarget.select()                       
+      54 +          }}                                                   
+      55 +        />                                                     
+      56 +        {/* Named apart from the PIN's "Copier le code": two co
+         +py actions sit in                                              
+      57 +            the same card, and "Copier" alone does not say whic
+         +h. */}                                                         
+      58 +        <Button                                                
+      59 +          variant="link"                                       
+      60 +          size="inline"                                        
+      61 +          flexShrink="0"                                       
+      62 +          aria-label={TEXT.copyLink}                           
+      63 +          onClick={() => void copy()}                          
+      64 +        >                                                      
+      65            {feedback === 'copied' ? TEXT.copied : TEXT.copy}
+      66          </Button>
+      40 -      </Stack>                                                 
+      67 +      </Box>                                                   
+      68        {feedback === 'idle' ? null : (
+      69          <Text role="status" color="fg.muted" fontSize="12px">
+      70            {feedback === 'copied' ? `${TEXT.copied} ✓` : TEXT.ma
+          nual}
+
+● Update(frontend/src/components/copy-field.tsx)
+  ⎿  Added 1 line
+       4  
+       5  const TEXT = {
+       6    copy: 'Copier',
+       7 +  copyLink: 'Copier le lien',                                  
+       8    copied: 'Copie',
+       9    manual: 'Copiez avec Ctrl+C',
+      10  }
+
+● Update(frontend/src/components/copy-field.tsx)
+  ⎿  Added 1 line, removed 1 line
+      1 -import { Box, Button, Field, Input, Stack, Text } from '@chakra-
+        -ui/react'                                                       
+      1 +import { Box, Button, Field, Input, Text } from '@chakra-ui/reac
+        +t'                                                              
+      2  import { useCallback, useRef } from 'react'
+      3  import { useCopy } from '../hooks/use-copy'
+      4  
+
+● Update(frontend/src/pages/deposit-page.tsx)
+  ⎿  Added 4 lines
+      145  
+      146  const DepositButton = ({
+      147    label,
+      148 +  variant,                                                    
+      149    onPick,
+      150  }: {
+      151    label: string
+      152 +  /** The kit draws "Deposer" as the primary action; replacing
+          + a piece already                                              
+      153 +   *  received is a second thought, so it stays secondary. */ 
+      154 +  variant: 'primary' | 'secondary'                            
+      155    onPick: (file: File) => void
+      156  }) => {
+      157    const input = useRef<HTMLInputElement | null>(null)
+
+● Update(frontend/src/pages/deposit-page.tsx)
+  ⎿  Added 1 line, removed 1 line
+      172            a ring they cannot see. Bigger on a phone, which is 
+           where this screen
+      173            is actually opened: sm is 40px tall, and a finger wa
+           nts more. */}
+      174        <Button
+      175 -        variant="secondary"                                   
+      175 +        variant={variant}                                     
+      176          size={{ base: 'md', md: 'sm' }}
+      177          alignSelf="center"
+      178          onClick={() => input.current?.click()}
+
+● Update(frontend/src/pages/deposit-page.tsx)
+  ⎿  Added 1 line
+      400                              state === 'uploading' ? null : (
+      401                                <DepositButton
+      402                                  label={state === 'received' ? 
+           TEXT.replace : TEXT.choose}
+      403 +                                variant={state === 'received' 
+          +? 'secondary' : 'primary'}                                    
+      404                                  onPick={(file) => void onPick(
+           item, file)}
+      405                                />
+      406                              )
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● 19 fichiers, 124 tests, tout vert. Maintenant la seule vérification qui compte
+  : le navigateur.
+
+  Called plugin:playwright:playwright, ran 3 shell commands (ctrl+o to expand)
+
+● Un Chrome est déjà ouvert avec ce profil (pid 752259) — probablement ta
+  session de test. Je ne le tue pas. Je pilote une instance isolée à la place.
+
+  Made 3 scratchpad edits +116 -2, listed 2 directories, ran 5 shell commands (ctrl+o to expand)
+● Toutes les mesures tombent juste. Deux choses restent : la pagination
+  désactivée (il n'y a qu'une page de demandes) et une comparaison visuelle.
+
+  Made 1 scratchpad edit +48, searched for 2 patterns, read 3 files, ran 2 shell commands (ctrl+o to expand)
+
+● Reste « Remplacer le fichier » après un dépôt réel. Je le vérifie plutôt que
+  de le supposer.
+
+  Made 1 scratchpad edit +44, ran 2 shell commands (ctrl+o to expand)
+
+● Vérification complète et concluante. Je passe à la documentation.
+
+● Update(docs/architecture.md)
+  ⎿  Added 21 lines, removed 1 line
+      288  - **`height: 'auto'`** dans les recettes de bouton et de champ
+            est porteur : Chakra fixe une hauteur
+      289    par taille, qui l'emporterait sur les marges de la charte et
+            écraserait le composant ;
+      290  - **le contour au survol est un `boxShadow: inset`, jamais une
+            bordure** : une bordure qui apparaît
+      291 -  décale le libellé d'un pixel, un anneau intérieur ne prend p
+          -as de place.                                                  
+      291 +  décale le libellé d'un pixel, un anneau intérieur ne prend p
+          +as de place ;                                                 
+      292 +- **`size` est déclaré après `variant` dans la recette de bout
+          +on, donc il l'emporte** : la taille et                        
+      293 +  la marge d'une nouvelle variante doivent vivre dans un `size
+          +`, pas dans la variante. La variante                          
+      294 +  `link` (l'action « Copier » posée dans la boîte du lien) a p
+          +our cette raison sa propre taille                             
+      295 +  `inline`, à marge nulle — écrites dans la variante, ses 13 p
+          +x auraient été écrasés par `md` à                             
+      296 +  16 px, en silence.                                          
+      297  
+      298 +**Le survol d'un bouton secondaire prend le violet sur les tro
+          +is plans** — fond `#F7F6FF`, texte                            
+      299 +`#5100FF`, anneau `#DBCDFF` — et pas seulement le fond. La var
+          +iante porte aussi un bloc `_disabled`                         
+      300 +qui **neutralise ce survol** : sans lui, « Précédent » désacti
+          +vé dans la pagination du tableau de                           
+      301 +bord virait au violet au passage de la souris et se lisait com
+          +me cliquable.                                                 
+      302 +                                                              
+      303 +**Le bloc « lien généré » est une seule boîte**, comme le kit 
+          +le dessine : le conteneur porte la                            
+      304 +bordure, le fond, le rayon et l'anneau de focus (`_focusWithin
+          +`), et le champ à l'intérieur est                             
+      305 +transparent (variante `bare`). Le champ **reste un `<input rea
+          +dOnly>` et non un texte** : quand le                          
+      306 +presse-papier refuse, `CopyField` sélectionne son contenu, ce 
+          +qui transforme « recopiez à la main »                         
+      307 +en un seul Ctrl+C — sur une valeur qui n'est affichée qu'une f
+          +ois.                                                          
+      308 +                                                              
+      309 +**Le bouton de dépôt du client est primaire tant que la pièce 
+          +manque**, secondaire une fois qu'elle                         
+      310 +est reçue (« Remplacer le fichier »). Le kit dessine « Deposer
+          + » en primaire ; tout passer en violet                        
+      311 +plein ferait d'une liste de vingt pièces un mur où plus rien n
+          +e ressort.                                                    
+      312 +                                                              
+      313  **Clair uniquement, et le mécanisme est l'absence** : aucune c
+           ondition `_dark` n'est déclarée et rien
+      314  ne pose la classe `dark` sur le document. Ne pas réintroduire 
+           un bascule « pour rendre ça
+      315  configurable ».
+
+● Update(docs/architecture.md)
+  ⎿  Added 1 line, removed 1 line
+      278  styles de texte. Les écrans les consomment et **n'écrivent jam
+           ais une couleur, une police ou un
+      279  rayon** — un composant manquant se crée dans le thème, pas dan
+           s la page.
+      280  
+      281 -Quatre pièges de Chakra v3, tous trouvés au navigateur parce q
+          -ue **jsdom ne calcule aucun style** :                         
+      281 +Cinq pièges de Chakra v3, tous trouvés au navigateur parce que
+          + **jsdom ne calcule aucun style** :                           
+      282  
+      283  - **les variantes livrées avec Chakra battent le `base` d'une 
+           recette, en silence** — un titre écrit à
+      284    11 px rendait 18 px. Ce que la charte fixe doit donc être ré
+           pété dans les variantes susceptibles de
+
+● Maintenant la liste de tests manuels — c'est la seule preuve de la charte,
+  donc les cases doivent exister.
+
+● Update(docs/tests-manuels.md)
+  ⎿  Added 12 lines
+      152  - [ ] Survol du bouton principal → **inversion** des couleurs,
+            et le libellé **ne bouge pas d'un
+      153        pixel** (l'anneau est un `box-shadow: inset`, pas une bo
+           rdure ; une bordure décalerait le
+      154        texte)
+      155 +- [x] Survol d'un bouton **secondaire** (« Copier le code », «
+          + Créer une autre demande »,                                   
+      156 +      « Annuler ») → texte **et** anneau passent au violet, pa
+          +s seulement le fond. Mesuré au                                
+      157 +      navigateur le 10/08 : `color` `rgb(81,0,255)`, fond `rgb
+          +(247,246,255)`, anneau                                        
+      158 +      `rgb(219,205,255)`, et **le gabarit ne bouge pas** (131×
+          +36 avant comme après)                                         
+      159 +- [x] Un secondaire **désactivé** ne réagit pas au survol — « 
+          +Précédent » de la pagination reste                            
+      160 +      gris. Vérifié le 10/08 : couleur, fond et anneau identiq
+          +ues au repos, `opacity` 0,5                                   
+      161 +- [x] Bloc **« lien généré »** → **une seule boîte** : fond `#
+          +F7F6FF`, bordure 1 px `#E9E9E9`,                              
+      162 +      rayon 8 px, URL en monospace violette tronquée, « Copier
+          + » en texte violet **à l'intérieur**                          
+      163 +      de la boîte. Mesuré le 10/08, conforme au kit           
+      164 +- [x] Écran client → « Deposer un fichier » en **violet plein*
+          +* tant que la pièce manque,                                   
+      165 +      « Remplacer le fichier » **à contour** après un dépôt ré
+          +ussi. Vérifié le 10/08 sur un dépôt                           
+      166 +      réel                                                    
+      167  - [ ] Violet `#7B2CFF`, police Inter, rayons et espacements co
+           nformes au kit sur `/login`,
+      168        `/dashboard`, `/requests/new`, le détail d'une demande e
+           t l'écran client
+      169  - [ ] Largeur **375 px** (mobile) puis **1440 px** : la densit
+           é reste constante, rien ne déborde,
+
+● Le backlog, épique E1.
+
+● Update(issue_backlog.md)
+  ⎿  Added 11 lines
+      844  - [x] **Bouton primaire signature** : fond primary, texte blan
+           c, 600, padding 24×14, radius full ;
+      845        au hover, **inversion** — fond `#F7F6FF`, texte primary,
+            contour inset 1px
+      846  - [x] Cartes sans ombre, bordure 1px `#E9E9E9`
+      847 +- [x] **Bouton secondaire au survol** : fond `#F7F6FF`, texte 
+          +`#5100FF`, anneau inset 1px `#DBCDFF`                         
+      848 +      — les trois, pas le fond seul. Écart relevé en test manu
+          +el le 10/08 et corrigé le même jour.                          
+      849 +      La variante n'avait alors **aucun bloc `_disabled`** : l
+          +e survol violet aurait fait passer                            
+      850 +      « Précédent » désactivé pour un bouton cliquable, ce qui
+          + est corrigé dans le même geste                               
+      851 +- [x] **Bloc « lien généré »** : une seule boîte (fond `#F7F6F
+          +F`, bordure 1px `#E9E9E9`, rayon 8px)                         
+      852 +      portant l'URL en monospace violette tronquée **et** l'ac
+          +tion « Copier » en texte violet à                             
+      853 +      l'intérieur. C'était deux objets — un champ au texte noi
+          +r, puis un bouton à contour posé à                            
+      854 +      côté. Le champ reste un `input readOnly` : le repli « re
+          +copiez à la main » sélectionne son                            
+      855 +      contenu, et le lien n'est affiché qu'une fois           
+      856 +- [x] **Bouton de dépôt côté client** : primaire tant que la p
+          +ièce manque, secondaire une fois                              
+      857 +      reçue. Le kit dessine « Deposer » en primaire ; il était
+          + secondaire partout                                           
+      858  - [x] Reveal au scroll (opacity + translation) — **déplacé en 
+           B5, et livré là** (10/08), sur la
+      859        liste des demandes, qui est la première page qui défile.
+            `prefers-reduced-motion` respecté.
+      860        Un défaut du plan a été corrigé au passage : le composan
+           t masquait dès l'`observe()`, donc un
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Relecture du diff. Deux choses à corriger avant d'aller plus loin.
+
+  1. Mes commentaires sont en français dans button.ts et field.ts, alors que
+  tout le code du dépôt — ces fichiers compris — est en anglais. C'est ta règle,
+  je l'ai enfreinte.
+
+  2. Double anneau de focus. _focusWithin se déclenche aussi quand c'est le
+  bouton « Copier » dans la boîte qui prend le focus : la boîte dessine son
+  anneau violet et le bouton dessine le sien par-dessus. Il faut restreindre au
+  champ.
+
+● Update(frontend/src/theme/recipes/button.ts)
+  ⎿  Added 3 lines, removed 3 lines
+      37          color: 'fg.muted',
+      38          fontWeight: 400,
+      39          boxShadow: 'inset 0 0 0 1px var(--chakra-colors-border)
+          ',
+      40 -        // Le survol prend le violet sur les trois plans, pas s
+         -eulement le fond.                                              
+      40 +        // The charter takes the violet on all three planes, no
+         +t the fill alone.                                              
+      41          _hover: {
+      42            bg: 'bg.subtle',
+      43            color: 'brand.fg',
+      44            boxShadow: 'inset 0 0 0 1px var(--chakra-colors-borde
+          r-accent)',
+      45          },
+      46 -        // Sans ce bloc, « Precedent » desactive vire au violet
+         - au survol et se                                               
+      47 -        // lit comme cliquable (pagination du tableau de bord).
+      46 +        // Without this, a disabled "Precedent" turns violet un
+         +der the cursor                                                 
+      47 +        // and reads as clickable (the dashboard's pagination).
+      48          _disabled: {
+      49            opacity: 0.5,
+      50            _hover: {
+
+● Update(frontend/src/theme/recipes/button.ts)
+  ⎿  Added 3 lines, removed 3 lines
+      54            },
+      55          },
+      56        },
+      57 -      // L'action de copie posee DANS la boite du lien : le kit
+         - la dessine en                                                 
+      58 -      // texte violet, sans fond ni contour. Le survol souligne
+         - plutot qu'il ne                                               
+      59 -      // remplit -- un fond decalerait l'URL a cote.           
+      57 +      // The copy action sitting INSIDE the link box: the kit d
+         +raws it as violet                                              
+      58 +      // text, with no fill and no ring. Hovering underlines ra
+         +ther than fills --                                             
+      59 +      // a fill would shift the URL next to it.                
+      60        link: {
+      61          bg: 'transparent',
+      62          color: 'brand.fg',
+
+● Update(frontend/src/theme/recipes/button.ts)
+  ⎿  Added 3 lines, removed 3 lines
+      68      size: {
+      69        md: { paddingInline: '24px', paddingBlock: '14px', fontSi
+          ze: '16px' },
+      70        sm: { paddingInline: '16px', paddingBlock: '10px', fontSi
+          ze: '14px' },
+      71 -      // `size` est declare APRES `variant`, donc il l'emporte 
+         -: la taille et la                                              
+      72 -      // marge de la variante `link` doivent vivre ici, pas dan
+         -s la variante,                                                 
+      73 -      // sinon `md` les ecrase en silence.                     
+      71 +      // `size` is declared AFTER `variant`, so it wins: the si
+         +ze and padding of                                              
+      72 +      // the `link` variant have to live here rather than in th
+         +e variant, or                                                  
+      73 +      // `md` overrides them in silence.                       
+      74        inline: { paddingInline: '0', paddingBlock: '0', fontSize
+          : '13px' },
+      75      },
+      76    },
+● Update(frontend/src/theme/recipes/field.ts)
+  ⎿  Added 3 lines, removed 3 lines
+      40    variants: {
+      41      variant: {
+      42        outline: { bg: 'bg', borderWidth: '1px', borderColor: 'bo
+          rder' },
+      43 -      // Le champ du lien genere : c'est la boite qui l'entoure
+         - qui porte la                                                  
+      44 -      // bordure, le fond et l'anneau de focus. Laisse ici, l'a
+         -nneau en                                                       
+      45 -      // dessinerait un second a l'interieur de cette boite.   
+      43 +      // The generated link's field: the box around it carries 
+         +the border, the                                                
+      44 +      // fill and the focus ring. Left here, the ring would dra
+         +w a second one                                                 
+      45 +      // inside that box.                                      
+      46        bare: {
+      47          bg: 'transparent',
+      48          borderWidth: '0',
+
+● Maintenant le double anneau.
+
+● Update(frontend/src/components/copy-field.tsx)
+  ⎿  Added 8 lines, removed 3 lines
+      36          bg="bg.subtle"
+      37          paddingInline="12px"
+      38          paddingBlock="10px"
+      39 -        _focusWithin={{                                        
+      40 -          borderColor: 'brand.solid',                          
+      41 -          boxShadow: '0 0 0 1px var(--chakra-colors-brand-solid
+         -)',                                                            
+      39 +        // Scoped to the field, not to any descendant: a bare `
+         +_focusWithin`                                                  
+      40 +        // also fires on the copy button, which already draws i
+         +ts own ring --                                                 
+      41 +        // two rings, one inside the other.                    
+      42 +        css={{                                                 
+      43 +          '&:has(input:focus-visible)': {                      
+      44 +            borderColor: 'brand.solid',                        
+      45 +            boxShadow: '0 0 0 1px var(--chakra-colors-brand-sol
+         +id)',                                                          
+      46 +          },                                                   
+      47          }}
+      48        >
+      49          <Input
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Je revérifie les deux états de focus au navigateur — c'est ce que je viens de
+  changer.
+
+  Made 1 scratchpad edit +51, read 1 file, listed 2 directories, ran 1 shell command (ctrl+o to expand)
+
+● Write(ai-plans/2026-08-10-ecarts-charte-lien-et-survols.md)
+  ⎿  Wrote 106 lines to
+     ai-plans/2026-08-10-ecarts-charte-lien-et-survols.md
+       1 # Trois écarts de charte relevés en test manuel : lien généré, s
+       2 
+       3 **Date :** 10/08/2026 — **Issue :** E1 (thème DIV) — **Branche :
+         ** `fix/charte-lien-genere-et-survols`
+       5 ## D'où vient la tâche
+       6 
+         *. Trois endroits ne rendaient pas ce
+       8 que dessine `ai-plans/assets/uikit.png` :
+       9 
+         é au texte noir, puis un bouton à
+     … +150 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Terminé et vérifié. Rien n'est commité — voici l'état.
+
+  Ce qui a été construit
+
+  Le bloc « lien généré » est maintenant une seule boîte, comme le kit : c'est
+  le conteneur qui porte la bordure, le fond et le rayon, et le champ à
+  l'intérieur est transparent. J'ai gardé un <input readOnly> plutôt qu'un texte
+  — quand le presse-papier refuse, CopyField sélectionne son contenu, ce qui
+  transforme « recopiez à la main » en un seul Ctrl+C sur une valeur affichée
+  une seule fois.
+
+  Le survol des secondaires prend le violet sur les trois plans, pas seulement
+  le fond.
+
+  Le bouton de dépôt est primaire tant que la pièce manque, secondaire une fois
+  reçue.
+
+  Les couleurs viennent de mesures sur tes captures (magick … txt:), pas d'une
+  estimation à l'œil — et les quatre valeurs existaient déjà dans le thème, il
+  n'y avait rien à inventer.
+
+  Un piège trouvé en écrivant : size est déclaré après variant dans la recette
+  de bouton, donc il l'emporte. Les 13 px de la variante link étaient écrasés
+  par md à 16 px, en silence. D'où la taille inline, qui n'existe que pour ça.
+
+  Ce qui a été vérifié
+
+  lint + tsc -b + test : 19 fichiers, 124 tests verts, sans qu'un seul test ait
+  eu besoin d'être modifié.
+
+  Au navigateur (Chrome isolé avec profil temporaire — ta session ouverte n'a
+  pas été touchée), parcours complet jusqu'au dépôt réel d'un PDF, styles lus
+  par getComputedStyle :
+
+  ┌──────────────────────┬──────────────────────────────────────────────────┐
+  │       Vérifié        │                      Mesuré                      │
+  ├──────────────────────┼──────────────────────────────────────────────────┤
+  │ Boîte du lien        │ fond rgb(247,246,255), bordure 1px               │
+  │                      │ rgb(233,233,233), rayon 8px                      │
+  ├──────────────────────┼──────────────────────────────────────────────────┤
+  │ URL / « Copier »     │ rgb(81,0,255), mono 13 px / 13 px 600 sans fond  │
+  │                      │ ni anneau                                        │
+  ├──────────────────────┼──────────────────────────────────────────────────┤
+  │ Survol secondaire    │ texte rgb(81,0,255), fond rgb(247,246,255),      │
+  │                      │ anneau rgb(219,205,255)                          │
+  ├──────────────────────┼──────────────────────────────────────────────────┤
+  │ Gabarit au survol    │ 131×36 avant et après — le libellé ne bouge pas  │
+  ├──────────────────────┼──────────────────────────────────────────────────┤
+  │ Désactivé, survolé   │ inchangé, opacity 0,5                            │
+  ├──────────────────────┼──────────────────────────────────────────────────┤
+  │ « Deposer » / «      │ violet plein / gris à contour                    │
+  │ Remplacer »          │                                                  │
+  └──────────────────────┴──────────────────────────────────────────────────┘
+
+  Ce que la relecture a corrigé
+
+  - Mes commentaires étaient en français dans button.ts et field.ts alors que
+  tout le code du dépôt est en anglais. Réécrits.
+  - Double anneau de focus : _focusWithin se déclenchait aussi quand c'est le
+  bouton « Copier » dans la boîte qui prenait le focus, donc deux anneaux
+  imbriqués. Restreint au champ, et les deux états revérifiés au navigateur.
+
+  Ce que je n'ai pas pu vérifier comme prévu
+
+  La pagination désactivée n'existe pas à l'écran — le compte de démo n'a qu'une
+  page. J'ai obtenu l'état en posant disabled sur un autre secondaire dans le
+  DOM : c'est la même règle CSS (_disabled cible :disabled), mais pas le
+  composant réel. La case reste à rejouer sur un jeu à deux pages.
+
+  Hors périmètre, relevé au passage : CLAUDE.md écrit la route client /depot, la
+  valeur réelle est /deposit. Le masquage nginx est bien aligné sur /deposit,
+  donc c'est la prose qui a dérivé, pas le code.
+
+  Commits proposés — un seul feu vert pour la série
+
+  1. fix(theme): align the generated link box and the secondary hover on the kit
+
+  ┌────────────────────────────────────────┬─────────────────────────────────┐
+  │                Fichier                 │           Changement            │
+  ├────────────────────────────────────────┼─────────────────────────────────┤
+  │                                        │ survol secondary (texte +       │
+  │ frontend/src/theme/recipes/button.ts   │ anneau violets), bloc _disabled │
+  │                                        │  manquant, variante link,       │
+  │                                        │ taille inline                   │
+  ├────────────────────────────────────────┼─────────────────────────────────┤
+  │ frontend/src/theme/recipes/field.ts    │ variante bare de l'input        │
+  ├────────────────────────────────────────┼─────────────────────────────────┤
+  │ frontend/src/components/copy-field.tsx │ une seule boîte, anneau de      │
+  │                                        │ focus restreint au champ        │
+  ├────────────────────────────────────────┼─────────────────────────────────┤
+  │                                        │ prop variant sur DepositButton, │
+  │ frontend/src/pages/deposit-page.tsx    │  primaire si la pièce est en    │
+  │                                        │ attente                         │
+  └────────────────────────────────────────┴─────────────────────────────────┘
+
+  2. docs: record the three charter gaps found in manual testing
+
+  ┌──────────────────────────────────────────────────────┬───────────────────┐
+  │                       Fichier                        │    Changement     │
+  ├──────────────────────────────────────────────────────┼───────────────────┤
+  │                                                      │ trois règles de   │
+  │ docs/architecture.md                                 │ charte, et le     │
+  │                                                      │ piège size après  │
+  │                                                      │ variant           │
+  ├──────────────────────────────────────────────────────┼───────────────────┤
+  │ docs/tests-manuels.md                                │ quatre cases en   │
+  │                                                      │ B3                │
+  ├──────────────────────────────────────────────────────┼───────────────────┤
+  │ issue_backlog.md                                     │ trois critères    │
+  │                                                      │ sous E1           │
+  ├──────────────────────────────────────────────────────┼───────────────────┤
+  │                                                      │ nouveau — plan,   │
+  │ ai-plans/2026-08-10-ecarts-charte-lien-et-survols.md │ décisions,        │
+  │                                                      │ vérification,     │
+  │                                                      │ relecture         │
+  └──────────────────────────────────────────────────────┴───────────────────┘
+
+  Laissés de côté volontairement, pour que leur exclusion soit une décision et
+  pas un oubli : docs/exploitation.md, infra/docker-compose.yml,
+  infra/nginx/portal-locations.conf et infra/nginx/websocket-upgrade.conf
+  (nouveau) — ce sont tes modifications grafana/websocket en cours, sans rapport
+  ; ainsi que les PNG à la racine (image*.png, uikit.png, enonce-full.png),
+  ai-logs/, et les deux autres ai-plans/ non suivis.
+
+✻ Churned for 18m 2s

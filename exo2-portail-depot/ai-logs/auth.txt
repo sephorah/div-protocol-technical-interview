@@ -1,0 +1,779 @@
+ ▐▛███▜▌   Claude Code v2.1.223
+▝▜█████▛▘  Opus 5 · Claude Pro
+  ▘▘ ▝▝    ~/delivery/div-protocol-internship/exo2-portail-depot/backend
+
+
+● Restaurés depuis le commit, les cinq fichiers sont là et l'arbre est propre —
+  le commit 3860002 est intact, rien à recommitter.
+
+  Un détail : le .jsonl était en 600 (lisible par toi seul) et revient en 644.
+  Git ne suit que le bit d'exécution, pas les permissions de lecture. Sans
+  conséquence tant que le dépôt reste local, mais c'est le transcript brut — si
+  tu veux le mode d'origine :
+
+  chmod 600 exo2-portail-depot/ai-logs/*.jsonl
+
+✻ Sautéed for 13s
+
+❯ /compact                                                                      
+  ⎿  Compacted (ctrl+o to see full summary)
+  ⎿  Read ai-plans/2026-08-06-lint-backend-bloquant.md (66 lines)
+  ⎿  Read backend/src/main.ts (17 lines)
+  ⎿  Read backend/package.json (73 lines)
+  ⎿  Read frontend/src/components/ui/color-mode.tsx (115 lines)
+  ⎿  Read ai-plans/2026-08-06-lint-type-aware-frontend.md (123 lines)
+  ⎿  Plan file referenced (~/.claude/plans/inherited-sprouting-parnas.md)
+
+❯ Crée un module NestJS auth qui gère l'authentification JWT.                   
+  Utilise ConfigService pour gérer les variables d'environnement, regarde       
+  .env.example pour voir les variables d'env à intégrer.                        
+  Inspire toi du module auth de mon repo                                        
+  $PWD/../eip/VigilArt/backend/src/auth/, en l'adaptant au portail de dépot de  
+  pieces.                                                                       
+  Je dois avoir une route /auth/login qui permet à un avocat de se connecter.   
+  Ensuite effectue des tests e2e d'api pour vérifier que la route fonctionne    
+  bien, et fais une code review.                                                
+                                                                                
+  J'ai rajouté du contexte dans CLAUDE.md                                       
+                                                                                
+  + N'expose jamais des secrets dans les conversations + vérifie dans ai-logs   
+  s'il y a des secrets exposés                                                  
+
+  Read 1 file, listed 2 directories, ran 1 shell command (ctrl+o to expand)
+
+● Explore(Scan ai-logs for exposed secrets)
+  ⎿  Done (19 tool uses · 25.1k tokens · 2m 3s)
+  (ctrl+o to expand)
+
+● Audit sécurité d'abord : aucun secret réel exposé dans ai-logs/, ai-plans/ ni
+  dans les fichiers versionnés. Le .env local contient de vraies valeurs mais il
+  est bien ignoré par git et ses valeurs n'apparaissent nulle part dans les
+  transcripts.
+
+  Maintenant l'exploration du module de référence.
+
+  Read 5 files, ran 2 shell commands (ctrl+o to expand)
+
+● Le module de référence est clair. Avant de planifier, trois arbitrages qui
+  changent réellement le code — le portail n'a aucune base de données
+  aujourd'hui, donc la question « d'où vient l'avocat » n'a pas de réponse
+  évidente.
+
+● User answered Claude's questions:
+  ⎿  · Il n'y a pas encore de base de données. D'où viennent les identifiants de
+     l'avocat pour /auth/login ? → Il y aura des identifiants de démo.
+     · Comment le token part-il vers le SPA ? → Cookie httpOnly seul 
+     (Recommandé)
+     · Périmètre du module : jusqu'où va-t-on au-delà de /auth/login ? → Login +
+     guard + /auth/me + logout (Recommandé)
+
+● User answered Claude's questions:
+  ⎿  · Pour le compte de démo : où vit le mot de passe, sachant qu'il ne doit 
+     jamais être en clair dans le dépôt ? → Hash bcrypt en .env + script 
+     (Recommandé)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Updated plan
+  ⎿  /plan to preview
+● User approved Claude's plan
+  ⎿  Plan saved to: ~/.claude/plans/inherited-sprouting-parnas.md · /plan to 
+     edit
+     Module auth JWT — connexion avocat
+
+     Contexte
+
+     Le portail a désormais un besoin métier défini (CLAUDE.md § Context) : côté
+     avocat, tout est
+     authentifié — créer une demande de dépôt, générer un lien expirable à PIN,
+     consulter le
+     dashboard. Côté client, tout est anonyme. Aucune de ces routes n'est
+     écrite, et rien ne
+     peut l'être tant qu'il n'existe pas de moyen de savoir qui est l'avocat qui
+     appelle l'API.
+
+     Le backend est encore le template NestJS nu : AppModule n'importe rien, il
+     n'y a ni
+     ConfigModule, ni base de données, ni validation d'entrée.
+
+     Ce chantier livre la brique manquante : un module auth qui authentifie
+     l'avocat par
+     e-mail + mot de passe et pose une session JWT, plus le JwtAuthGuard que
+     toutes les futures
+     routes avocat viendront décorer.
+
+     Référence adaptée : ~/delivery/eip/VigilArt/backend/src/auth/. Trois écarts
+     assumés,
+     détaillés plus bas — pas de base de données, pas de client mobile, pas de
+     refresh token.
+
+     Arbitrages retenus (validés)
+
+     Sujet: Source des identifiants
+     Choix: Compte de démo unique, seedé depuis l'env
+     Pourquoi: Pas encore de base. Une interface UsersService.findByEmail()
+     isole ce
+     choix : le jour où Prisma arrive, seule l'implémentation change.
+     ────────────────────────────────────────
+     Sujet: Mot de passe de démo
+     Choix: Hash bcrypt en .env (AVOCAT_PASSWORD_HASH)
+     Pourquoi: Le clair n'existe nulle part sur disque. Produit par pnpm 
+     hash:password, qui lit le mot de passe au clavier (jamais en argument —
+     l'historique du shell le garderait).
+     ────────────────────────────────────────
+     Sujet: Transport du token
+     Choix: Cookie httpOnly seul
+     Pourquoi: Front et API partagent une origine (proxy nginx :8080), donc
+     aucun
+     CORS à configurer et le token est hors de portée d'un XSS. Rien dans le
+     corps
+      de réponse.
+     ────────────────────────────────────────
+     Sujet: Périmètre
+     Choix: login + logout + me + JwtAuthGuard
+     Pourquoi: Le guard est la vraie livraison : sans lui, le token ne protège
+     rien.
+     me permet au SPA de rétablir sa session au rechargement.
+     ────────────────────────────────────────
+     Sujet: Refresh token
+     Choix: Écarté pour l'instant
+     Pourquoi: VigilArt persiste les refresh tokens hachés en base pour pouvoir
+     les
+     révoquer. Sans base, un refresh non révocable de 7 jours serait plus 
+     faible
+     que le seul access token. À reprendre avec la base.
+     ────────────────────────────────────────
+     Sujet: Client mobile
+     Choix: Écarté
+     Pourquoi: VigilArt a une app mobile, pas ce portail. loginMobile /
+     JWT_MOBILE_REFRESH_EXPIRES ne sont pas repris.
+
+     Dépendances à ajouter (backend/)
+
+     @nestjs/config, @nestjs/jwt, @nestjs/passport, passport, passport-jwt,
+     bcrypt,
+     cookie-parser, class-validator, class-transformer, @nestjs/throttler
+     — dev : @types/passport-jwt, @types/bcrypt, @types/cookie-parser.
+
+     ⚠️ bcrypt est un module natif. pnpm 11 rend les scripts de build opt-in :
+     il faudra
+     ajouter bcrypt à allowBuilds dans backend/pnpm-workspace.yaml (pnpm 
+     approve-builds),
+     sinon pnpm install --frozen-lockfile sort en 1 sur ERR_PNPM_IGNORED_BUILDS
+     — y compris
+     dans le Dockerfile, qui COPY déjà ce fichier. À vérifier par un build
+     d'image, pas seulement
+     en local. Repli si la compilation native pose problème en image Alpine/slim
+     : bcryptjs
+     (pur JS, hashes $2b$ interchangeables).
+
+     Variables d'environnement
+
+     .env.example porte aujourd'hui les variables recopiées de VigilArt. À
+     réécrire :
+
+     # Compte avocat de demo (le hash se genere avec : pnpm -C backend
+     hash:password)
+     AVOCAT_EMAIL=
+     AVOCAT_NOM=
+     AVOCAT_PASSWORD_HASH=
+
+     # JWT
+     JWT_SECRET=
+     JWT_EXPIRES=2h
+     SALT_ROUNDS=12
+
+     Retirées : JWT_REFRESH_SECRET, JWT_REFRESH_EXPIRES,
+     JWT_MOBILE_REFRESH_EXPIRES
+     (sans objet sans refresh token ni mobile). .env.example ne contient que des
+     placeholders
+     vides — jamais de valeur d'exemple qui finirait copiée telle quelle en
+     production.
+
+     JWT_EXPIRES=2h plutôt que le 15m de VigilArt : sans refresh token,
+     l'expiration est une
+     déconnexion sèche. 15 min est intenable pour un avocat qui monte un dossier
+     ; 2 h est le
+     compromis assumé jusqu'à ce que le refresh existe.
+
+     Validation au démarrage (ConfigModule.forRoot({ validate })) : JWT_SECRET
+     absent ou
+     trop court, AVOCAT_PASSWORD_HASH qui ne ressemble pas à un hash bcrypt →
+     l'application
+     refuse de démarrer, avec un message nommant la variable. Sans ça, la panne
+     se découvre au
+     premier login, en 500, en production. Se branche naturellement sur le
+     .catch(...) déjà
+     posé dans main.ts (exit 1, message explicite).
+
+     Fichiers
+
+     Nouveaux
+     backend/src/config/env.validation.ts        schéma d'env, échec au boot
+     backend/src/users/users.module.ts
+     backend/src/users/users.service.ts          findByEmail() — seul point à
+     réécrire avec la base
+     backend/src/users/user.types.ts             Avocat (avec hash) /
+     AvocatPublic (sans)
+     backend/src/auth/auth.module.ts             JwtModule.registerAsync +
+     ConfigService
+     backend/src/auth/auth.controller.ts         POST /auth/login, POST
+     /auth/logout, GET /auth/me
+     backend/src/auth/auth.service.ts
+     backend/src/auth/jwt.strategy.ts            extraction depuis le cookie
+     backend/src/auth/dto/login.dto.ts           class-validator
+     backend/src/auth/auth.types.ts              JwtPayload,
+     AuthenticatedRequest
+     backend/src/common/guards/jwt-auth.guard.ts
+     backend/src/common/utils/cookie.ts          getCookieOptions() /
+     clearAuthCookie()
+     backend/scripts/hash-password.ts            saisie masquée → hash bcrypt
+     sur stdout
+     backend/test/auth.e2e-spec.ts
+
+     Modifiés — app.module.ts (ConfigModule global + validate, ThrottlerModule,
+     AuthModule,
+     UsersModule) · main.ts (cookieParser(), ValidationPipe global avec
+     whitelist et
+     forbidNonWhitelisted) · package.json (deps + script hash:password) ·
+     pnpm-workspace.yaml (allowBuilds: bcrypt) · .env.example · CLAUDE.md.
+
+     Points de conception qui comptent
+
+     Énumération d'e-mails. VigilArt retourne immédiatement quand findByEmail
+     est vide, et
+     ne fait le bcrypt.compare que si l'utilisateur existe. La différence de
+     temps de réponse
+     (bcrypt à 12 rounds ≈ 100 ms) permet à un attaquant de distinguer « e-mail
+     inconnu » de
+     « mot de passe faux ». Correctif ici : comparer systématiquement contre un
+     hash factice
+     constant quand le compte n'existe pas, pour que les deux chemins coûtent le
+     même temps.
+     Même message (Identifiants invalides), même statut (401), même durée.
+
+     Rate limiting. Un portail public avec un seul compte est la cible de
+     bruteforce
+     idéale. @nestjs/throttler sur /auth/login uniquement (ex. 5 tentatives /
+     minute / IP).
+     Le proxy nginx renseigne déjà X-Forwarded-For — il faudra donc
+     app.set('trust proxy', 1),
+     sans quoi toutes les requêtes semblent venir de l'IP du conteneur nginx et
+     le quota est
+     partagé par tout le monde.
+
+     Le hash ne sort jamais. Types séparés Avocat / AvocatPublic plutôt qu'un
+     delete user.password : c'est le compilateur qui garantit qu'un hash ne peut
+     pas atterrir
+     dans une réponse, pas la vigilance. Aucun log ne contient e-mail + mot de
+     passe.
+
+     Cookie. httpOnly, sameSite: 'lax', secure si NODE_ENV=production, path: '/'
+     (pour qu'il parte aussi vers /api/...), maxAge aligné sur JWT_EXPIRES. Le
+     logout
+     efface avec exactement les mêmes options, sinon le navigateur ne fait pas
+     correspondre
+     le cookie et ne l'efface pas.
+
+     Le lint est bloquant (--max-warnings 0, recommendedTypeChecked).
+     passport-jwt et
+     son PassportStrategy déclenchent facilement no-unsafe-argument /
+     no-unsafe-call. Ces
+     warnings sont à traiter par un typage correct, pas par un élargissement de
+     l'ignore
+     (cf. CLAUDE.md). C'est le point le plus susceptible de coûter du temps.
+
+     Tests e2e (backend/test/auth.e2e-spec.ts)
+
+     Le beforeAll pose les variables d'env de test — hash calculé à l'exécution
+     par bcrypt
+     à partir d'un mot de passe constant local au fichier, et JWT_SECRET de test
+     généré par
+     randomBytes. Aucun secret sur disque, aucun .env.test (qui serait de toute
+     façon capté
+     par .env.* dans .gitignore).
+
+     ┌─────┬─────────────────────────────┬─────────────────────────────────────┐
+     │  #  │             Cas             │               Attendu               │
+     ├─────┼─────────────────────────────┼─────────────────────────────────────┤
+     │     │                             │ 200 · corps = { email, nom } ·      │
+     │ 1   │ Identifiants valides        │ Set-Cookie: auth_token avec         │
+     │     │                             │ HttpOnly, SameSite=Lax, Path=/      │
+     ├─────┼─────────────────────────────┼─────────────────────────────────────┤
+     │ 2   │ Le corps de réponse ne      │ assertion explicite sur le JSON     │
+     │     │ contient ni token ni hash   │ sérialisé                           │
+     ├─────┼─────────────────────────────┼─────────────────────────────────────┤
+     │ 3   │ Mot de passe faux           │ 401 · aucun Set-Cookie              │
+     ├─────┼─────────────────────────────┼─────────────────────────────────────┤
+     │ 4   │ E-mail inconnu              │ 401 · message identique au cas 3    │
+     ├─────┼─────────────────────────────┼─────────────────────────────────────┤
+     │     │ Corps invalide (e-mail      │                                     │
+     │ 5   │ malformé, mot de passe      │ 400 (ValidationPipe)                │
+     │     │ absent, champ en trop)      │                                     │
+     ├─────┼─────────────────────────────┼─────────────────────────────────────┤
+     │ 6   │ GET /auth/me sans cookie    │ 401                                 │
+     ├─────┼─────────────────────────────┼─────────────────────────────────────┤
+     │ 7   │ GET /auth/me avec le cookie │ 200 · profil, sans hash             │
+     │     │  du login                   │                                     │
+     ├─────┼─────────────────────────────┼─────────────────────────────────────┤
+     │ 8   │ GET /auth/me avec un JWT    │ 401                                 │
+     │     │ signé d'un autre secret     │                                     │
+     ├─────┼─────────────────────────────┼─────────────────────────────────────┤
+     │     │ GET /auth/me avec un JWT    │                                     │
+     │ 9   │ expiré (signé expiresIn:    │ 401                                 │
+     │     │ '-1s')                      │                                     │
+     ├─────┼─────────────────────────────┼─────────────────────────────────────┤
+     │ 10  │ POST /auth/logout           │ 204 · Set-Cookie d'expiration       │
+     │     │                             │ (Max-Age=0)                         │
+     ├─────┼─────────────────────────────┼─────────────────────────────────────┤
+     │ 11  │ 6ᵉ tentative de login en    │ 429 (throttler)                     │
+     │     │ une minute                  │                                     │
+     └─────┴─────────────────────────────┴─────────────────────────────────────┘
+
+     Les cas 4, 8, 9 et 11 sont ceux qui passeraient inaperçus dans un test «
+     heureux » : ils
+     vérifient qu'un rejet est bien un rejet, et pas un chemin d'erreur qui
+     laisse passer.
+
+     Vérification
+
+     pnpm -C backend lint          # bloquant : 0 warning
+     pnpm -C backend build
+     pnpm -C backend test          # unitaires
+     pnpm -C backend test:e2e      # la suite ci-dessus
+     docker compose up --build -d  # prouve que bcrypt (natif) se construit et 
+     survit au prune
+     curl -i -X POST localhost:8080/api/auth/login \
+       -H 'Content-Type: application/json' -d @/tmp/creds.json   # via le proxy,
+     avec le vrai .env
+     docker compose down
+
+     Le passage par docker compose n'est pas optionnel ici : bcrypt est le
+     premier module
+     natif du projet, et pnpm prune --prod entre les deux étages de l'image est
+     exactement le
+     genre d'endroit où un binaire compilé disparaît.
+
+     Livrables d'accompagnement
+
+     - ai-plans/2026-08-06-auth-jwt.md — plan suivi, décisions et
+     justifications, vérification,
+     limites (convention du dépôt).
+     - Code review du diff après implémentation, findings classés par gravité
+     avec un scénario
+     d'échec concret chacun.
+     - CLAUDE.md § Status : « No database, auth, routing, or CI » n'est plus
+     exact.
+
+     Limites connues, à écrire noir sur blanc
+
+     - Le logout est côté client seul. Effacer le cookie n'invalide pas le JWT :
+     un token
+     copié avant la déconnexion reste valable jusqu'à son expiration. Une
+     révocation réelle
+     demande une liste de tokens révoqués — donc une base. À dire dans le
+     README, pas à laisser
+     croire.
+     - Un seul compte, en env. Pas d'inscription, pas de réinitialisation de mot
+     de passe,
+     pas de multi-cabinet. Assumé tant que la base n'existe pas.
+     - Pas de refresh token : au bout de JWT_EXPIRES, l'avocat se reconnecte.
+     - Le compte de démo est un compte de démo : il ne doit pas survivre à une
+     mise en production
+     réelle.
+
+❯ Non il y auran                                                                
+
+● Ton message s
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ Non il n'y aura pas de base de données PostgreSQL, on aura juste des          
+  identifiants de démo pour le compte avocat.                                   
+
+● Le plan approuvé ne prévoyait déjà aucune base — pas de Prisma, pas de service
+  Postgres. Mais plusieurs formulations parlaient de « quand la base arrivera
+  », ce qui laisse un doute. Je les enlève pour que ce soit sans ambiguïté.
+
+  Read 1 file (ctrl+o to expand)
+
+● Updated plan
+  ⎿  /plan to preview
+
+● Updated plan
+  ⎿  /plan to preview
+
+● Updated plan
+  ⎿  /plan to preview
+
+● Updated plan
+  ⎿  /plan to preview
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ Module auth JWT — connexion avocat                                      │
+     │                                                                         │
+     │ Contexte                                                                │
+     │                                                                         │
+     │ Le portail a désormais un besoin métier défini (CLAUDE.md § Context) :  │
+     │ côté avocat, tout est                                                   │
+     │ authentifié — créer une demande de dépôt, générer un lien expirable à   │
+     │ PIN, consulter le                                                       │
+     │ dashboard. Côté client, tout est anonyme. Aucune de ces routes n'est    │
+     │ écrite, et rien ne                                                      │
+     │ peut l'être tant qu'il n'existe pas de moyen de savoir qui est l'avocat │
+     │ qui appelle l'API.                                                      │
+     │                                                                         │
+     │ Le backend est encore le template NestJS nu : AppModule n'importe rien, │
+     │ il n'y a ni                                                             │
+     │ ConfigModule, ni base de données, ni validation d'entrée.               │
+     │                                                                         │
+     │ Ce chantier livre la brique manquante : un module auth qui authentifie  │
+     │ l'avocat par                                                            │
+     │ e-mail + mot de passe et pose une session JWT, plus le JwtAuthGuard que │
+     │ toutes les futures                                                      │
+     │ routes avocat viendront décorer.                                        │
+     │                                                                         │
+     │ Référence adaptée : ~/delivery/eip/VigilArt/backend/src/auth/. Trois    │
+     │ écarts assumés,                                                         │
+     │ détaillés plus bas — pas de base de données, pas de client mobile, pas  │
+     │ de refresh token.                                                       │
+     │                                                                         │
+     │ Aucune base de données n'est introduite par ce chantier : ni            │
+     │ PostgreSQL, ni SQLite, ni                                               │
+     │ Prisma, ni service Docker supplémentaire. Le compte avocat est un       │
+     │ compte de démo unique                                                   │
+     │ lu depuis l'environnement. Tout ce qui suit est dimensionné pour cette  │
+     │ contrainte, pas                                                         │
+     │ transitoirement en attendant une base.                                  │
+     │                                                                         │
+     │ Arbitrages retenus (validés)                                            │
+     │                                                                         │
+     │ Sujet: Base de données                                                  │
+     │ Choix: Aucune                                                           │
+     │ Pourquoi: Confirmé explicitement. Le portail reste sans persistance à   │
+     │ ce stade.                                                               │
+     │ ────────────────────────────────────────                                │
+     │ Sujet: Source des identifiants                                          │
+     │ Choix: Compte de démo unique, seedé depuis l'env                        │
+     │ Pourquoi: Un UsersService.findByEmail() encapsule la lecture de l'env,  │
+     │ pour que                                                                │
+     │ les contrôleurs ne dépendent pas de comment le compte est stocké.       │
+     │ ────────────────────────────────────────                                │
+     │ Sujet: Mot de passe de démo                                             │
+     │ Choix: Hash bcrypt en .env (AVOCAT_PASSWORD_HASH)                       │
+     │ Pourquoi: Le clair n'existe nulle part sur disque. Produit par pnpm     │
+     │ hash:password, qui lit le mot de passe au clavier (jamais en argument — │
+     │                                                                         │
+     │ l'historique du shell le garderait).                                    │
+     │ ────────────────────────────────────────                                │
+     │ Sujet: Transport du token                                               │
+     │ Choix: Cookie httpOnly seul                                             │
+     │ Pourquoi: Front et API partagent une origine (proxy nginx :8080), donc  │
+     │ aucun                                                                   │
+     │ CORS à configurer et le token est hors de portée d'un XSS. Rien dans le │
+     │ corps                                                                   │
+     │  de réponse.                                                            │
+     │ ────────────────────────────────────────                                │
+     │ Sujet: Périmètre                                                        │
+     │ Choix: login + logout + me + JwtAuthGuard                               │
+     │ Pourquoi: Le guard est la vraie livraison : sans lui, le token ne       │
+     │ protège rien.                                                           │
+     │ me permet au SPA de rétablir sa session au rechargement.                │
+     │ ────────────────────────────────────────                                │
+     │ Sujet: Refresh token                                                    │
+     │ Choix: Écarté                                                           │
+     │ Pourquoi: VigilArt persiste les refresh tokens hachés en base pour      │
+     │ pouvoir les                                                             │
+     │ révoquer. Sans persistance, un refresh non révocable de 7 jours serait  │
+     │ plus                                                                    │
+     │ faible que le seul access token — il ajouterait de la surface d'attaque │
+     │ sans                                                                    │
+     │ rien sécuriser.                                                         │
+     │ ────────────────────────────────────────                                │
+     │ Sujet: Client mobile                                                    │
+     │ Choix: Écarté                                                           │
+     │ Pourquoi: VigilArt a une app mobile, pas ce portail. loginMobile /      │
+     │ JWT_MOBILE_REFRESH_EXPIRES ne sont pas repris.                          │
+     │                                                                         │
+     │ Dépendances à ajouter (backend/)                                        │
+     │                                                                         │
+     │ @nestjs/config, @nestjs/jwt, @nestjs/passport, passport, passport-jwt,  │
+     │ bcrypt,                                                                 │
+     │ cookie-parser, class-validator, class-transformer, @nestjs/throttler    │
+     │ — dev : @types/passport-jwt, @types/bcrypt, @types/cookie-parser.       │
+     │                                                                         │
+     │ ⚠️ bcrypt est un module natif. pnpm 11 rend les scripts de build opt-in │
+     │ : il faudra                                                             │
+     │ ajouter bcrypt à allowBuilds dans backend/pnpm-workspace.yaml (pnpm     │
+     │ approve-builds),                                                        │
+     │ sinon pnpm install --frozen-lockfile sort en 1 sur                      │
+     │ ERR_PNPM_IGNORED_BUILDS — y compris                                     │
+     │ dans le Dockerfile, qui COPY déjà ce fichier. À vérifier par un build   │
+     │ d'image, pas seulement                                                  │
+     │ en local. Repli si la compilation native pose problème en image         │
+     │ Alpine/slim : bcryptjs                                                  │
+     │ (pur JS, hashes $2b$ interchangeables).                                 │
+     │                                                                         │
+     │ Variables d'environnement                                               │
+     │                                                                         │
+     │ .env.example porte aujourd'hui les variables recopiées de VigilArt. À   │
+     │ réécrire :                                                              │
+     │                                                                         │
+     │ # Compte avocat de demo (le hash se genere avec : pnpm -C backend       │
+     │ hash:password)                                                          │
+     │ AVOCAT_EMAIL=                                                           │
+     │ AVOCAT_NOM=                                                             │
+     │ AVOCAT_PASSWORD_HASH=                                                   │
+     │                                                                         │
+     │ # JWT                                                                   │
+     │ JWT_SECRET=                                                             │
+     │ JWT_EXPIRES=2h                                                          │
+     │ SALT_ROUNDS=12                                                          │
+     │                                                                         │
+     │ Retirées : JWT_REFRESH_SECRET, JWT_REFRESH_EXPIRES,                     │
+     │ JWT_MOBILE_REFRESH_EXPIRES                                              │
+     │ (sans objet sans refresh token ni mobile). .env.example ne contient que │
+     │ des placeholders                                                        │
+     │ vides — jamais de valeur d'exemple qui finirait copiée telle quelle en  │
+     │ production.                                                             │
+     │                                                                         │
+     │ JWT_EXPIRES=2h plutôt que le 15m de VigilArt : sans refresh token,      │
+     │ l'expiration est une                                                    │
+     │ déconnexion sèche. 15 min est intenable pour un avocat qui monte un     │
+     │ dossier ; 2 h est le                                                    │
+     │ compromis assumé jusqu'à ce que le refresh existe.                      │
+     │                                                                         │
+     │ Validation au démarrage (ConfigModule.forRoot({ validate })) :          │
+     │ JWT_SECRET absent ou                                                    │
+     │ trop court, AVOCAT_PASSWORD_HASH qui ne ressemble pas à un hash bcrypt  │
+     │ → l'application                                                         │
+     │ refuse de démarrer, avec un message nommant la variable. Sans ça, la    │
+     │ panne se découvre au                                                    │
+     │ premier login, en 500, en production. Se branche naturellement sur le   │
+     │ .catch(...) déjà                                                        │
+     │ posé dans main.ts (exit 1, message explicite).                          │
+     │                                                                         │
+     │ Fichiers                                                                │
+     │                                                                         │
+     │ Nouveaux                                                                │
+     │ backend/src/config/env.validation.ts        schéma d'env, échec au boot │
+     │ backend/src/users/users.module.ts                                       │
+     │ backend/src/users/users.service.ts          findByEmail() — lit le      │
+     │ compte de démo depuis l'env                                             │
+     │ backend/src/users/user.types.ts             Avocat (avec hash) /        │
+     │ AvocatPublic (sans)                                                     │
+     │ backend/src/auth/auth.module.ts             JwtModule.registerAsync +   │
+     │ ConfigService                                                           │
+     │ backend/src/auth/auth.controller.ts         POST /auth/login, POST      │
+     │ /auth/logout, GET /auth/me                                              │
+     │ backend/src/auth/auth.service.ts                                        │
+     │ backend/src/auth/jwt.strategy.ts            extraction depuis le cookie │
+     │ backend/src/auth/dto/login.dto.ts           class-validator             │
+     │ backend/src/auth/auth.types.ts              JwtPayload,                 │
+     │ AuthenticatedRequest                                                    │
+     │ backend/src/common/guards/jwt-auth.guard.ts                             │
+     │ backend/src/common/utils/cookie.ts          getCookieOptions() /        │
+     │ clearAuthCookie()                                                       │
+     │ backend/scripts/hash-password.ts            saisie masquée → hash       │
+     │ bcrypt sur stdout                                                       │
+     │ backend/test/auth.e2e-spec.ts                                           │
+     │                                                                         │
+     │ Modifiés — app.module.ts (ConfigModule global + validate,               │
+     │ ThrottlerModule, AuthModule,                                            │
+     │ UsersModule) · main.ts (cookieParser(), ValidationPipe global avec      │
+     │ whitelist et                                                            │
+     │ forbidNonWhitelisted) · package.json (deps + script hash:password) ·    │
+     │ pnpm-workspace.yaml (allowBuilds: bcrypt) · .env.example · CLAUDE.md.   │
+     │                                                                         │
+     │ Points de conception qui comptent                                       │
+     │                                                                         │
+     │ Énumération d'e-mails. VigilArt retourne immédiatement quand            │
+     │ findByEmail est vide, et                                                │
+     │ ne fait le bcrypt.compare que si l'utilisateur existe. La différence de │
+     │ temps de réponse                                                        │
+     │ (bcrypt à 12 rounds ≈ 100 ms) permet à un attaquant de distinguer «     │
+     │ e-mail inconnu » de                                                     │
+     │ « mot de passe faux ». Correctif ici : comparer systématiquement contre │
+     │ un hash factice                                                         │
+     │ constant quand le compte n'existe pas, pour que les deux chemins        │
+     │ coûtent le même temps.                                                  │
+     │ Même message (Identifiants invalides), même statut (401), même durée.   │
+     │                                                                         │
+     │ Rate limiting. Un portail public avec un seul compte est la cible de    │
+     │ bruteforce                                                              │
+     │ idéale. @nestjs/throttler sur /auth/login uniquement (ex. 5 tentatives  │
+     │ / minute / IP).                                                         │
+     │ Le proxy nginx renseigne déjà X-Forwarded-For — il faudra donc          │
+     │ app.set('trust proxy', 1),                                              │
+     │ sans quoi toutes les requêtes semblent venir de l'IP du conteneur nginx │
+     │ et le quota est                                                         │
+     │ partagé par tout le monde.                                              │
+     │                                                                         │
+     │ Le hash ne sort jamais. Types séparés Avocat / AvocatPublic plutôt      │
+     │ qu'un                                                                   │
+     │ delete user.password : c'est le compilateur qui garantit qu'un hash ne  │
+     │ peut pas atterrir                                                       │
+     │ dans une réponse, pas la vigilance. Aucun log ne contient e-mail + mot  │
+     │ de passe.                                                               │
+     │                                                                         │
+     │ Cookie. httpOnly, sameSite: 'lax', secure si NODE_ENV=production, path: │
+     │ '/'                                                                     │
+     │ (pour qu'il parte aussi vers /api/...), maxAge aligné sur JWT_EXPIRES.  │
+     │ Le logout                                                               │
+     │ efface avec exactement les mêmes options, sinon le navigateur ne fait   │
+     │ pas correspondre                                                        │
+     │ le cookie et ne l'efface pas.                                           │
+     │                                                                         │
+     │ Le lint est bloquant (--max-warnings 0, recommendedTypeChecked).        │
+     │ passport-jwt et                                                         │
+     │ son PassportStrategy déclenchent facilement no-unsafe-argument /        │
+     │ no-unsafe-call. Ces                                                     │
+     │ warnings sont à traiter par un typage correct, pas par un élargissement │
+     │ de l'ignore                                                             │
+     │ (cf. CLAUDE.md). C'est le point le plus susceptible de coûter du temps. │
+     │                                                                         │
+     │ Tests e2e (backend/test/auth.e2e-spec.ts)                               │
+     │                                                                         │
+     │ Le beforeAll pose les variables d'env de test — hash calculé à          │
+     │ l'exécution par bcrypt                                                  │
+     │ à partir d'un mot de passe constant local au fichier, et JWT_SECRET de  │
+     │ test généré par                                                         │
+     │ randomBytes. Aucun secret sur disque, aucun .env.test (qui serait de    │
+     │ toute façon capté                                                       │
+     │ par .env.* dans .gitignore).                                            │
+     │                                                                         │
+     │ ┌─────┬─────────────────────────────┬────────────────────────────────── │
+     │ ───┐                                                                    │
+     │ │  #  │             Cas             │               Attendu             │
+     │   │                                                                     │
+     │ ├─────┼─────────────────────────────┼────────────────────────────────── │
+     │ ───┤                                                                    │
+     │ │     │                             │ 200 · corps = { email, nom } ·    │
+     │   │                                                                     │
+     │ │ 1   │ Identifiants valides        │ Set-Cookie: auth_token avec       │
+     │   │                                                                     │
+     │ │     │                             │ HttpOnly, SameSite=Lax, Path=/    │
+     │   │                                                                     │
+     │ ├─────┼─────────────────────────────┼────────────────────────────────── │
+     │ ───┤                                                                    │
+     │ │ 2   │ Le corps de réponse ne      │ assertion explicite sur le JSON   │
+     │   │                                                                     │
+     │ │     │ contient ni token ni hash   │ sérialisé                         │
+     │   │                                                                     │
+     │ ├─────┼─────────────────────────────┼────────────────────────────────── │
+     │ ───┤                                                                    │
+     │ │ 3   │ Mot de passe faux           │ 401 · aucun Set-Cookie            │
+     │   │                                                                     │
+     │ ├─────┼─────────────────────────────┼────────────────────────────────── │
+     │ ───┤                                                                    │
+     │ │ 4   │ E-mail inconnu              │ 401 · message identique au cas 3  │
+     │   │                                                                     │
+     │ ├─────┼─────────────────────────────┼────────────────────────────────── │
+     │ ───┤                                                                    │
+     │ │     │ Corps invalide (e-mail      │                                   │
+     │   │                                                                     │
+     │ │ 5   │ malformé, mot de passe      │ 400 (ValidationPipe)              │
+     │   │                                                                     │
+     │ │     │ absent, champ en trop)      │                                   │
+     │   │                                                                     │
+     │ ├─────┼─────────────────────────────┼────────────────────────────────── │
+     │ ───┤                                                                    │
+     │ │ 6   │ GET /auth/me sans cookie    │ 401                               │
+     │   │                                                                     │
+     │ ├─────┼─────────────────────────────┼────────────────────────────────── │
+     │ ───┤                                                                    │
+     │ │ 7   │ GET /auth/me avec le cookie │ 200 · profil, sans hash           │
+     │   │                                                                     │
+     │ │     │  du login                   │                                   │
+     │   │                                                                     │
+     │ ├─────┼─────────────────────────────┼────────────────────────────────── │
+     │ ───┤                                                                    │
+     │ │ 8   │ GET /auth/me avec un JWT    │ 401                               │
+     │   │                                                                     │
+     │ │     │ signé d'un autre secret     │                                   │
+     │   │                                                                     │
+     │ ├─────┼─────────────────────────────┼────────────────────────────────── │
+     │ ───┤                                                                    │
+     │ │     │ GET /auth/me avec un JWT    │                                   │
+     │   │                                                                     │
+     │ │ 9   │ expiré (signé expiresIn:    │ 401                               │
+     │   │                                                                     │
+     │ │     │ '-1s')                      │                                   │
+     │   │                                                                     │
+     │ ├─────┼─────────────────────────────┼────────────────────────────────── │
+     │ ───┤                                                                    │
+     │ │ 10  │ POST /auth/logout           │ 204 · Set-Cookie d'expiration     │
+     │   │                                                                     │
+     │ │     │                             │ (Max-Age=0)                       │
+     │   │                                                                     │
+     │ ├─────┼─────────────────────────────┼────────────────────────────────── │
+     │ ───┤                                                                    │
+     │ │ 11  │ 6ᵉ tentative de login en    │ 429 (throttler)                   │
+     │   │                                                                     │
+     │ │     │ une minute                  │                                   │
+     │   │                                                                     │
+     │ └─────┴─────────────────────────────┴────────────────────────────────── │
+     │ ───┘                                                                    │
+     │                                                                         │
+     │ Les cas 4, 8, 9 et 11 sont ceux qui passeraient inaperçus dans un test  │
+     │ « heureux » : ils                                                       │
+     │ vérifient qu'un rejet est bien un rejet, et pas un chemin d'erreur qui  │
+     │ laisse passer.                                                          │
+     │                                                                         │
+     │ Vérification                                                            │
+     │                                                                         │
+     │ pnpm -C backend lint          # bloquant : 0 warning                    │
+     │ pnpm -C backend build                                                   │
+     │ pnpm -C backend test          # unitaires                               │
+     │ pnpm -C backend test:e2e      # la suite ci-dessus                      │
+     │ docker compose up --build -d  # prouve que bcrypt (natif) se construit  │
+     │ et survit au prune                                                      │
+     │ curl -i -X POST localhost:8080/api/auth/login \                         │
+     │   -H 'Content-Type: application/json' -d @/tmp/creds.json   # via le    │
+     │ proxy, avec le vrai .env                                                │
+     │ docker compose down                                                     │
+     │                                                                         │
+     │ Le passage par docker compose n'est pas optionnel ici : bcrypt est le   │
+     │ premier module                                                          │
+     │ natif du projet, et pnpm prune --prod entre les deux étages de l'image  │
+     │ est exactement le                                                       │
+     │ genre d'endroit où un binaire compilé disparaît.                        │
+     │                                                                         │
+     │ Livrables d'accompagnement                                              │
+     │                                                                         │
+     │ - ai-plans/2026-08-06-auth-jwt.md — plan suivi, décisions et            │
+     │ justifications, vérification,                                           │
+     │ limites (convention du dépôt).                                          │
+     │ - Code review du diff après implémentation, findings classés par        │
+     │ gravité avec un scénario                                                │
+     │ d'échec concret chacun.                                                 │
+     │ - CLAUDE.md § Status : « No database, auth, routing, or CI » n'est plus │
+     │ exact.                                                                  │
+     │                                                                         │
+     │ Limites connues, à écrire noir sur blanc                                │
+     │                                                                         │
+     │ Ce sont des conséquences directes de l'absence de persistance, pas des  │
+     │ oublis. Elles vont                                                      │
+     │ dans le README, à la section « limites connues » du livrable.           │
+     │                                                                         │
+     │ - Le logout est côté client seul. Effacer le cookie n'invalide pas le   │
+     │ JWT : un token                                                          │
+     │ copié avant la déconnexion reste valable jusqu'à son expiration. Une    │
+     │ révocation réelle                                                       │
+     │ demande une liste de tokens révoqués, donc un stockage. JWT_EXPIRES=2h  │
+     │ borne la fenêtre.                                                       │
+     │ - Un seul compte, en env. Pas d'inscription, pas de réinitialisation de │
+     │ mot de passe,                                                           │
+     │ pas de multi-cabinet. Changer le mot de passe = régénérer un hash et    │
+     │ redémarrer l'API.                                                       │
+     │ - Pas de refresh token : au bout de JWT_EXPIRES, l'avocat se            │
+     │ reconnecte.                                                             │
+     │ - Aucune trace des connexions. Pas d'historique des tentatives, pas de  │
+     │ verrouillage de                                                         │
+     │ compte après N échecs — le throttler limite le débit par IP, rien de    │
+     │ plus.                                                                   │
+     │ - Le compte de démo est un compte de démo : il ne doit pas survivre à   │
+     │ une mise en production                                                  │
+     │ réelle.                                                                 │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+✻ Brewed for 28m 4s

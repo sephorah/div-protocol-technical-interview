@@ -1,0 +1,2954 @@
+ ▐▛███▜▌   Claude Code v2.1.226
+▝▜█████▛▘  Opus 5 · Claude Pro
+  ▘▘ ▝▝    ~/delivery/div-protocol-internship/exo2-portail-depot
+
+
+❯ /clear                                                                        
+
+❯ Avec playwright tu peux tester dans la navigateur le workflow complet de      
+  l'app non?                                                                    
+
+● Je réponds d'abord à la question, puis je regarde l'état réel du dépôt avant
+  de proposer quoi que ce soit.
+
+  Note : je n'utilise pas de sous-agents (ta consigne globale), j'explore
+  directement.
+
+  Listed 1 directory, ran 2 shell commands (ctrl+o to expand)
+
+● La stack tourne déjà sur 127.0.0.1:21600. Je regarde les routes et le backlog.
+
+  Searched for 2 patterns, read 1 file (ctrl+o to expand)
+
+● Il existe déjà une issue ouverte sur le sujet. Je la lis.
+
+  Read 1 file (ctrl+o to expand)
+
+● Je vérifie deux choses avant de proposer : ce que l'écran de création affiche
+  (le lien et le PIN ne s'affichent qu'une fois), et de quoi Playwright dispose
+  sur la machine.
+
+  Searched for 1 pattern, read 1 file, listed 1 directory, ran 2 shell commands (ctrl+o to expand)
+
+● Le portail répond, Chromium est déjà dans le cache Playwright, et
+  PUBLIC_BASE_URL=http://127.0.0.1:21600 — le lien client généré est donc
+  directement ouvrable par un navigateur. Dernière vérification : comment le
+  dépôt de fichier est branché.
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● Réponse courte : oui. Chromium est installé, la pile tourne derrière nginx sur
+  127.0.0.1:21600, et le lien client généré pointe sur cette même origine —
+  donc un navigateur piloté peut jouer le parcours entier : login avocat →
+  création → lecture du lien et du PIN à l'écran → ouverture anonyme → PIN →
+  dépôt d'un vrai fichier → retour au tableau de bord → téléchargement.
+
+  C'est même exactement le manque que ton backlog nomme deux fois : D5 laisse
+  ouverte la décision « Vitest navigateur ou bout-en-bout piloté par navigateur
+  », et la ligne E2 + passe navigateur dit que 512 tests verts ne disent rien du
+  rendu. Playwright ferme les deux, parce qu'un vrai Chromium calcule les
+  styles que jsdom ignore.
+
+  Deux choses distinctes sont possibles, et le choix change le travail :
+
+● User answered Claude's questions:
+  ⎿  · Qu'est-ce que tu veux au bout : du code de test versionné, ou une 
+     vérification jouée maintenant ? → Passe navigateur maintenant
+     · Jusqu'où va la suite ? → Parcours + rendu (recommandé)
+
+● Compris : passe navigateur maintenant, parcours et rendu. Je récupère les
+  valeurs de charte à vérifier et ce que E2 attend précisément.
+
+  Searched for 1 pattern, listed 1 directory, ran 1 shell command (ctrl+o to expand)
+
+● Un point déjà notable : il existe deux en-têtes CSP différents, dans deux
+  fichiers. Je regarde à quel niveau chacun est déclaré, parce que la règle
+  d'héritage add_header de nginx décide lequel s'applique.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● J'ai tout ce qu'il me faut. J'écris le plan.
+
+● Updated plan
+  ⎿  /plan to preview
+
+● Plan écrit. Deux points que j'y ai signalés parce qu'ils ne se rattrapent pas
+  après coup : le mot de passe du seed apparaîtra une fois dans la transcription
+  (à caviarder pour H3, ou à changer après), et les défauts trouvés seront
+  rapportés sans être corrigés dans la foulée.
+
+  Une trouvaille de l'exploration, avant même d'ouvrir le navigateur : il y a
+  bien deux CSP différentes, mais c'est intentionnel et documenté — la large
+  (unsafe-inline, unsafe-eval) est confinée à location /grafana/, le portail
+  garde la stricte. Ce qui reste à voir au navigateur, c'est si img-src 'self' 
+  data: sans blob: gêne un aperçu ou un téléchargement.
+● User approved Claude's plan
+  ⎿  Plan saved to: ~/.claude/plans/avec-playwright-tu-peux-wise-dove.md · /plan
+     to edit
+     Passe navigateur pilotée par Playwright — parcours complet et rendu
+
+     Contexte
+
+     Le backlog nomme deux fois le même trou. La ligne « Ce qui reste » dit que
+     512 tests verts ne
+     disent rien du rendu : jsdom n'calcule aucun style, donc trois défauts de
+     charte sont déjà passés
+     sous une suite verte (titre de carte à 18 px au lieu de 11, fond de carte
+     et fond de champ pris à
+     Chakra). Et D5 laisse la décision ouverte entre « Vitest en mode navigateur
+     » et « un test de
+     bout en bout piloté par navigateur, qui couvrirait aussi le parcours à
+     travers nginx — aujourd'hui
+     la seule chose qu'aucun étage de tests ne traverse ».
+
+     Un vrai Chromium ferme les deux : il calcule les styles, et il passe par le
+     proxy.
+
+     Périmètre retenu : une passe jouée maintenant, via les outils MCP
+     Playwright, sur la pile qui
+     tourne déjà. Aucune suite versionnée — la vérification ne sera pas
+     rejouable, c'est le coût
+     assumé du choix. Le résultat attendu est un compte rendu de défauts avec
+     preuves (captures, valeurs
+     mesurées), pas du code de test.
+
+     Ce qui rend la manœuvre possible sans rien préparer : la pile est en marche
+     (exo2-portail-depot-proxy-1, 127.0.0.1:21600, / répond 200), Chromium est
+     déjà dans le cache
+     (~/.cache/ms-playwright/chromium-1228), DOMAIN est vide donc on est en
+     clair sur 21600, et
+     PUBLIC_BASE_URL=http://127.0.0.1:21600 — le lien client généré est donc 
+     directement ouvrable par
+     le navigateur piloté. Sans ça, il aurait fallu réécrire l'URL à la main.
+
+     Deux points à trancher avant de lancer
+
+     1. Le mot de passe de démonstration passera dans la transcription.
+     SEED_LAWYER_PASSWORD vit
+     dans .env ; pour taper dans le champ, l'outil doit recevoir la valeur en
+     clair, donc elle apparaît
+     une fois dans un appel d'outil. C'est un compte de démonstration sur une
+     pile locale, mais H3
+     demande précisément un caviardage ligne à ligne des sessions exportées :
+     cette ligne est à
+     masquer, ou le mot de passe du seed est à changer après la passe. Rien
+     d'autre n'est exposé — le PIN
+     et le jeton sont créés pendant la passe et sont jetables.
+
+     2. Les défauts trouvés sont rapportés, pas corrigés. La passe produit une
+     liste ; corriger est
+     une décision séparée. Sinon on mélange la mesure et la réparation, et on
+     perd la trace de ce qui
+     était cassé.
+
+     Préparation — fixtures dans le scratchpad
+
+     Trois fichiers, écrits dans le répertoire de travail temporaire, jamais
+     dans le dépôt :
+
+     ┌──────────────────┬─────────────────────────┬────────────────────────────┐
+     │     Fichier      │         Contenu         │      Ce qu'il prouve       │
+     ├──────────────────┼─────────────────────────┼────────────────────────────┤
+     │                  │ Un vrai PDF minimal     │ Le chemin nominal, et le   │
+     │ piece-valide.pdf │ (en-tête %PDF-1.4, un   │ téléchargement octet pour  │
+     │                  │ objet, %%EOF)           │ octet                      │
+     ├──────────────────┼─────────────────────────┼────────────────────────────┤
+     │                  │ Un exécutable ELF       │ Le refus 415 sur les magic │
+     │ faux.pdf         │ (\x7fELF…) nommé .pdf   │  bytes, pas sur            │
+     │                  │                         │ l'extension                │
+     ├──────────────────┼─────────────────────────┼────────────────────────────┤
+     │ trop-gros.pdf    │ 21 Mio de zéros         │ Le refus 413, plafond de   │
+     │                  │ derrière un en-tête PDF │ 20 Mio de C2               │
+     └──────────────────┴─────────────────────────┴────────────────────────────┘
+
+     La passe, écran par écran
+
+     Pilotée avec browser_navigate, browser_snapshot, browser_click,
+     browser_type,
+     browser_file_upload, browser_evaluate (styles calculés), browser_resize,
+     browser_console_messages, browser_network_requests,
+     browser_take_screenshot.
+
+     1. Ouverture et connexion — 1440 × 900
+
+     - http://127.0.0.1:21600/ → doit rediriger /dashboard puis /login (visiteur
+     anonyme).
+     - Rendu de l'écran de connexion, par getComputedStyle — c'est ici que les
+     trois défauts déjà
+     connus se seraient vus :
+       - taille effective du titre de carte (la charte dit 11 px ; Chakra avait
+     imposé 18) ;
+       - fond de carte et fond de champ (pris à la charte, pas au variant
+     outline de Chakra) ;
+       - l'inversion au survol du bouton primaire, le seul critère de D5 encore
+     vérifié à la main :
+     mesurer la boîte avant survol, browser_hover, remesurer. Attendu #F7F6FF
+     (colors.accentSurface dans theme/tokens.ts), texte violet, contour
+     intérieur
+     (boxShadow: inset, jamais un border), même gabarit 153 × 40 à la même 
+     position — le
+     décalage d'un pixel est exactement ce qu'un border au survol provoquerait.
+     - Connexion avec avocat@example.com et le mot de passe du seed.
+
+     2. Création d'une demande
+
+     /requests/new. Intitulé horodaté (Passe navigateur <ISO>) : la passe crée
+     ses propres
+     données et ne touche pas au jeu de démonstration — contrairement aux suites
+     e2e du backend, qui
+     tronquent la base. Trois pièces, 14 jours. Vérifier au passage que la date
+     d'expiration recalculée
+     sous le champ suit la saisie.
+
+     Après soumission, lire dans IssuedLinkCard l'URL client et le PIN — ils ne
+     s'affichent qu'une
+     fois, c'est toute la contrainte du parcours.
+
+     3. Parcours client — l'écran qui compte
+
+     Nouvel onglet sur l'URL lue.
+
+     - Assertion la plus importante, et elle est négative :
+     browser_network_requests ne doit
+     montrer ni /auth/me ni /auth/refresh depuis cette page. C'est la régression
+     que le backlog
+     décrit (le navigateur d'un visiteur anonyme déclenchait deux appels qui ne
+     le concernent pas), et
+     aucune suite ne la voit. Réserve à dire tout de suite : le navigateur
+     piloté partage son profil
+     entre onglets, donc le cookie avocat est encore là — cette passe prouve que
+     la page n'appelle
+     pas, pas qu'elle fonctionne sans cookie. Le second point est déjà couvert
+     par
+     deposit.e2e-spec.ts.
+     - Mauvais PIN d'abord : le refus doit être indistinguable (même texte pour
+     jeton inconnu,
+     révoqué, expiré, PIN faux — c'est la règle de C1).
+     - Bon PIN, puis dépôt de piece-valide.pdf : barre de progression, puis
+     pièce marquée reçue.
+     - faux.pdf → 415, message cité depuis le serveur, et la pièce reste non 
+     reçue.
+     - trop-gros.pdf → 413, même exigence.
+     - Progression du client : « 1 sur 3 » doit bouger, et seulement pour le
+     dépôt accepté.
+
+     4. Retour côté avocat
+
+     Tableau de bord : la demande apparaît avec son statut dérivé et l'état de
+     son lien. Écran de détail :
+     la pièce déposée est reçue, les deux autres non. Télécharger la pièce et
+     comparer les octets avec
+     piece-valide.pdf (sha256sum) — le téléchargement traverse nginx, ce
+     qu'aucune suite ne fait.
+
+     5. Mobile — 390 × 844, E2
+
+     E2 demande deux choses : « mêmes espacements et même densité aux deux
+     tailles » et « parcours client
+     vérifié sur mobile, c'est le contexte d'usage réel ». Donc : rejouer le 
+     parcours client entier à
+     cette largeur, et repasser sur chaque écran avocat.
+
+     Ce qui se mesure plutôt que s'apprécie : absence de débordement horizontal
+     (documentElement.scrollWidth <= clientWidth) sur chaque écran, cibles
+     tactiles ≥ 44 px de haut sur
+     les boutons et le champ PIN, et les gap effectifs des piles comparés entre
+     les deux largeurs.
+     Le reste — la densité — se juge sur captures, aux deux tailles, écran par
+     écran.
+
+     6. Console et journaux
+
+     - browser_console_messages après chaque écran : zéro violation CSP, zéro 
+     erreur. Le portail
+     reçoit la politique stricte de infra/nginx/server-hardening.conf
+     (default-src 'self', donc pas
+     de script en ligne ; img-src 'self' data: sans blob:). La politique large
+     avec
+     unsafe-inline/unsafe-eval est délibérément réservée à /grafana/. Deux
+     candidats à surveiller
+     parce qu'ils ne se voient que là : un aperçu ou un téléchargement construit
+     sur une URL blob:, et
+     une police qui ne serait pas servie depuis l'origine — font-src n'est pas
+     déclaré et retombe donc
+     sur default-src 'self'.
+     - Après la passe, reconfirmer que le jeton n'apparaît nulle part dans les
+     journaux du proxy et
+     du frontend (docker logs … | grep). La passe vient de générer du trafic
+     neuf sur un jeton neuf,
+     et l'assertion utile est négative — chercher [redacted] passerait alors que
+     le jeton en clair est
+     sur la ligne d'à côté.
+
+     Preuves produites
+
+     Captures dans le scratchpad, nommées <ecran>-<largeur>.png, aux deux
+     largeurs, plus les valeurs de
+     styles calculés relevées (avant/après survol notamment). Le compte rendu
+     cite des chiffres mesurés,
+     pas des adjectifs.
+
+     Restitution
+
+     1. Compte rendu dans la réponse : défauts classés par gravité, chacun avec
+     le scénario d'échec
+     concret et la valeur mesurée contre la valeur attendue.
+     2. ai-plans/2026-08-10-passe-navigateur-playwright.md — la convention du
+     dépôt : plan suivi,
+     ce qui a été vérifié, ce que la passe a trouvé.
+     3. issue_backlog.md : cocher les deux critères d'E2 s'ils tiennent, et
+     consigner sous D5
+     le résultat de l'inversion au survol — la seule case que la vérification à
+     la main portait
+     jusqu'ici. Ne rien cocher qui n'a pas été mesuré ; ce que la passe ne peut
+     pas voir est nommé
+     comme non couvert.
+
+     Ce que cette passe ne couvre pas, et il faut le dire
+
+     - Elle n'est pas rejouable. C'est le choix du périmètre. La prochaine
+     régression de charte
+     repassera sous la suite verte exactement comme les trois précédentes. D5
+     reste donc ouverte sur
+     son volet « décider du moyen » ; seule la mesure du survol se ferme.
+     - Un seul navigateur — Chromium. Rien n'est dit de Firefox ni de WebKit.
+     - HTTPS n'est pas traversé : DOMAIN est vide sur cette machine, la pile
+     répond en clair sur
+       aext. Le bloc TLS et sa redirection depuis le port 80 ne sont pas
+     exercés.
+
+● Plan approuvé. J'enchaîne sur superpowers:executing-plans, comme le veut ta
+  consigne globale.
+
+● Skill(superpowers:executing-plans)
+  ⎿  Successfully loaded skill
+
+● Je suis la skill executing-plans. Une réserve d'entrée, avant de démarrer : la
+  skill demande un worktree isolé, je reste sur main — cette passe n'écrit
+  aucun code source, seulement des fixtures jetables dans le scratchpad puis
+  deux documents (ai-plans/, issue_backlog.md). Un worktree n'isolerait rien
+  ici, la pile Docker étant partagée de toute façon.
+
+  Je crée la liste de tâches et je commence par les fixtures.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Fixtures créées : %PDF et \x7fELF confirmés, le gros fichier fait 22 020 105
+  octets (plafond à 20 Mio = 20 971 520). J'ouvre le navigateur.
+
+  Called plugin:playwright:playwright 2 times (ctrl+o to expand)
+
+● Redirection vers /login correcte, mais deux erreurs console dès le chargement.
+  Je regarde.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Ces deux 401 sont le démarrage de session normal de l'espace avocat (/auth/me
+  puis /auth/refresh), pas une violation CSP. Ce sera l'assertion clé côté
+  client : la page de dépôt ne doit pas les produire.
+
+  Je mesure le rendu de l'écran de connexion.
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Le bouton fait déjà 153 × 40, le gabarit attendu. Je relève les styles
+  calculés.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ en fait, pour les tests playwright, base toi aussi sur ce fichier             
+  docs/tests-manuels.md                                                         
+
+  Listed 1 directory (ctrl+o to expand)
+
+● Le fichier vient d'être créé (17:32). Je le lis.
+
+  Read 1 file (ctrl+o to expand)
+
+● Ce fichier change deux choses dans ma passe, et j'en note une troisième tout
+  de suite.
+
+  D'abord le point dur : le document interdit explicitement ce que j'allais
+  faire — ouvrir le lien client dans un autre onglet de la même fenêtre, « piège
+  qui invalide la moitié des cases ». Ensuite il fixe le mobile à 375 px, pas
+  390. Et surtout il annonce le violet #7B2CFF, alors que je viens de mesurer
+  rgb(81, 0, 255) = #5100FF sur le bouton. Je vérifie qui a raison.
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● Deux écarts de documentation avant même de reprendre le navigateur. Je regarde
+  le kit UI, qui est la référence de la charte.
+
+  Read 1 file (ctrl+o to expand)
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ reprends                                                                      
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Réglé, et sans ambiguïté : le bouton du kit UI est srgb(81,0,255) = #5100FF,
+  exactement ce que le thème déclare et ce que le navigateur rend. C'est donc
+  docs/tests-manuels.md qui se trompe en annonçant #7B2CFF, à deux endroits
+  (lignes 44 et 148). Premier défaut confirmé.
+
+  Je reprends la mesure du survol.
+
+  Called plugin:playwright:playwright 3 times (ctrl+o to expand)
+
+● Inversion confirmée et mesurée, c'est le critère D5 qui restait à la main :
+
+  ┌────────────────┬───────────────────────────┬────────────────────────────┐
+  │                │           avant           │       pendant survol       │
+  ├────────────────┼───────────────────────────┼────────────────────────────┤
+  │ fond           │ #5100FF                   │ #F7F6FF                    │
+  ├────────────────┼───────────────────────────┼────────────────────────────┤
+  │ texte          │ #FFFFFF                   │ #5100FF                    │
+  ├────────────────┼───────────────────────────┼────────────────────────────┤
+  │ contour        │ none                      │ #5100FF 0 0 0 1px          │
+  │                │                           │ **inset**                  │
+  ├────────────────┼───────────────────────────┼────────────────────────────┤
+  │ boîte          │ 643.69, 565.14 —          │ identique                  │
+  │                │ 152.63×40                 │                            │
+  ├────────────────┼───────────────────────────┼────────────────────────────┤
+  │ rect du        │ 668.69, 575.14 —          │ identique                  │
+  │ libellé        │ 102.63×20                 │                            │
+  └────────────────┴───────────────────────────┴────────────────────────────┘
+
+  Le libellé ne bouge pas d'un centième de pixel : l'anneau est bien un inset,
+  aucune bordure. Maintenant l'origine des requêtes (A3).
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Six requêtes, toutes sur 127.0.0.1:21600 — Inter est servi depuis /assets/,
+  aucun appel hors origine. A3 tient.
+
+  Je passe à la connexion. C'est ici que le mot de passe du seed entre dans la
+  transcription, comme le plan l'a signalé.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● browser_run_code_unsafe me donne accès à page, donc à
+  page.context().browser().newContext() : je pourrai créer un vrai contexte 
+  séparé pour le parcours client, ce qui respecte l'exigence du document au lieu
+  de la contourner en vidant les cookies.
+
+  Connexion :
+
+  Called plugin:playwright:playwright 3 times (ctrl+o to expand)
+
+● Arrivée sur /dashboard. Je relève les attributs des cookies de session (A4).
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+● portail_auth : HttpOnly ✓, pas de Secure ✓ (correct en HTTP local), expiration
+  à 15 min ✓. Mais SameSite=Strict, pas Lax comme l'annonce le document. Je
+  vérifie aussi le cookie de rafraîchissement, qui est porté sur un autre
+  chemin.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Les deux cookies sont conformes à la conception : portail_refresh est bien
+  confiné à /api/v1/auth (7 jours), portail_auth à / (15 min), tous deux
+  HttpOnly. Seul l'attribut SameSite diffère du document.
+
+  Je capture le tableau de bord puis je crée la demande.
+
+  Called plugin:playwright:playwright 3 times (ctrl+o to expand)
+
+● La date recalculée est juste : 10 août + 14 jours = 24 août 2026. Je remplis
+  le formulaire.
+
+  Called plugin:playwright:playwright 7 times (ctrl+o to expand)
+
+● Demande créée : lien …/deposit/XmyPlDz…, PIN 0159, id a9726db9…, expiration au
+  24 août. (Ces valeurs sont jetables et créées pour la passe.) Je capture,
+  puis je vérifie que le PIN disparaît au rechargement.
+
+  Called plugin:playwright:playwright 3 times (ctrl+o to expand)
+
+● Confirmé : après rechargement, ni le PIN ni le jeton n'apparaissent — le lien
+  ne s'affiche bien qu'une fois. Je regarde l'écran de détail.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Écran de détail conforme : « En attente », « Lien actif », « 3 pieces », les
+  trois en attente.
+
+  Maintenant le parcours client. Le document est catégorique : fenêtre privée 
+  obligatoire. Je crée un contexte navigateur séparé — sans aucun cookie de
+  l'avocat — et j'enregistre toutes ses requêtes réseau.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Contexte réellement vierge : zéro cookie, zéro appel à /auth/, zéro erreur
+  console. C'est précisément la régression que le backlog décrit, et elle ne se
+  reproduit pas. J'essaie un mauvais PIN.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● globalThis ne survit pas entre deux appels — chaque exécution est isolée. Je
+  dois donc jouer le parcours client d'un seul tenant. Je commence par relever
+  la structure de l'écran.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Le refus est bien le message indistinguable exigé par C1 : « Ce lien n'est pas
+  accessible. Il a peut-être expiré ou été révoqué, ou le code saisi n'est pas
+  le bon. » Aucun oracle. Je joue maintenant le dépôt complet.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Déverrouillage OK, trois pièces listées, « 0 sur 3 ». Je joue les trois dépôts
+  : le valide, l'exécutable déguisé, puis le fichier trop gros.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Les trois comportements sont exacts :
+
+  ┌──────────────┬──────┬─────────────────────────────────────┬─────────────┐
+  │    dépôt     │ HTTP │            écran client             │  compteur   │
+  ├──────────────┼──────┼─────────────────────────────────────┼─────────────┤
+  │ PDF valide   │ 201  │ ✓ piece-valide.pdf · PDF · 193 o    │ 1 sur 3     │
+  ├──────────────┼──────┼─────────────────────────────────────┼─────────────┤
+  │ ELF renommé  │ 415  │ ⚠ « Format refusé. PDF, JPG ou PNG  │ reste 1 sur │
+  │ .pdf         │      │ uniquement. »                       │  3          │
+  ├──────────────┼──────┼─────────────────────────────────────┼─────────────┤
+  │ 21 Mio       │ 413  │ ⚠ « Fichier trop volumineux (20 Mo  │ reste 1 sur │
+  │              │      │ maximum). »                         │  3          │
+  └──────────────┴──────┴─────────────────────────────────────┴─────────────┘
+
+  Le refus par magic bytes fonctionne, et une pièce refusée n'est pas comptée
+  reçue. Je crée un PDF plus lourd pour observer réellement la barre de
+  progression, puis je complète à 3/3.
+
+  Called plugin:playwright:playwright, ran 1 shell command (ctrl+o to expand)
+
+● 3 sur 3 atteint, avec le message de fin « Toutes les pièces ont été déposées.
+  Vous pouvez fermer cette page. »
+
+  En revanche je n'ai capté aucun pourcentage en 40 échantillons : sur boucle
+  locale, 8 Mo partent plus vite que le premier relevé. La barre de progression
+  est une case explicite du document, donc je la vérifie pour de bon en bridant
+  le réseau via CDP.
+  Searched for 1 pattern, called plugin:playwright:playwright (ctrl+o to expand)
+
+● La boucle s'est arrêtée trop tôt (la demande était déjà à 3/3). Mais une barre
+  était bien présente à 400 ms avec la mention « envoi ». Je relis proprement,
+  en lisant aria-valuenow plutôt qu'un pourcentage textuel.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● La barre est réelle et monotone : aria-valuenow 1 → 3 → 30 → 32 → 56 → 58 sur
+  30 s à 150 kio/s. C'est une progression d'octets, pas une animation
+  décorative.
+
+  Un écart au kit, en revanche : le kit affiche « 62 % » en texte à côté de la
+  barre, l'application n'affiche aucun pourcentage lisible — la valeur n'existe
+  que dans aria-valuenow. J'ai aussi interrompu ce dernier envoi à 58 %, donc je
+  vérifie l'état réel côté avocat.
+
+  Called plugin:playwright:playwright 2 times (ctrl+o to expand)
+
+● Le tableau de bord affiche ma demande « Complete », « 3 pieces sur 3 », lien 
+  actif — la case A9 est satisfaite. À noter au passage : l'envoi interrompu à
+  58 % n'a rien abîmé, la pièce a conservé son fichier précédent.
+
+  Je passe au détail et au téléchargement.
+
+  Called plugin:playwright:playwright 2 times (ctrl+o to expand)
+
+● Deux choses ici. La première est un manque : les trois pièces affichent ✓ et
+  leur nom, mais aucune action de téléchargement n'apparaît. Je vérifie avant
+  d'affirmer.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Confirmé : aucun bouton, aucun lien, aucune mention de téléchargement sur
+  l'écran de détail. Les seuls boutons de la page sont « Se déconnecter », «
+  Régénérer le lien », « Révoquer l'accès ».
+
+  Or la route existe côté API (B4b). Je le vérifie en appelant depuis le
+  navigateur, et je compare l'empreinte du fichier rendu à celle du fichier
+  déposé.
+
+  Called plugin:playwright:playwright 3 times (ctrl+o to expand)
+
+● Le fichier revient octet pour octet identique (SHA-256 concordant), avec
+  Content-Type: application/pdf et un Content-Disposition en RFC 5987. Donc
+  l'API fait son travail — c'est bien l'écran avocat qui n'offre aucun moyen de
+  l'appeler.
+
+  Je vérifie les deux refus anonymes en ligne de commande.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Les quatre refus attendus sont conformes : 401 sans cookie sur la liste et sur
+  le téléchargement, 403 sur /health et /metrics à travers nginx.
+
+  Je passe à la densité mobile. Le document impose 375 px, pas 390.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Aucun débordement horizontal, à aucune des deux largeurs, et les hauteurs de
+  composants sont identiques entre 375 et 1440 — la densité est bien constante,
+  seul le retrait latéral passe de 24 à 16 px. En revanche plusieurs cibles
+  tactiles sont petites : « Gerer le lien → » à 21 px et « ← Retour au tableau
+  de bord » à 18 px.
+
+  Il me reste le parcours client sur mobile, avec un vrai dépôt. Je crée une
+  demande dédiée pour ça.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Le parcours client tient sur mobile : PIN, déverrouillage, dépôt, « 1 sur 2
+  pièces déposées », sans débordement ni texte tronqué (les cibles « 1x1 » sont
+  les champs fichier masqués, pilotés par le bouton — c'est la conception
+  voulue).
+
+  Une différence de densité tout de même : le bouton de dépôt fait 190×40 à 375 
+  px contre 156×36 à 1440. Je finis par la CSP et les journaux.
+  Ran 1 shell command (ctrl+o to expand)
+
+● Le caviardage tient : zéro occurrence du jeton dans les journaux du proxy et
+  du frontend, et toutes les lignes affichent [redacted]. Je contrôle maintenant
+  les en-têtes CSP réellement servis et je balaie la console.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● La politique stricte est bien servie sur les deux pages. Je balaie chaque
+  écran en écoutant l'événement securitypolicyviolation, plus fiable que la
+  console.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Zéro violation CSP sur les six écrans, zéro erreur console. Je regarde
+  maintenant les captures, pour la part qui ne se mesure pas.
+
+  Read 2 files, ran 1 shell command (ctrl+o to expand)
+
+● Le tableau de bord tient sur 375, les cartes s'empilent, rien ne déborde. Mais
+  l'en-tête annonce 7 demandes et je n'en vois que 3, suivies d'un grand vide.
+  Je vérifie si c'est une troncature réelle ou un artefact de capture.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Fausse alerte : les 8 cartes sont bien présentes aux deux largeurs (hauteur de
+  page 2021 px à 375). La capture précédente avait été prise avant la fin du
+  rendu — aucun défaut produit. Je vérifie en revanche un point que ce comptage
+  soulève : le tableau de bord n'affiche aucun contrôle de pagination.
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● Pagination bien implémentée (totalPages > 1), simplement invisible avec 8
+  demandes pour une page de 20. Pas de défaut. Dernier regard sur l'écran client
+  en mobile, qui est le contexte d'usage réel.
+
+  Read 1 file (ctrl+o to expand)
+
+● L'écran client mobile est propre et lisible. Je clos la passe en révoquant les
+  deux liens que j'ai créés : leur jeton et leur PIN sont désormais dans la
+  transcription, qui est destinée à l'export.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Les deux liens sont révoqués (204). J'écris le compte rendu dans ai-plans/,
+  selon la convention du dépôt.
+
+● Write(ai-plans/2026-08-10-passe-navigateur-playwright.md)
+  ⎿  Wrote 156 lines to ai-plans/2026-08-10-passe-navigateur-playwright.md
+      1 # Passe navigateur pilotée par Playwright — 10 août 2026
+      2 
+      4 
+      5 Deux endroits du backlog nommaient le même trou. « 512 tests vert
+        s ne disent rien du rendu » :
+        déjà passés sous une suite verte.
+      7 Et **D5** laissait ouverte la décision entre Vitest en mode navig
+        ateur et un bout-en-bout piloté par
+        aujourd'hui la seule chose
+      9 qu'aucun étage de tests ne traverse ».
+     … +231 lines (ctrl+o to expand)
+
+● Je mets le backlog à jour : les deux cases d'E2 et le critère de survol de D5.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(issue_backlog.md)
+  ⎿  Added 15 lines, removed 3 lines
+      816  au même rang que les tests Jest et la pile Prometheus + Grafan
+           a. E1 a posé le thème ; E2 est ce qui
+      817  vérifie qu'il tient aux deux tailles. Classée P2 par erreur ju
+           squ'ici, et coupée sur cette erreur.
+      818  
+      819 -- [ ] Mêmes espacements et même densité d'information aux deux
+          - tailles                                                      
+      820 -- [ ] Parcours client vérifié sur mobile (c'est le contexte d'
+          -usage réel)                                                   
+      819 +- [~] Mêmes espacements et même densité d'information aux deux
+          + tailles — **mesuré à 375 et 1440 px**                        
+      820 +      dans la passe navigateur du 10/08 : hauteurs de composan
+          +ts **identiques** sur les quatre écrans                       
+      821 +      avocat, seul le retrait latéral passe de 24 px à 16 px, 
+          +**aucun débordement horizontal** et                           
+      822 +      aucun texte tronqué. Une exception, d'où le `~` : le bou
+          +ton de dépôt du client fait                                   
+      823 +      **190 × 40 à 375 px contre 156 × 36 à 1440**. L'écart va
+          + dans le bon sens (cible plus grande au                       
+      824 +      doigt) mais contredit littéralement le critère, donc il 
+          +se tranche plutôt qu'il ne se coche                           
+      825 +- [x] Parcours client vérifié sur mobile (c'est le contexte d'
+          +usage réel) — rejoué **entièrement à                          
+      826 +      375 px** dans un contexte navigateur vierge, dépôt réel 
+          +compris : écran PIN, déverrouillage,                          
+      827 +      dépôt d'un PDF, passage de la pièce à *reçue*           
+      828  
+      822 -Dépendances : E1.                                             
+      829 +Relevé par la même passe, hors critères ci-dessus : **cibles t
+          +actiles sous le minimum WCAG 2.2 AA                           
+      830 +(24 × 24 px)** — « Gerer le lien → » à **21 px** de haut sur c
+          +haque carte du tableau de bord, et                            
+      831 +« ← Retour au tableau de bord » à **18 px**. Les boutons (40 p
+          +x) et les champs (42 px) passent l'AA,                        
+      832 +sous les 44 px des guides mobiles.                            
+      833  
+      834 +Dépendances : E1. Compte rendu complet : `ai-plans/2026-08-10-
+          +passe-navigateur-playwright.md`.                              
+      835 +                                                              
+      836  ---
+      837  
+      838  ## Épique F — Observabilité
+
+● Update(issue_backlog.md)
+  ⎿  Added 7 lines, removed 3 lines
+      727  
+      728  Ce qui reste hors de portée :
+      729  
+      730 -- [ ] **L'inversion au survol du bouton primaire** — la signat
+          -ure d'interaction de la charte. Elle                          
+      731 -      est vérifiée à la main (mesuré : `#F7F6FF`, texte violet
+          -, contour intérieur, même gabarit                             
+      732 -      153×40 à la même position, donc aucun décalage d'un pixe
+          -l)                                                            
+      730 +- [x] **L'inversion au survol du bouton primaire** — la signat
+          +ure d'interaction de la charte.                               
+      731 +      **Mesurée dans un vrai Chromium** le 10/08, plus seuleme
+          +nt constatée à l'œil : fond                                   
+      732 +      `#5100FF` → `#F7F6FF`, texte `#FFFFFF` → `#5100FF`, cont
+          +our                                                           
+      733 +      `#5100FF 0 0 0 1px **inset**` (aucune bordure), boîte du
+          + bouton **643.69, 565.14 — 152.63 × 40                        
+      734 +      avant comme pendant**, et surtout **rectangle du libellé
+          + identique au centième de pixel**                             
+      735 +      (668.69, 575.14 — 102.63 × 20). C'est cette dernière val
+          +eur qui prouve le critère : une                               
+      736 +      bordure au survol l'aurait décalé                       
+      737  - [ ] Décider du moyen : **Vitest en mode navigateur** (donc u
+           n Chromium téléchargé en CI, ce qui
+      738        alourdit D3) ou un test de bout en bout piloté par navig
+           ateur, qui couvrirait aussi le
+      739        parcours à travers nginx — aujourd'hui la seule chose qu
+           'aucun étage de tests ne traverse
+
+● Update(issue_backlog.md)  ⎿  Added 8 lines, removed 2 lines
+      736        bordure au survol l'aurait décalé
+      737  - [ ] Décider du moyen : **Vitest en mode navigateur** (donc u
+           n Chromium téléchargé en CI, ce qui
+      738        alourdit D3) ou un test de bout en bout piloté par navig
+           ateur, qui couvrirait aussi le
+      739 -      parcours à travers nginx — aujourd'hui la seule chose qu
+          -'aucun étage de tests ne traverse                             
+      740 -- [ ] Trancher **avant** B5 et C3 : plus il y a d'écrans, plus
+          - la vérification à la main coûte                              
+      739 +      parcours à travers nginx — aujourd'hui la seule chose qu
+          +'aucun étage de tests ne traverse.                            
+      740 +      **Toujours ouvert** : la passe du 10/08 a démontré que l
+          +e bout-en-bout navigateur fonctionne                          
+      741 +      contre la pile réelle (parcours complet joué à travers n
+          +ginx, styles calculés relevés, CSP                            
+      742 +      contrôlée), mais elle a été **jouée, pas versionnée** — 
+          +donc rien n'est rejouable et la                               
+      743 +      prochaine régression de charte repassera sous une suite 
+          +verte                                                         
+      744 +- [~] Trancher **avant** B5 et C3 : plus il y a d'écrans, plus
+          + la vérification à la main coûte.                             
+      745 +      **Raté** : les deux issues sont livrées et le moyen n'es
+          +t toujours pas tranché. Le coût annoncé                       
+      746 +      s'est matérialisé — la passe du 10/08 a dû couvrir six é
+          +crans au lieu de deux                                         
+      747  
+      748  Dépendances : D2. Articulation avec D3 : le choix décide du te
+           mps de CI.
+      749  
+
+● Reste la synthèse en tête du backlog, et surtout le manque le plus sérieux —
+  le téléchargement inatteignable. Je regarde comment B4b est consigné.
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● B4b est coché P0 « fait », mais tous ses critères portent sur l'API. Au niveau
+  du produit, « l'avocat récupère un fichier déposé » n'est pas vrai. J'ajoute
+  le critère manquant plutôt que de décocher ce qui est réellement livré.
+
+● Update(issue_backlog.md)
+  ⎿  Added 12 lines, removed 1 line
+      440  
+      441  Dépendances : B2.
+      442  
+      443 -### B4b. Téléchargement des pièces déposées — P0 — **fait**   
+      443 +### B4b. Téléchargement des pièces déposées — P0 — **API faite
+          +, écran manquant**                                            
+      444  
+      445 +> **Rouvert le 10/08 par la passe navigateur.** Les trois crit
+          +ères ci-dessous portent tous sur                              
+      446 +> l'API, et ils tiennent : la route répond 200 et rend le fich
+          +ier **octet pour octet identique**                            
+      447 +> (SHA-256 concordant, vérifié à travers nginx). Mais **aucun 
+          +écran n'y mène** — le détail d'une                            
+      448 +> demande n'a ni bouton, ni lien, ni le mot « télécharger » ; 
+          +ses seuls boutons sont « Se                                   
+      449 +> déconnecter », « Régénérer le lien », « Révoquer l'accès ». 
+          +Un avocat ne peut donc pas récupérer                          
+      450 +> les pièces de son client, ce qui est la finalité du produit.
+          + Cocher l'issue « faite » sur ses                             
+      451 +> critères d'API était exact au niveau technique et faux au ni
+          +veau du produit — c'est précisément                           
+      452 +> le genre d'écart qu'aucune suite ne voit, les tests e2e appe
+          +lant la route directement.                                    
+      453 +>                                                             
+      454 +> - [ ] **Une action de téléchargement sur chaque pièce reçue 
+          +de l'écran de détail**                                        
+      455 +                                                              
+      456  - [x] L'avocat récupère un fichier déposé — **flux à travers l
+           'API**, `GET
+      457        /requests/:id/items/:itemId/file`, servi en `StreamableF
+           ile` sur `getObjectStream`
+      458  - [x] Le lien ne fuit pas hors de la session avocat — il n'y a
+            **pas de lien** : la route passe par
+
+● Update(issue_backlog.md)
+  ⎿  Added 2 lines, removed 1 line
+      33  |---|---|
+      34  | **H1** | README à compléter — observabilité, justification de
+          s métriques, limites |
+      35  | **H3** | Export des sessions IA et **caviardage**, à faire li
+          gne à ligne |
+      36 -| **E2** + passe navigateur | Charte, **densité aux deux taille
+         -s**, points de rupture, survol, violations CSP. jsdom ne calcul
+         -e aucun style : 512 tests verts n'en disent **rien** — voir D5 
+         -|                                                              
+      36 +| **B4b**, écran | **Nouveau, 10/08.** L'API de téléchargement 
+         +répond, **aucun écran n'y mène** : l'avocat ne peut pas récupér
+         +er les pièces déposées. Le plus grave de ce qu'a trouvé la pass
+         +e navigateur |                                                 
+      37 +| ~~**E2** + passe navigateur~~ | **Passe faite le 10/08** — su
+         +rvol mesuré, CSP à zéro violation, aucun débordement à 375 ni 1
+         +440, parcours client rejoué sur mobile. Reste la densité du bou
+         +ton de dépôt (190×40 contre 156×36) et les cibles tactiles à 18
+         +–21 px. Voir `ai-plans/2026-08-10-passe-navigateur-playwright.m
+         +d` |                                                           
+      38  | **D1** | La suite d'intégration du seed, seule case encore ou
+          verte |
+      39  
+      40  ### Ce qui a été coupé, et pourquoi
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Deux choses à signaler. D'abord, j'ai laissé deux captures dans la racine du 
+  dépôt : l'outil de capture écrit relativement au répertoire courant, pas dans
+  le scratchpad. Je vérifie avant de supprimer.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● creation-lien-1440.png (17:38) et dashboard-1440.png (17:37) sont bien les
+  miennes. Je les déplace vers le scratchpad plutôt que de les détruire ; les
+  image*.png ne viennent pas de moi, je n'y touche pas.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● .playwright-mcp/ est déjà dans le .gitignore (ligne 35), donc les fichiers de
+  trace n'entrent pas dans git. Je relis mes trois modifications du backlog.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Passe terminée. Je ne lance pas finishing-a-development-branch : il n'y a pas
+  de branche à clore ni de code modifié — la passe produit une mesure et deux
+  documents.
+
+  Ce que j'ai fait
+
+  Un vrai Chromium piloté contre la pile de production, à travers nginx, en
+  suivant docs/tests-manuels.md en plus du backlog. Le parcours client a été
+  joué dans un contexte navigateur séparé (équivalent d'une fenêtre privée, zéro
+  cookie vérifié) — le document appelle ce point « le piège qui invalide la
+  moitié des cases ».
+
+  Ce qui tient, mesuré
+
+  ┌───────────────────┬─────────────────────────────────────────────────────┐
+  │   Vérification    │                      Résultat                       │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ Inversion au      │ #5100FF→#F7F6FF, contour inset, rectangle du        │
+  │ survol            │ libellé identique au centième de pixel              │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ Refus de dépôt    │ ELF renommé .pdf → 415 ; 22 Mo → 413 ; ni l'un ni   │
+  │                   │ l'autre compté reçu                                 │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ Barre de          │ aria-valuenow 1→3→30→32→56→58 sur 30 s à débit      │
+  │ progression       │ bridé — vraie progression d'octets                  │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ Téléchargement    │ SHA-256 identique, RFC 5987                         │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ PIN faux          │ refus indistinguable, conforme à C1                 │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ Écran client      │ zéro appel /auth/ — la régression du backlog ne se  │
+  │ anonyme           │ reproduit pas                                       │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ CSP               │ 0 violation sur 6 écrans                            │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ Journaux          │ 0 occurrence du jeton, tout en [redacted]           │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ 375 vs 1440       │ aucun débordement, aucun texte tronqué, hauteurs    │
+  │                   │ identiques côté avocat                              │
+  ├───────────────────┼─────────────────────────────────────────────────────┤
+  │ Refus anonymes    │ 401 liste, 401 fichier, 403 /health, 403 /metrics   │
+  └───────────────────┴─────────────────────────────────────────────────────┘
+
+  Ce que ça a trouvé
+
+  Le plus grave — le téléchargement n'est atteignable par aucun écran. L'API
+  répond parfaitement, mais le détail d'une demande n'a ni bouton, ni lien, ni
+  le mot « télécharger ». L'avocat ne peut pas récupérer les pièces de son
+  client, ce qui est la finalité du produit. B4b était coché P0 « fait » sur ses
+  critères d'API : exact techniquement, faux au niveau produit — et c'est
+  l'angle mort typique, les tests e2e appelant la route directement.
+
+  Trois erreurs dans docs/tests-manuels.md (je ne l'ai pas modifié, la décision
+  est à toi) :
+  - il annonce le violet #7B2CFF ; le thème, le rendu et le pixel échantillonné
+  dans uikit.png disent tous #5100FF ;
+  - il annonce SameSite=Lax ; les deux cookies sont en Strict ;
+  - il affirme que les tests de recettes de thème ont été retirés : ils sont là,
+  six fichiers.
+
+  Quatre défauts mineurs : accents mélangés dans une même phrase sur l'écran
+  client (« recu le 10 août 2026 », « Format refusé » à côté de « Depot echoue
+  ») ; pas de pourcentage lisible pendant l'envoi alors que le kit en montre un
+  ; cibles tactiles à 18 et 21 px, sous le minimum WCAG 2.2 AA de 24×24 ; bouton
+  de dépôt à 190×40 sur mobile contre 156×36 en desktop.
+
+  Deux fausses pistes écartées avant de te les rapporter : la liste du tableau
+  de bord n'est pas tronquée sur mobile (les 8 cartes sont là, la capture avait
+  devancé le rendu), et la pagination existe bien — elle ne s'affiche qu'au-delà
+  d'une page.
+
+  Non vérifié, et pourquoi
+
+  Chromium seul. HTTPS non traversé — DOMAIN est vide ici. Grafana pas ouvert :
+  les 11 panneaux et 4 alertes de B2 restent à voir. Et surtout : rien de tout 
+  ceci n'est rejouable, c'était le périmètre choisi ; D5 reste donc ouverte sur
+  « décider du moyen ».
+
+  Hygiène et fichiers
+
+  J'ai révoqué les deux liens créés (204) : leur jeton et leur PIN sont dans la
+  transcription, destinée à l'export H3 — où le mot de passe du seed est aussi à
+  caviarder. J'avais laissé deux captures dans la racine du dépôt, je les ai
+  déplacées dans le scratchpad.
+
+  Pour un commit, si tu le veux — j'attends ton feu vert, et attention : ton
+  arbre de travail contient aussi des suppressions et modifications de fichiers
+  *.spec.ts plus un ai-plans/2026-08-10-nettoyage-tests-commentaires.md qui ne 
+  viennent pas de moi.
+
+  Fichier: ai-plans/2026-08-10-passe-navigateur-playwright.md
+  État: nouveau
+  Contenu: plan suivi, valeurs mesurées, 8 findings, fausses pistes
+  ────────────────────────────────────────
+  Fichier: issue_backlog.md
+  État: modifié
+  Contenu: survol D5 coché avec les mesures, E2 [~]/[x], B4b rouvert, tableau de
+
+  tête
+
+✻ Churned for 18m 27s
+
+※ recap: Goal was a browser pass over the portal with Playwright; it's done, findings written to ai-plans and the backlog updated. Next: your go-ahead to commit those two files, noting unrelated spec-file changes in the tree aren't mine. (disable recaps in /config)
+
+❯ reteste, j'utilisais l'app entre temps                                        
+
+● Je regarde d'abord ce qui a bougé depuis, puis je rejoue.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● La pile a bougé : conteneur backend redémarré il y a environ une heure, et
+  beaucoup de sources modifiées entre-temps (dont deposit-page.tsx et
+  api/client.ts) par le travail en parallèle. Je vérifie d'abord quelle version
+  est réellement servie.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Point important avant de rejouer : le bundle servi est identique
+  (index-Cpw9AE4p.js, même empreinte qu'à la passe précédente) et les deux
+  images sont toujours en 0.3.0. Les modifications de deposit-page.tsx et
+  api/client.ts ne sont donc pas déployées — je retesterai bien la même version
+  d'interface. Ce qui a changé, c'est l'état des données.
+
+  Je rejoue le parcours complet.
+
+  Called plugin:playwright:playwright 2 times (ctrl+o to expand)
+
+● Session encore valide, 8 demandes, et un cas intéressant s'affiche
+  correctement : « Complete » et « Lien revoque » côte à côte — la combinaison
+  que le modèle prévoit avec deux champs indépendants. Je relis l'erreur console
+  et je recontrôle le téléchargement.
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● C'est le renouvellement de session en action : l'accès de 15 min avait expiré,
+  /auth/me répond 401, le rafraîchissement passe et le tableau de bord
+  s'affiche — B1c fonctionne dans un vrai navigateur, plus d'une heure après la
+  connexion.
+
+  Je recontrôle le téléchargement sur une demande complète.
+
+  Called plugin:playwright:playwright 2 times (ctrl+o to expand)
+
+● Toujours aucun contrôle de téléchargement — attendu, puisque c'est le même
+  bundle. À noter au passage : le bouton « Révoquer l'accès » disparaît
+  correctement quand le lien l'est déjà.
+
+  Je recrée une demande par l'interface et je rejoue le parcours entier.
+
+  Called plugin:playwright:playwright 8 times (ctrl+o to expand)
+
+● PIN 0990. Je rejoue tout le parcours client d'un bloc, avec les mêmes
+  assertions qu'à la première passe.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Tout se reproduit à l'identique. Je vérifie le retour avocat et la redaction
+  du nouveau jeton.
+
+  Called plugin:playwright:playwright, ran 1 shell command (ctrl+o to expand)
+
+● Je reprends la mesure de rendu — le bundle étant identique à l'octet près,
+  elle devrait l'être aussi.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Identique au centième de pixel. Je révoque le lien créé pour ce retest.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Retest terminé.
+
+  Ce qui a changé entre les deux passes
+
+  Rien du côté de ce que je teste. Le bundle servi est le même à l'octet près
+  (index-Cpw9AE4p.js, index-xKv10YAh.css), et les deux images sont toujours en
+  0.3.0. Les sources modifiées entre-temps par le travail en parallèle — dont
+  frontend/src/pages/deposit-page.tsx et frontend/src/api/client.ts — ne sont 
+  pas déployées : le conteneur frontend a 5 heures. Ce que j'ai retesté est donc
+  la même version d'interface, avec des données différentes.
+
+  Résultats du retest
+
+  Tout se reproduit, sur une demande neuve (« Retest navigateur 23h », deux
+  pièces) :
+
+  ┌───────────────────────┬────────────────────────┬───────────────────────┐
+  │     Vérification      │     Première passe     │        Retest         │
+  ├───────────────────────┼────────────────────────┼───────────────────────┤
+  │ Contexte client       │ 0 cookie, 0 appel      │ identique             │
+  │ vierge                │ /auth/                 │                       │
+  ├───────────────────────┼────────────────────────┼───────────────────────┤
+  │ PIN faux              │ refus indistinguable,  │ identique             │
+  │                       │ 401                    │                       │
+  ├───────────────────────┼────────────────────────┼───────────────────────┤
+  │ PDF valide            │ 201, pièce reçue       │ identique             │
+  ├───────────────────────┼────────────────────────┼───────────────────────┤
+  │ ELF renommé .pdf      │ 415, compteur inchangé │ identique             │
+  ├───────────────────────┼────────────────────────┼───────────────────────┤
+  │ 22 Mo                 │ 413, compteur inchangé │ identique             │
+  ├───────────────────────┼────────────────────────┼───────────────────────┤
+  │ Barre de progression  │ 1→58 monotone          │ 1→23, 20 paliers      │
+  │                       │                        │ distincts             │
+  ├───────────────────────┼────────────────────────┼───────────────────────┤
+  │ Fin de parcours       │ « Toutes les pièces… » │ identique             │
+  ├───────────────────────┼────────────────────────┼───────────────────────┤
+  │ Téléchargement        │ SHA-256 concordant     │ identique (794abaa4…) │
+  ├───────────────────────┼────────────────────────┼───────────────────────┤
+  │ Violations CSP        │ 0                      │ 0                     │
+  ├───────────────────────┼────────────────────────┼───────────────────────┤
+  │ Jeton dans les        │ 0                      │ 0 sur le nouveau      │
+  │ journaux              │                        │ jeton                 │
+  ├───────────────────────┼────────────────────────┼───────────────────────┤
+  │ 401 / 403 anonymes    │ 4 sur 4                │ identique             │
+  ├───────────────────────┼────────────────────────┼───────────────────────┤
+  │ Survol : boîte et     │ 643.69, 565.14 —       │ identique au centième │
+  │ libellé               │ 152.63×40              │                       │
+  ├───────────────────────┼────────────────────────┼───────────────────────┤
+  │ Débordement 375 /     │ aucun                  │ aucun                 │
+  │ 1440                  │                        │                       │
+  └───────────────────────┴────────────────────────┴───────────────────────┘
+
+  Le manque principal est confirmé : toujours aucun bouton, lien ou mention de
+  téléchargement sur l'écran de détail — attendu, puisque c'est le même bundle.
+  Les seuls boutons sont « Se déconnecter » et « Régénérer le lien ».
+
+  Deux choses que le retest a apprises en plus
+
+  Le renouvellement de session marche pour de vrai. Plus d'une heure après la
+  connexion, /auth/me a répondu 401, le rafraîchissement est passé et le tableau
+  de bord s'est affiché sans que rien ne soit ressaisi. B1c est vérifié dans un
+  navigateur, pas seulement en test.
+
+  Le cas « complète ET lien révoqué » s'affiche correctement : la demande de la
+  passe précédente porte les deux étiquettes côte à côte. C'est exactement la
+  situation pour laquelle le modèle garde deux champs séparés plutôt qu'un
+  statut unique — et elle n'était jamais apparue à l'écran jusqu'ici.
+
+  Rien à changer dans ce que j'ai écrit
+
+  Les huit findings du compte rendu tiennent tels quels, et les mises à jour du
+  backlog restent exactes. Je n'ai donc pas retouché
+  ai-plans/2026-08-10-passe-navigateur-playwright.md ni issue_backlog.md.
+
+  Le lien du retest est révoqué (204). Si tu veux que je reteste l'interface que
+  tu es en train de modifier, il faut reconstruire l'image du frontend — sinon
+  je continuerai à mesurer le build de 18 h.
+
+✻ Churned for 4m 52s
+
+※ recap: Goal was a Playwright browser pass over the whole portal; it's done and retested, findings written to ai-plans and the backlog. Main gap: the lawyer's detail screen has no download control. Next action is yours: rebuild the frontend image if you want your in-progress UI changes tested.
+
+❯ /superpowers:writing-plans rajoute le téléchargement                          
+
+● Je suis la skill writing-plans pour écrire le plan d'ajout du téléchargement.
+
+  C'est une tâche différente de la passe navigateur, donc je repars du fichier
+  de plan à neuf. J'explore d'abord — sans sous-agents, selon ta consigne.
+
+  Read 4 files (ctrl+o to expand)
+
+● ItemRow porte déjà une prop action?: ReactNode prévue pour ça (« The lawyer's
+  screens pass nothing »), donc le composant n'a pas à changer. Deux points à
+  trancher avant d'écrire : le renouvellement de session, et ce qui se passe
+  pour un fichier failed.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Le backend a été mis à jour entre-temps : received compte désormais un fichier
+  complete, pas n'importe quel fichier. Je vérifie la vue de détail.
+
+  Read 2 files, ran 2 shell commands (ctrl+o to expand)
+
+● received implique désormais status === 'complete', donc conditionner le
+  téléchargement à received suffit — aucun changement d'API nécessaire. Je
+  regarde les tests existants et le style des contrôles.
+
+  Ran 2 shell commands (ctrl+o to expand)
+● Détail utile trouvé au passage : le size={{ base: 'md', md: 'sm' }} du bouton
+  client est délibéré et commenté (« sm is 40px tall, and a finger wants more »)
+  — c'est l'explication de l'écart de densité que j'avais relevé. Le bouton de
+  téléchargement suivra le même motif.
+
+  Je vérifie le dernier point, la provenance du nom de fichier.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● J'ai tout. Un dernier point tranché : safeFileName tronque avec des points de 
+  suspension pour l'affichage — inutilisable comme nom de fichier enregistré. Le
+  nom viendra donc de l'en-tête Content-Disposition que le serveur produit
+  déjà.
+
+● Updated plan
+  ⎿  /plan to preview
+
+● Plan écrit. Les trois choix qui le structurent, et ce qu'ils coûtent :
+
+  fetch + blob plutôt qu'un simple <a href>. Le lien direct serait plus économe
+  — il diffuse le flux et laisse le serveur nommer le fichier — mais il ne passe
+  pas par le renouvellement de session. Le jeton d'accès vit 15 minutes, mesuré
+  ce soir ; un avocat qui laisse un dossier ouvert vingt minutes puis clique
+  téléchargerait l'erreur JSON de Nest. En échange, le fichier passe en mémoire,
+  borné par le plafond de 20 Mio de C2.
+
+  Le nom vient de Content-Disposition, pas de originalName. safeFileName tronque
+  à 40 caractères avec des points de suspension — il enregistrerait
+  contrat-de-ba….pdf. Relire l'en-tête garde une seule définition du nom, celle
+  que le contrôleur produit déjà.
+
+  Aucun changement d'API, et ItemRow n'est pas touché. Il porte déjà une prop
+  action documentée « The lawyer's screens pass nothing », et depuis la
+  correction récente de request.types.ts, received vaut status === 'complete' —
+  exactement ce que la route accepte de servir. Le bouton ne peut donc pas mener
+  à un 404.
+
+  Deux choses que j'ai apprises aujourd'hui sont écrites dans la tâche de
+  vérification : reconstruire l'image du frontend avant de tester (sinon on
+  mesure le build de 18 h), et contrôler les violations CSP au téléchargement —
+  la politique est default-src 'self' sans blob:, et c'est le seul endroit où on
+  saura si ça gêne.
+
+  J'ai aussi noté hors périmètre un défaut adjacent : le backend décrit un
+  fichier refusé pour que l'avocat « voie ce qui a échoué », mais l'écran ne
+  l'affiche jamais.
+
+● User approved Claude's plan
+  ⎿  Plan saved to: ~/.claude/plans/avec-playwright-tu-peux-wise-dove.md · /plan
+     to edit
+     Téléchargement d'une pièce déposée — plan d'implémentation
+
+     ▎ Pour un agent exécutant : SOUS-SKILL REQUISE — 
+     ▎ superpowers:executing-plans pour dérouler ce
+     ▎ plan tâche par tâche. Les étapes sont en cases à cocher.
+     ▎
+     ▎ À la première étape de l'exécution, copier ce fichier dans
+     ▎ ai-plans/2026-08-10-telechargement-piece.md : c'est la convention du 
+     ▎ dépôt, et le plan fait
+     ▎ partie du livrable.
+
+     Objectif : donner à l'avocat un bouton qui télécharge une pièce déposée,
+     depuis l'écran de
+     détail d'une demande.
+
+     Architecture : l'API existe déjà et fonctionne (GET 
+     /requests/:id/items/:itemId/file, vérifié
+     octet pour octet à travers nginx). Tout le travail est côté frontend : une
+     fonction de
+     téléchargement dans la couche API qui réutilise le renouvellement de 
+     session, un utilitaire qui
+     déclenche l'enregistrement du fichier, et un bouton branché sur la prop
+     action que ItemRow
+     expose déjà.
+
+     Pile : React 19, Chakra v3, Vitest 4 + Testing Library, oxlint type-aware.
+
+     Contexte — pourquoi ce changement
+
+     La passe navigateur du 10/08 a trouvé que l'avocat ne peut pas récupérer 
+     les pièces de son
+     client, ce qui est la finalité du produit. L'écran de détail affiche les
+     pièces reçues avec leur
+     nom et leur taille, mais n'a ni bouton, ni lien, ni le mot « télécharger »
+     — ses seuls boutons sont
+     « Se déconnecter », « Régénérer le lien », « Révoquer l'accès ».
+
+     L'issue B4b était cochée P0 « fait » : exact sur ses critères, qui portent
+     tous sur l'API, et
+     faux au niveau du produit. C'est l'angle mort typique — les tests e2e
+     appellent la route
+     directement, donc aucune suite ne voit qu'aucun écran n'y mène.
+
+     Contraintes globales
+
+     - Interface en français, sans accents dans les libellés écrits en dur —
+     c'est la convention des
+     fichiers existants ('Regenerer le lien', 'Depot echoue'). Le code, les 
+     commentaires et les
+     tests sont en anglais.
+     - Aucune couleur, police ou rayon écrit dans un écran : tout vient du
+     thème.
+     - Les deux lints sont bloquants (--deny-warnings côté frontend). Un
+     avertissement fait échouer
+     pnpm lint.
+     - frontend/scripts/verify-type-aware.sh tourne avant chaque lint :
+     no-floating-promises est
+     actif, donc toute promesse non attendue doit être void-ée explicitement.
+     - Rien ne s'ajoute au href : originalName vient d'un client anonyme.
+
+     Structure des fichiers
+
+     Fichier: frontend/src/api/client.ts
+     Rôle: modifier — extraire sendWithRenewal, ajouter filenameFromDisposition
+     et
+     apiDownload
+     ────────────────────────────────────────
+     Fichier: frontend/src/api/client.test.ts
+     Rôle: créer si absent, sinon compléter — tests du parseur de nom
+     ────────────────────────────────────────
+     Fichier: frontend/src/api/requests.ts
+     Rôle: modifier — ajouter downloadItemFile
+     ────────────────────────────────────────
+     Fichier: frontend/src/save-blob.ts
+     Rôle: créer — déclenche l'enregistrement, isolé pour être remplaçable en
+     test
+     ────────────────────────────────────────
+     Fichier: frontend/src/pages/request-detail-page.tsx
+     Rôle: modifier — le bouton, via la prop action d'ItemRow
+     ────────────────────────────────────────
+     Fichier: frontend/src/pages/request-detail-page.test.tsx
+     Rôle: modifier — trois cas
+
+     ItemRow n'est pas modifié. Il porte déjà action?: ReactNode, documentée
+     « The client's deposit control (C3). The lawyer's screens pass nothing. » —
+     c'est exactement le
+     point d'insertion prévu.
+
+     Les deux décisions de conception, et ce qu'elles coûtent
+
+     1. On télécharge par fetch + blob, pas par un <a href="/api/...">.
+
+     Le lien simple est plus économe : il diffuse le flux sans rien mettre en
+     mémoire, et le navigateur
+     prend le nom dans l'en-tête Content-Disposition que le serveur produit
+     déjà. Il a un défaut qui
+     le disqualifie : il ne passe pas par le renouvellement de session.
+     apiRequest rejoue une
+     requête après un 401 en rafraîchissant le jeton ; un <a> ne le fait pas. Le
+     jeton d'accès vit
+     15 minutes — mesuré ce soir : portail_auth expire à 15 min, et le
+     rafraîchissement fonctionne.
+     Un avocat qui laisse l'écran d'un dossier ouvert vingt minutes puis clique
+     téléchargerait donc
+     l'erreur JSON de Nest à la place de sa pièce. Ce n'est pas un cas limite,
+     c'est l'usage normal d'un
+     écran de consultation.
+
+     Ce qu'on échange contre ça : le fichier est mis en mémoire en entier. C2
+     plafonne à 20 Mio, donc
+     c'est borné. À dire dans les limites du README si le plafond monte un jour.
+
+     2. Le nom du fichier est relu dans Content-Disposition, pas reconstruit 
+     depuis originalName.
+
+     Un blob n'a pas d'en-têtes : avec cette approche, c'est l'attribut download
+     qui nomme le fichier,
+     donc le frontend doit fournir un nom. Deux façons, et une seule est bonne :
+
+     - safeFileName(file.originalName) — non : cet utilitaire est fait pour
+     l'affichage, il
+     tronque à 40 caractères avec des points de suspension (format.ts:61). Il
+     enregistrerait
+     contrat-de-ba….pdf.
+     - Relire l'en-tête que le serveur envoie déjà, en forme RFC 5987
+     (filename*=UTF-8''piece-valide.pdf, vérifié ce soir). La règle d'encodage
+     vit déjà dans le
+     contrôleur et un test e2e la couvre ; la relire garde une seule définition
+     du nom. Une
+     deuxième règle côté client serait libre de diverger de la première sans
+     qu'aucun test ne le voie.
+
+     Le bouton n'apparaît que si item.received vaut vrai. Depuis la correction
+     récente de
+     request.types.ts, received signifie file.status === 'complete' — exactement
+     ce que la route
+     accepte de servir, un fichier failed répondant 404. Aucun changement d'API
+     n'est donc nécessaire,
+     et il n'y a pas de bouton qui mènerait à un refus.
+
+     ---
+     Tâche 1 : la couche API — renouvellement partagé, nom du fichier, 
+     téléchargement
+
+     Fichiers :
+     - Modifier : frontend/src/api/client.ts
+     - Test : frontend/src/api/client.test.ts
+
+     Interfaces produites :
+     - filenameFromDisposition(header: string | null): string
+     - apiDownload(path: string): Promise<{ blob: Blob; filename: string }>
+     - [ ] Étape 1 : écrire les tests du parseur de nom
+
+     import { describe, expect, it } from 'vitest'
+     import { filenameFromDisposition } from './client'
+
+     describe('filenameFromDisposition', () => {
+       it('reads the RFC 5987 name the backend sends', () => {
+         expect(filenameFromDisposition("attachment; 
+     filename*=UTF-8''piece-valide.pdf")).toBe(
+           'piece-valide.pdf',
+         )
+       })
+
+       it('decodes the percent-encoding, so an accented name is not saved 
+     mangled', () => {
+         expect(filenameFromDisposition("attachment; 
+     filename*=UTF-8''pi%C3%A8ce%20d%27identit%C3%A9.pdf")).toBe(
+           "pièce d'identité.pdf",
+         )
+       })
+
+       // A header we cannot read must not throw in the middle of a download: 
+     the
+       // lawyer gets a dull name rather than no file at all.
+       it('falls back when the header is absent or undecodable', () => {
+         expect(filenameFromDisposition(null)).toBe('piece')
+         expect(filenameFromDisposition("attachment; 
+     filename*=UTF-8''%E0%A4%A")).toBe('piece')
+       })
+     })
+
+     - [ ] Étape 2 : lancer le test, vérifier qu'il échoue
+
+     Lancer : pnpm -C frontend test client
+     Attendu : ÉCHEC — filenameFromDisposition is not a function.
+
+     - [ ] Étape 3 : extraire sendWithRenewal sans changer le comportement
+
+     Dans frontend/src/api/client.ts, sortir les six lignes de renouvellement
+     d'apiRequest :
+
+     /**
+      * One renewal, one replay. Extracted from apiRequest because the download 
+     path
+      * needs exactly the same rule: without it, a lawyer whose 15-minute access
+      * token expired while the screen sat open would download Nest's 401 body.
+      */
+     const sendWithRenewal = async (path: string, init: RequestInit):
+     Promise<Response> => {
+       const response = await send(path, init)
+       if (response.status !== 401 || isNeverRenewed(path)) return response
+
+       const renewed = await send(REFRESH_PATH, { method: 'POST' })
+       return renewed.ok ? await send(path, init) : response
+     }
+
+     Puis remplacer le début d'apiRequest par const response = await 
+     sendWithRenewal(path, init), et
+     supprimer le bloc if (response.status === 401 && ...) ainsi que le let.
+
+     - [ ] Étape 4 : ajouter le parseur et le téléchargement
+
+     /** Nothing in the product is called that, so a fallback name is 
+     recognisable. */
+     const FALLBACK_FILENAME = 'piece'
+
+     /**
+      * The name the server put in Content-Disposition, RFC 5987 form. Read back
+      * rather than rebuilt from originalName: the encoding rule already lives 
+     in
+      * the controller and an e2e case covers it, so a second rule here would be
+      * free to disagree with it. safeFileName is NOT usable — it truncates at 
+     40
+      * characters for display and would save "contrat-de-ba….pdf".
+      */
+     export const filenameFromDisposition = (header: string | null): string => {
+       const match = /filename\*=UTF-8''([^;]+)/i.exec(header ?? '')
+       if (match === null) return FALLBACK_FILENAME
+       try {
+         const decoded = decodeURIComponent(match[1])
+         return decoded === '' ? FALLBACK_FILENAME : decoded
+       } catch {
+         // A malformed percent-sequence throws; it must not abort the download.
+         return FALLBACK_FILENAME
+       }
+     }
+
+     /**
+      * A binary answer, with the same session handling as apiRequest. Separate 
+     from
+      * it because parse() demands JSON: a 200 that is not JSON is how that 
+     function
+      * detects a drifted /api prefix, and a PDF would trip exactly that check.
+      */
+     export const apiDownload = async (
+       path: string,
+     ): Promise<{ blob: Blob; filename: string }> => {
+       const response = await sendWithRenewal(path, { headers: { accept: '*/*' }
+     })
+
+       if (!response.ok) {
+         const raw = await response.text().catch(() => '')
+         throw apiErrorFor(response.status, response.headers.get('content-type')
+     ?? '', raw)
+       }
+
+       return {
+         blob: await response.blob(),
+         filename:
+     filenameFromDisposition(response.headers.get('content-disposition')),
+       }
+     }
+
+     - [ ] Étape 5 : relancer toute la suite frontend
+
+     Lancer : pnpm -C frontend test
+     Attendu : les nouveaux cas passent, et aucun test existant ne casse —
+     l'extraction de
+     sendWithRenewal touche le chemin de toutes les requêtes, c'est ce que cette
+     étape contrôle.
+
+     - [ ] Étape 6 : commit
+
+     git add frontend/src/api/client.ts frontend/src/api/client.test.ts
+     git commit -m "feat(api): download a binary answer through the session 
+     renewal"
+
+     ---
+     Tâche 2 : déclencher l'enregistrement, et l'appel typé
+
+     Fichiers :
+     - Créer : frontend/src/save-blob.ts
+     - Modifier : frontend/src/api/requests.ts
+
+     Interfaces consommées : apiDownload (tâche 1).
+     Interfaces produites :
+     - saveBlob(blob: Blob, filename: string): void
+     - downloadItemFile(requestId: string, itemId: string): Promise<{ blob: 
+     Blob; filename: string }>
+     - [ ] Étape 1 : écrire save-blob.ts
+
+     Pas de test unitaire ici : la fonction n'est que des appels au navigateur,
+     et un test la
+     réimplémenterait en assertions. Elle est isolée dans son fichier 
+     précisément pour être remplacée
+     par un espion dans le test de la tâche 3.
+
+     /**
+      * Hands a blob to the browser as a download.
+      *
+      * The anchor is created and removed rather than rendered: React would have
+     to
+      * keep an element whose only purpose is to be clicked once.
+      */
+     export const saveBlob = (blob: Blob, filename: string): void => {
+       const url = URL.createObjectURL(blob)
+       const anchor = document.createElement('a')
+       anchor.href = url
+       anchor.download = filename
+       document.body.append(anchor)
+       anchor.click()
+       anchor.remove()
+       // Revoked on the next tick, not straight away: a browser that has not 
+     yet
+       // started reading the URL would cancel the download.
+       setTimeout(() => URL.revokeObjectURL(url), 0)
+     }
+
+     - [ ] Étape 2 : ajouter l'appel typé dans requests.ts
+
+     À la suite de revokeLink, en important apiDownload depuis ./client :
+
+     /**
+      * The bytes of a deposited piece. Only ever called for an item whose 
+     `received`
+      * is true: since request.types.ts counts `complete` alone as received, 
+     that is
+      * exactly the set the route agrees to serve — a `failed` file answers 404.
+      */
+     export const downloadItemFile = (
+       requestId: string,
+       itemId: string,
+     ): Promise<{ blob: Blob; filename: string }> =>
+       apiDownload(
+         `/requests/${encodeURIComponent(requestId)}/items/${encodeURIComponent(
+     itemId)}/file`,
+       )
+
+     - [ ] Étape 3 : vérifier que tout compile et que le lint passe
+
+     Lancer : pnpm -C frontend build && pnpm -C frontend lint
+     Attendu : succès, zéro avertissement.
+
+     - [ ] Étape 4 : commit
+
+     git add frontend/src/save-blob.ts frontend/src/api/requests.ts
+     git commit -m "feat(api): expose the deposited file of an item to the 
+     lawyer"
+
+     ---
+     Tâche 3 : le bouton sur l'écran de détail
+
+     Fichiers :
+     - Modifier : frontend/src/pages/request-detail-page.tsx
+     - Test : frontend/src/pages/request-detail-page.test.tsx
+
+     Interfaces consommées : downloadItemFile, saveBlob, la prop action
+     d'ItemRow.
+
+     - [ ] Étape 1 : écrire les trois tests
+
+     À ajouter dans request-detail-page.test.tsx, qui a déjà les fabriques
+     received(), pending(),
+     detail() et stubSequence(). Le module d'enregistrement est espionné — c'est
+     la raison d'être de
+     son fichier séparé :
+
+     vi.mock('../save-blob', () => ({ saveBlob: vi.fn() }))
+
+     it('offers no download on a piece nobody has deposited yet', async () => {
+       stubSequence([() => jsonResponse(detail({ items: [pending("Piece 
+     d'identite")] }))])
+       renderDetail()
+
+       expect(await screen.findByText("Piece d'identite")).toBeInTheDocument()
+       expect(screen.queryByRole('button', { name: /Telecharger/
+     })).not.toBeInTheDocument()
+     })
+
+     it('saves the file the API returns, under the name the API names', async ()
+     => {
+       const { saveBlob } = await import('../save-blob')
+       const fetchMock = stubSequence([
+         () => jsonResponse(detail({ items: [received('contrat.pdf')] })),
+         () =>
+           new Response(new Blob(['%PDF-1.4']), {
+             status: 200,
+             headers: {
+               'content-type': 'application/pdf',
+               'content-disposition': "attachment; 
+     filename*=UTF-8''contrat.pdf",
+             },
+           }),
+       ])
+       renderDetail()
+
+       await userEvent.click(await screen.findByRole('button', { name:
+     /Telecharger/ }))
+
+       expect(fetchMock.mock.calls[1][0]).toBe(
+         '/api/v1/requests/r1/items/Contrat de bail signe/file',
+       )
+       expect(saveBlob).toHaveBeenCalledWith(expect.any(Blob), 'contrat.pdf')
+     })
+
+     // The file can vanish between the page load and the click -- the request 
+     may
+     // have been deleted in another tab. The screen must say so, not fail 
+     silently.
+     it('shows a message when the piece can no longer be served', async () => {
+       stubSequence([
+         () => jsonResponse(detail({ items: [received('contrat.pdf')] })),
+         () => jsonResponse({ message: 'Not Found' }, 404),
+       ])
+       renderDetail()
+
+       await userEvent.click(await screen.findByRole('button', { name:
+     /Telecharger/ }))
+
+       expect(await screen.findByText(/introuvable/i)).toBeInTheDocument()
+     })
+
+     Si renderDetail() n'existe pas comme fonction locale dans ce fichier,
+     reprendre littéralement le
+     bloc renderWithTheme(...) des tests voisins plutôt que d'en inventer un.
+
+     - [ ] Étape 2 : lancer les tests, vérifier qu'ils échouent
+
+     Lancer : pnpm -C frontend test request-detail-page
+     Attendu : ÉCHEC — aucun bouton nommé Telecharger n'est trouvé.
+
+     - [ ] Étape 3 : ajouter les libellés
+
+     Dans l'objet TEXT de request-detail-page.tsx :
+
+       download: 'Telecharger',
+       // Every row would otherwise expose the same accessible name, and a 
+     screen
+       // reader would announce a list of identical buttons.
+       downloadAria: (label: string) => `Telecharger ${label}`,
+       downloading: 'Telechargement...',
+
+     - [ ] Étape 4 : ajouter l'état et le gestionnaire
+
+     Dans le composant, à côté des états existants :
+
+       const [downloading, setDownloading] = useState<string | null>(null)
+
+       const onDownload = async (itemId: string) => {
+         setDownloading(itemId)
+         setActionError(null)
+         try {
+           const { blob, filename } = await downloadItemFile(id, itemId)
+           saveBlob(blob, filename)
+         } catch (caught) {
+           setActionError(messageFor(caught))
+         } finally {
+           setDownloading(null)
+         }
+       }
+
+     Imports à ajouter : downloadItemFile depuis ../api/requests, saveBlob
+     depuis ../save-blob.
+
+     messageFor est réutilisé tel quel : il traduit déjà notFound en « Demande
+     introuvable. », ce que
+     le test de l'étape 1 attend.
+
+     - [ ] Étape 5 : brancher le bouton sur la prop action
+
+     Remplacer le <ItemRow> existant par :
+
+                         <ItemRow
+                           key={item.id}
+                           label={item.label}
+                           state={item.received ? 'received' : 'pending'}
+                           file={item.file}
+                           action={
+                             item.received ? (
+                               <Button
+                                 variant="secondary"
+                                 // Same rule as the client's deposit control: 
+     sm is
+                                 // 40px, and a finger wants more than that.
+                                 size={{ base: 'md', md: 'sm' }}
+                                 aria-label={TEXT.downloadAria(item.label)}
+                                 disabled={downloading !== null}
+                                 onClick={() => void onDownload(item.id)}
+                               >
+                                 {downloading === item.id ? TEXT.downloading :
+     TEXT.download}
+                               </Button>
+                             ) : undefined
+                           }
+                         />
+
+     Le commentaire « THE line C2 will change » au-dessus reste valable : il
+     porte sur le calcul de
+     state, qui ne bouge pas.
+
+     - [ ] Étape 6 : relancer les tests et les deux lints
+
+     Lancer : pnpm -C frontend test && pnpm -C frontend lint
+     Attendu : tout est vert, zéro avertissement. Si no-floating-promises
+     proteste, c'est que le
+     void devant onDownload a sauté.
+
+     - [ ] Étape 7 : commit
+
+     git add frontend/src/pages/request-detail-page.tsx
+     frontend/src/pages/request-detail-page.test.tsx
+     git commit -m "feat(dashboard): let the lawyer download a piece their 
+     client deposited"
+
+     ---
+     Tâche 4 : vérifier dans un vrai navigateur, puis fermer l'issue
+
+     Rien de tout ce qui précède ne prouve que ça marche en production. Trois
+     choses ne se voient
+     qu'au navigateur, et une leçon a déjà été payée aujourd'hui : jsdom 
+     n'implémente pas
+     URL.createObjectURL, la CSP n'existe pas en test, et la pile sert une
+     image, pas les
+     sources.
+
+     - [ ] Étape 1 : reconstruire l'image du frontend, sinon la vérification 
+     ment
+
+     docker compose -f infra/docker-compose.yml -f
+     infra/docker-compose.build.yml --env-file .env build frontend
+     docker compose -f infra/docker-compose.yml --env-file .env up -d frontend
+     curl -s http://127.0.0.1:21600/ | grep -oE
+     'assets/index-[A-Za-z0-9_-]+\.js'
+
+     Attendu : une empreinte différente de index-Cpw9AE4p.js. Si elle est
+     identique, l'image n'a
+     pas été reconstruite et tout ce qui suit teste l'ancien écran.
+
+     - [ ] Étape 2 : jouer le téléchargement avec Playwright, et récupérer le 
+     fichier
+
+     Se connecter, ouvrir une demande ayant une pièce reçue, puis :
+
+     const [download] = await Promise.all([
+       p.waitForEvent('download'),
+       p.getByRole('button', { name: /Telecharger/ }).first().click(),
+     ])
+     await download.saveAs('/tmp/telecharge.pdf')
+     return { nom: download.suggestedFilename(), violationsCSP: await
+     p.evaluate(() => window.__v) }
+
+     Attendu : suggestedFilename() est le nom d'origine de la pièce, et 
+     violationsCSP est vide.
+     C'est le point qui justifie cette étape : la politique servie est
+     default-src 'self' sans
+     blob:, et c'est ici qu'on apprend si le navigateur s'en sert contre le
+     téléchargement.
+
+     - [ ] Étape 3 : comparer les octets
+
+     sha256sum /tmp/telecharge.pdf
+
+     Attendu : identique à l'empreinte du fichier déposé. Un téléchargement qui
+     rend un fichier
+     légèrement différent est pire que pas de bouton du tout.
+
+     - [ ] Étape 4 : vérifier le chemin qui a motivé toute la conception
+
+     Le renouvellement après expiration du jeton d'accès. Sans forcer une
+     attente de 15 minutes :
+     supprimer le cookie d'accès, garder celui de rafraîchissement, puis
+     cliquer.
+
+     const cookies = await ctx.cookies();
+     await ctx.clearCookies();
+     await ctx.addCookies(cookies.filter(c => c.name === 'portail_refresh'));
+
+     Attendu : le téléchargement aboutit quand même. C'est exactement ce qu'un
+     <a href> n'aurait pas
+     su faire, donc la seule preuve que la décision valait son coût.
+
+     - [ ] Étape 5 : la pièce non reçue n'offre rien
+
+     Sur la même demande, une pièce restée « En attente » ne doit porter aucun
+     bouton.
+
+     - [ ] Étape 6 : mettre le backlog à jour
+
+     Dans issue_backlog.md : cocher - [ ] **Une action de téléchargement sur 
+     chaque pièce reçue de l'écran de détail** sous B4b, retirer l'encadré «
+     Rouvert le 10/08 », remettre le titre à
+     — P0 — **fait**, et retirer la ligne | **B4b**, écran | du tableau « Ce qui
+     reste » en tête.
+
+     Cocher aussi, dans docs/tests-manuels.md § A9, la case « Télécharger la
+     pièce déposée depuis
+     l'écran avocat, puis cmp → aucune différence », qui devient vraie.
+
+     - [ ] Étape 7 : commit
+
+     git add issue_backlog.md docs/tests-manuels.md
+     ai-plans/2026-08-10-telechargement-piece.md
+     git commit -m "docs(backlog): close B4b now the lawyer can reach the 
+     download"
+
+     ---
+     Relecture du plan
+
+     - Couverture : le manque relevé est « aucun écran ne mène au téléchargement
+     » ; les tâches 1 à 3
+     le comblent, la tâche 4 le prouve sur la pile réelle.
+     - Pas de trou : filenameFromDisposition, apiDownload, saveBlob,
+     downloadItemFile sont
+     définies avec leur corps avant d'être utilisées ; messageFor,
+     setActionError, ItemRow.action,
+     received() et stubSequence() existent déjà dans le dépôt.
+     - Noms cohérents entre les tâches : apiDownload (t1) → downloadItemFile
+     (t2) → onDownload
+     (t3), et { blob, filename } est la même forme partout.
+
+     Hors périmètre, nommé plutôt que fait
+
+     - Un dépôt refusé n'est pas montré à l'avocat. toRequestDetail décrit le
+     fichier même quand il
+     n'est pas complete, en disant explicitement que « the lawyer can still see
+     WHAT failed » — mais
+     ItemRow n'affiche le fichier que dans l'état received, donc la ligne reste
+     muette. L'intention
+     du backend n'est pas réalisée à l'écran. C'est une issue à part, et elle
+     demande d'exposer
+     status dans ReceivedFileView.
+     - Pas de téléchargement groupé de toutes les pièces : ce serait une route
+     et un format d'archive
+     côté serveur, pas un bouton.
+
+● Skill(superpowers:executing-plans)
+  ⎿  Successfully loaded skill
+
+● Je suis executing-plans. Même réserve que tout à l'heure sur le worktree : je
+  reste sur main, mais une autre session modifie ce dépôt en parallèle — je ne
+  commiterai donc qu'après ton feu vert, avec des chemins nommés un par un.
+
+  Je crée la liste et je démarre.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● client.test.ts existe déjà — je le lis pour suivre ses conventions plutôt que
+  d'en inventer.
+
+  Read 1 file (ctrl+o to expand)
+
+● Fichier de tests riche et bien tenu. J'ajoute mes cas en suivant ses
+  conventions — dont un test du renouvellement sur le téléchargement, qui est
+  toute la justification de la conception.
+
+● Update(frontend/src/api/client.test.ts)
+  ⎿  Added 1 line, removed 1 line
+      1  import { afterEach, describe, expect, it, vi } from 'vitest'
+      2 -import { ApiError, apiRequest } from './client'                 
+      2 +import { ApiError, apiDownload, apiRequest, filenameFromDisposit
+        +ion } from './client'                                           
+      3  
+      4  // Typed with its arguments, not just its return: the tests read
+          back the URL
+      5  // and the init of each call, which an argument-less signature t
+         ypes as [].
+● Update(frontend/src/api/client.test.ts)
+  ⎿  Added 70 lines
+      177      await expect(apiRequest('/auth/logout', { method: 'POST' }
+           )).resolves.toBeUndefined()
+      178    })
+      179  })
+      180 +                                                              
+      181 +describe('filenameFromDisposition', () => {                   
+      182 +  it('reads the RFC 5987 name the backend sends', () => {     
+      183 +    expect(filenameFromDisposition("attachment; filename*=UTF-
+          +8''piece-valide.pdf")).toBe(                                  
+      184 +      'piece-valide.pdf',                                     
+      185 +    )                                                         
+      186 +  })                                                          
+      187 +                                                              
+      188 +  // The name comes from an anonymous client, so it carries wh
+          +atever they typed.                                            
+      189 +  it('decodes the percent-encoding, or an accented name is sav
+          +ed mangled', () => {                                          
+      190 +    expect(                                                   
+      191 +      filenameFromDisposition("attachment; filename*=UTF-8''pi
+          +%C3%A8ce%20d%27identit%C3%A9.pdf"),                           
+      192 +    ).toBe("pièce d'identité.pdf")                            
+      193 +  })                                                          
+      194 +                                                              
+      195 +  // A header we cannot read must not throw in the middle of a
+          + download: the                                                
+      196 +  // lawyer gets a dull name rather than no file at all.      
+      197 +  it.each([                                                   
+      198 +    ['absent', null],                                         
+      199 +    ['undecodable', "attachment; filename*=UTF-8''%E0%A4%A"], 
+      200 +    ['empty', "attachment; filename*=UTF-8''"],               
+      201 +  ])('falls back on a %s header', (_case, header) => {        
+      202 +    expect(filenameFromDisposition(header)).toBe('piece')     
+      203 +  })                                                          
+      204 +})                                                            
+      205 +                                                              
+      206 +const pdfResponse = (status = 200) =>                         
+      207 +  new Response(new Blob(['%PDF-1.4']), {                      
+      208 +    status,                                                   
+      209 +    headers: {                                                
+      210 +      'content-type': 'application/pdf',                      
+      211 +      'content-disposition': "attachment; filename*=UTF-8''con
+          +trat.pdf",                                                    
+      212 +    },                                                        
+      213 +  })                                                          
+      214 +                                                              
+      215 +describe('apiDownload', () => {                               
+      216 +  it('returns the bytes and the name the server chose', async 
+          +() => {                                                       
+      217 +    vi.stubGlobal('fetch', vi.fn<FetchMock>().mockResolvedValu
+          +e(pdfResponse()))                                             
+      218 +                                                              
+      219 +    const { blob, filename } = await apiDownload('/requests/r1
+          +/items/i1/file')                                              
+      220 +                                                              
+      221 +    expect(filename).toBe('contrat.pdf')                      
+      222 +    expect(await blob.text()).toBe('%PDF-1.4')                
+      223 +  })                                                          
+      224 +                                                              
+      225 +  // THE reason this does not go through a plain <a href>: the
+          + access token                                                 
+      226 +  // lives 15 minutes, and a lawyer who left the screen open w
+          +ould otherwise                                                
+      227 +  // save Nest's 401 body under the name of their client's con
+          +tract.                                                        
+      228 +  it('renews an expired session and replays, instead of downlo
+          +ading the refusal', async () => {                             
+      229 +    const fetchMock = vi                                      
+      230 +      .fn<FetchMock>()                                        
+      231 +      .mockResolvedValueOnce(jsonResponse({}, 401))           
+      232 +      .mockResolvedValueOnce(jsonResponse({}, 200))           
+      233 +      .mockResolvedValueOnce(pdfResponse())                   
+      234 +    vi.stubGlobal('fetch', fetchMock)                         
+      235 +                                                              
+      236 +    await expect(apiDownload('/requests/r1/items/i1/file')).re
+          +solves.toMatchObject({                                        
+      237 +      filename: 'contrat.pdf',                                
+      238 +    })                                                        
+      239 +    expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/auth/refr
+          +esh')                                                         
+      240 +  })                                                          
+      241 +                                                              
+      242 +  it('raises a typed error rather than handing a JSON body to 
+          +the browser as a file', async () => {                         
+      243 +    vi.stubGlobal('fetch', vi.fn<FetchMock>().mockResolvedValu
+          +e(jsonResponse({}, 404)))                                     
+      244 +                                                              
+      245 +    await expect(apiDownload('/requests/r1/items/i1/file')).re
+          +jects.toMatchObject({                                         
+      246 +      kind: 'notFound',                                       
+      247 +    })                                                        
+      248 +  })                                                          
+      249 +})                                                            
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Huit nouveaux tests échouent, les 14 existants passent. J'implémente.
+
+● Update(frontend/src/api/client.ts)
+  ⎿  Added 61 lines, removed 9 lines
+      135    return (await response.json()) as T
+      136  }
+      137  
+      138 -export const apiRequest = async <T>(path: string, init: Reques
+          -tInit = {}): Promise<T> => {                                  
+      139 -  let response = await send(path, init)                       
+      138 +/**                                                           
+      139 + * The access token lives 15 minutes. One renewal, one replay:
+          + without that                                                 
+      140 + * bound, a refused renewal would loop.                       
+      141 + *                                                            
+      142 + * Shared with apiDownload rather than kept inside apiRequest:
+          + a download that                                              
+      143 + * skipped this would save Nest's 401 body under the name of a
+          + client's                                                     
+      144 + * contract, for any lawyer who left the screen open past the 
+          +token's life.                                                 
+      145 + */                                                           
+      146 +const sendWithRenewal = async (path: string, init: RequestInit
+          +): Promise<Response> => {                                     
+      147 +  const response = await send(path, init)                     
+      148 +  if (response.status !== 401 || isNeverRenewed(path)) return 
+          +response                                                      
+      149  
+      141 -  // The access token lives 15 minutes. One renewal, one repla
+          -y: without that                                               
+      142 -  // bound, a refused renewal would loop.                     
+      143 -  if (response.status === 401 && !isNeverRenewed(path)) {     
+      144 -    const renewed = await send(REFRESH_PATH, { method: 'POST' 
+          -})                                                            
+      145 -    if (renewed.ok) {                                         
+      146 -      response = await send(path, init)                       
+      147 -    }                                                         
+      150 +  const renewed = await send(REFRESH_PATH, { method: 'POST' })
+      151 +  return renewed.ok ? await send(path, init) : response       
+      152 +}                                                             
+      153 +                                                              
+      154 +/** Nothing in the product is called that, so a fallback name 
+          +is recognisable. */                                           
+      155 +const FALLBACK_FILENAME = 'piece'                             
+      156 +                                                              
+      157 +/**                                                           
+      158 + * The name the server put in Content-Disposition, RFC 5987 fo
+          +rm. Read back                                                 
+      159 + * rather than rebuilt from originalName: the encoding rule al
+          +ready lives in                                                
+      160 + * the requests controller and an e2e case covers it, so a sec
+          +ond rule here                                                 
+      161 + * would be free to disagree with it without any test seeing t
+          +he drift.                                                     
+      162 + *                                                            
+      163 + * `safeFileName` is NOT an alternative -- it truncates at 40 
+          +characters for                                                
+      164 + * display, and would save "contrat-de-ba….pdf".              
+      165 + */                                                           
+      166 +export const filenameFromDisposition = (header: string | null)
+          +: string => {                                                 
+      167 +  const match = /filename\*=UTF-8''([^;]+)/i.exec(header ?? ''
+          +)                                                             
+      168 +  if (match === null) return FALLBACK_FILENAME                
+      169 +  try {                                                       
+      170 +    const decoded = decodeURIComponent(match[1])              
+      171 +    return decoded === '' ? FALLBACK_FILENAME : decoded       
+      172 +  } catch {                                                   
+      173 +    // A malformed percent-sequence throws; it must not abort 
+          +the download.                                                 
+      174 +    return FALLBACK_FILENAME                                  
+      175    }
+      176 +}                                                             
+      177  
+      178 +/**                                                           
+      179 + * A binary answer, with the same session handling as apiReque
+          +st. Separate from                                             
+      180 + * it because `parse` demands JSON: a 200 that is not JSON is 
+          +how that function                                             
+      181 + * detects a drifted /api prefix, and a PDF would trip exactly
+          + that check.                                                  
+      182 + */                                                           
+      183 +export const apiDownload = async (                            
+      184 +  path: string,                                               
+      185 +): Promise<{ blob: Blob; filename: string }> => {             
+      186 +  const response = await sendWithRenewal(path, { headers: { ac
+          +cept: '*/*' } })                                              
+      187 +                                                              
+      188    if (!response.ok) {
+      189 +    const raw = await response.text().catch(() => '')         
+      190 +    throw apiErrorFor(response.status, response.headers.get('c
+          +ontent-type') ?? '', raw)                                     
+      191 +  }                                                           
+      192 +                                                              
+      193 +  return {                                                    
+      194 +    blob: await response.blob(),                              
+      195 +    filename: filenameFromDisposition(response.headers.get('co
+          +ntent-disposition')),                                         
+      196 +  }                                                           
+      197 +}                                                             
+      198 +                                                              
+      199 +export const apiRequest = async <T>(path: string, init: Reques
+          +tInit = {}): Promise<T> => {                                  
+      200 +  const response = await sendWithRenewal(path, init)          
+      201 +                                                              
+      202 +  if (!response.ok) {                                         
+      203      // The body is read here because this is the last place th
+           at still holds the
+      204      // response. A screen showing "Une erreur est survenue" ov
+           er "Deux pieces
+      205      // portent le meme libelle" would hide the one sentence th
+           at says what to
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Deux échecs, et ils sont dans mon assistant de test, pas dans l'implémentation
+  : le Blob de jsdom n'a pas de .stream(), donc on ne peut pas en faire le
+  corps d'une Response. Je passe une chaîne, et c'est .blob() qui fabriquera le
+  Blob.
+
+● Update(frontend/src/api/client.test.ts)
+  ⎿  Added 4 lines, removed 1 line
+      203    })
+      204  })
+      205  
+      206 +// The body is a string, not a Blob: jsdom's Blob has no `stre
+          +am()`, so passing                                             
+      207 +// one to Response throws before the test even reaches the cod
+          +e under test.                                                 
+      208 +// `response.blob()` still hands back a real Blob, which is wh
+          +at is asserted.                                               
+      209  const pdfResponse = (status = 200) =>
+      207 -  new Response(new Blob(['%PDF-1.4']), {                      
+      210 +  new Response('%PDF-1.4', {                                  
+      211      status,
+      212      headers: {
+      213        'content-type': 'application/pdf',
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 120 tests passent, 19 fichiers — l'extraction de sendWithRenewal n'a rien
+  cassé.
+
+● Write(frontend/src/save-blob.ts)
+  ⎿  Wrote 25 lines to frontend/src/save-blob.ts
+       1 /**
+       3  *
+       4  * Its own module so a screen test can replace it with a spy: js
+         dom implements
+         o a test that
+       6  * went through it would be asserting on stubs of the browser ra
+       7  * the screen.
+       8  *
+       9  * The anchor is created and removed rather than rendered: React
+      10  * keep an element whose only purpose is to be clicked once.
+     … +20 lines (ctrl+o to expand)
+
+● Update(frontend/src/api/requests.ts)
+  ⎿  Added 1 line, removed 1 line
+      1 -import { apiRequest } from './client'                           
+      1 +import { apiDownload, apiRequest } from './client'              
+      2  
+      3  // Mirrors backend/src/requests/request.types.ts. Nothing genera
+         tes it, so a
+      4  // field renamed there has to be renamed here by hand -- the sam
+         e contract as
+
+● Update(frontend/src/api/requests.ts)
+  ⎿  Added 16 lines
+       93  // 204, so apiRequest resolves to undefined rather than parsin
+           g an empty body.
+       94  export const revokeLink = (id: string): Promise<void> =>
+       95    apiRequest<void>(`/requests/${encodeURIComponent(id)}/link`,
+            { method: 'DELETE' })
+       96 +                                                              
+       97 +/**                                                           
+       98 + * The bytes of a deposited piece, and the name to save them u
+          +nder.                                                         
+       99 + *                                                            
+      100 + * Only ever called for an item whose `received` is true: requ
+          +est.types.ts                                                  
+      101 + * counts a `complete` file alone as received, which is exactl
+          +y the set the                                                 
+      102 + * route agrees to serve -- a `failed` one answers 404. So the
+          +re is no button                                               
+      103 + * on this screen that can lead to a refusal.                 
+      104 + */                                                           
+      105 +export const downloadItemFile = (                             
+      106 +  requestId: string,                                          
+      107 +  itemId: string,                                             
+      108 +): Promise<{ blob: Blob; filename: string }> =>               
+      109 +  apiDownload(                                                
+      110 +    `/requests/${encodeURIComponent(requestId)}/items/${encode
+          +URIComponent(itemId)}/file`,                                  
+      111 +  )                                                           
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Lint à zéro avertissement, build propre. Je passe au bouton.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Update(frontend/src/pages/request-detail-page.test.tsx)
+  ⎿  Added 62 lines
+      243  
+      244      expect(await screen.findByText("Piece d'identite")).toBeIn
+           TheDocument()
+      245    })
+      246 +                                                              
+      247 +  // B4b shipped the route and no way to reach it: the lawyer 
+          +could not get the                                             
+      248 +  // pieces their client had deposited, which is what the prod
+          +uct is for.                                                   
+      249 +  describe('downloading a piece', () => {                     
+      250 +    it('offers nothing on a piece nobody has deposited yet', a
+          +sync () => {                                                  
+      251 +      stubSequence([() => jsonResponse(detail({ items: [pendin
+          +g("Piece d'identite")] }))])                                  
+      252 +      renderDetail()                                          
+      253 +                                                              
+      254 +      expect(await screen.findByText("Piece d'identite")).toBe
+          +InTheDocument()                                               
+      255 +      expect(screen.queryByRole('button', { name: /telecharger
+          +/i })).not.toBeInTheDocument()                                
+      256 +    })                                                        
+      257 +                                                              
+      258 +    it('saves the bytes under the name the server chose', asyn
+          +c () => {                                                     
+      259 +      const fetchMock = stubSequence([                        
+      260 +        () => jsonResponse(detail({ items: [received('contrat.
+          +pdf')] })),                                                   
+      261 +        () =>                                                 
+      262 +          new Response('%PDF-1.4', {                          
+      263 +            status: 200,                                      
+      264 +            headers: {                                        
+      265 +              'content-type': 'application/pdf',              
+      266 +              'content-disposition': "attachment; filename*=UT
+          +F-8''contrat.pdf",                                            
+      267 +            },                                                
+      268 +          }),                                                 
+      269 +      ])                                                      
+      270 +      renderDetail()                                          
+      271 +                                                              
+      272 +      await userEvent.click(await screen.findByRole('button', 
+          +{ name: /telecharger/i }))                                    
+      273 +                                                              
+      274 +      expect(fetchMock.mock.calls[1][0]).toBe(                
+      275 +        '/api/v1/requests/r1/items/Contrat%20de%20bail%20signe
+          +/file',                                                       
+      276 +      )                                                       
+      277 +      expect(saveBlob).toHaveBeenCalledWith(expect.any(Blob), 
+          +'contrat.pdf')                                                
+      278 +    })                                                        
+      279 +                                                              
+      280 +    // The accessible name carries the piece, not just the ver
+          +b: a request with                                             
+      281 +    // three received pieces would otherwise expose three iden
+          +tical buttons.                                                
+      282 +    it('names the piece in the accessible label', async () => 
+          +{                                                             
+      283 +      stubSequence([                                          
+      284 +        () => jsonResponse(detail({ items: [received('contrat.
+          +pdf', 'Bail signe')] })),                                     
+      285 +      ])                                                      
+      286 +      renderDetail()                                          
+      287 +                                                              
+      288 +      expect(                                                 
+      289 +        await screen.findByRole('button', { name: 'Telecharger
+          + Bail signe' }),                                              
+      290 +      ).toBeInTheDocument()                                   
+      291 +    })                                                        
+      292 +                                                              
+      293 +    // The piece can vanish between the page load and the clic
+          +k. The screen has                                             
+      294 +    // to say so: a click that does nothing reads as a broken 
+          +button.                                                       
+      295 +    it('reports a refusal instead of failing silently', async 
+          +() => {                                                       
+      296 +      stubSequence([                                          
+      297 +        () => jsonResponse(detail({ items: [received('contrat.
+          +pdf')] })),                                                   
+      298 +        () => jsonResponse({ message: 'Not Found' }, 404),    
+      299 +      ])                                                      
+      300 +      renderDetail()                                          
+      301 +                                                              
+      302 +      await userEvent.click(await screen.findByRole('button', 
+          +{ name: /telecharger/i }))                                    
+      303 +                                                              
+      304 +      expect(await screen.findByRole('alert')).toHaveTextConte
+          +nt(/introuvable/i)                                            
+      305 +      expect(saveBlob).not.toHaveBeenCalled()                 
+      306 +    })                                                        
+      307 +  })                                                          
+      308  })
+
+● J'ajoute l'espion sur save-blob et la remise à zéro entre tests — sans elle,
+  le dernier cas (not.toHaveBeenCalled) hériterait des appels des précédents.
+
+● Update(frontend/src/pages/request-detail-page.test.tsx)
+  ⎿  Added 6 lines
+       5  import type { DetailedItem, IssuedLink, RequestDetail } from '.
+          ./api/requests'
+       6  import { SessionContext } from '../auth/session'
+       7  import type { SessionState } from '../auth/session'
+       8 +import { saveBlob } from '../save-blob'                        
+       9  import { renderWithTheme } from '../test/render'
+      10  import { RequestDetailPage } from './request-detail-page'
+      11  
+      12 +// jsdom implements neither URL.createObjectURL nor a real down
+         +load, so the                                                   
+      13 +// handover to the browser is stubbed and asserted on instead. 
+         +That it actually                                               
+      14 +// saves a file is checked in a real Chromium, not here.       
+      15 +vi.mock('../save-blob', () => ({ saveBlob: vi.fn() }))         
+      16 +                                                               
+      17  type FetchMock = (url: string, init: RequestInit) => Promise<Re
+          sponse>
+      18  
+      19  const jsonResponse = (body: unknown, status = 200) =>
+● Update(frontend/src/pages/request-detail-page.test.tsx)
+  ⎿  Added 3 lines
+       93  
+       94  afterEach(() => {
+       95    vi.unstubAllGlobals()
+       96 +  // The saveBlob spy is module-level, so its calls would othe
+          +rwise carry over                                              
+       97 +  // and the "did not save" assertion would pass or fail on te
+          +st ORDER.                                                     
+       98 +  vi.clearAllMocks()                                          
+       99  })
+      100  
+      101  describe('RequestDetailPage', () => {
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Trois échecs pour la bonne raison. J'implémente le bouton.
+
+● Update(frontend/src/pages/request-detail-page.tsx)
+  ⎿  Added 1 line, removed 1 line
+      2  import { useState } from 'react'
+      3  import { Link as RouterLink, useParams } from 'react-router-dom'
+      4  import { ApiError } from '../api/client'
+      5 -import { getRequest, regenerateLink, revokeLink } from '../api/r
+        -equests'                                                        
+      5 +import { downloadItemFile, getRequest, regenerateLink, revokeLin
+        +k } from '../api/requests'                                      
+      6  import type { IssuedLink } from '../api/requests'
+      7  import { AppShell } from '../components/app-shell'
+      8  import { IssuedLinkCard } from '../components/issued-link-card'
+
+● Update(frontend/src/pages/request-detail-page.tsx)
+  ⎿  Added 1 line
+      11  import { LinkStateBadge, StatusBadge } from '../components/stat
+          us-badge'
+      12  import { formatDate, pluralize } from '../format'
+      13  import { useResource } from '../hooks/use-resource'
+      14 +import { saveBlob } from '../save-blob'                        
+      15  
+      16  const MIN_DAYS = 1
+      17  const MAX_DAYS = 90
+
+● Update(frontend/src/pages/request-detail-page.tsx)
+  ⎿  Added 5 lines
+      36    revokeWarning:
+      37      'Le lien actuel cessera de fonctionner immediatement et vot
+          re client ne pourra plus deposer de piece.',
+      38    itemsEyebrow: 'Pieces attendues',
+      39 +  download: 'Telecharger',                                     
+      40 +  // The piece, not just the verb: a request with three receive
+         +d pieces would                                                 
+      41 +  // otherwise expose three buttons a screen reader cannot tell
+         + apart.                                                        
+      42 +  downloadAria: (label: string) => `Telecharger ${label}`,     
+      43 +  downloading: 'Telechargement...',                            
+      44    notFound: 'Demande introuvable.',
+      45    unexpected: 'Une erreur est survenue.',
+      46    working: 'En cours...',
+
+● Update(frontend/src/pages/request-detail-page.tsx)
+  ⎿  Added 18 lines
+       87      }
+       88    }
+       89  
+       90 +  // Keyed by item so only the row being fetched shows its own
+          + progress, and                                                
+       91 +  // reported through the existing panel: a click that does no
+          +thing visible                                                 
+       92 +  // reads as a broken button.                                
+       93 +  const [downloading, setDownloading] = useState<string | null
+          +>(null)                                                       
+       94 +                                                              
+       95 +  const onDownload = async (itemId: string) => {              
+       96 +    setDownloading(itemId)                                    
+       97 +    setActionError(null)                                      
+       98 +    try {                                                     
+       99 +      const { blob, filename } = await downloadItemFile(id, it
+          +emId)                                                         
+      100 +      saveBlob(blob, filename)                                
+      101 +    } catch (caught) {                                        
+      102 +      setActionError(messageFor(caught))                      
+      103 +    } finally {                                               
+      104 +      setDownloading(null)                                    
+      105 +    }                                                         
+      106 +  }                                                           
+      107 +                                                              
+      108    const onRegenerate = () => {
+      109      const parsed = Number(days)
+      110      void runAction(() =>
+
+● Un détail de placement : actionError s'affiche dans la carte « Lien public ».
+  Une erreur de téléchargement y serait hors sujet. Je lui donne son propre
+  état, affiché dans la carte des pièces.
+
+● Update(frontend/src/pages/request-detail-page.tsx)
+  ⎿  Added 6 lines, removed 2 lines
+       91    // reported through the existing panel: a click that does no
+           thing visible
+       92    // reads as a broken button.
+       93    const [downloading, setDownloading] = useState<string | null
+           >(null)
+       94 +  // Its own error, not actionError: that one is rendered insi
+          +de the public-link                                            
+       95 +  // card, and a failed download reported there would sit unde
+          +r a paragraph                                                 
+       96 +  // about the PIN.                                           
+       97 +  const [downloadError, setDownloadError] = useState<string | 
+          +null>(null)                                                   
+       98  
+       99    const onDownload = async (itemId: string) => {
+      100      setDownloading(itemId)
+       97 -    setActionError(null)                                      
+      101 +    setDownloadError(null)                                    
+      102      try {
+      103        const { blob, filename } = await downloadItemFile(id, it
+           emId)
+      104        saveBlob(blob, filename)
+      105      } catch (caught) {
+      102 -      setActionError(messageFor(caught))                      
+      106 +      setDownloadError(messageFor(caught))                    
+      107      } finally {
+      108        setDownloading(null)
+      109      }
+
+● Update(frontend/src/pages/request-detail-page.tsx)
+  ⎿  Added 34 lines, removed 12 lines
+      258                  <Card.Title>{TEXT.itemsEyebrow}</Card.Title>
+      259                </Card.Header>
+      260                <Card.Body>
+      261 -                <Stack gap="0">                               
+      262 -                  {data.items.map((item) => (                 
+      263 -                    // THE line C2 will change: the API expose
+          -s no upload status,                                           
+      264 -                    // so "received" means a file hangs off th
+          -e piece. ItemRow                                              
+      265 -                    // already draws the failed and uploading 
+          -states.                                                       
+      266 -                    <ItemRow                                  
+      267 -                      key={item.id}                           
+      268 -                      label={item.label}                      
+      269 -                      state={item.received ? 'received' : 'pen
+          -ding'}                                                        
+      270 -                      file={item.file}                        
+      271 -                    />                                        
+      272 -                  ))}                                         
+      261 +                <Stack gap="12px">                            
+      262 +                  {downloadError === null ? null : <ErrorPanel
+          + message={downloadError} />}                                  
+      263 +                                                              
+      264 +                  <Stack gap="0">                             
+      265 +                    {data.items.map((item) => (               
+      266 +                      // THE line C2 will change: the API expo
+          +ses no upload status,                                         
+      267 +                      // so "received" means a file hangs off 
+          +the piece. ItemRow                                            
+      268 +                      // already draws the failed and uploadin
+          +g states.                                                     
+      269 +                      <ItemRow                                
+      270 +                        key={item.id}                         
+      271 +                        label={item.label}                    
+      272 +                        state={item.received ? 'received' : 'p
+          +ending'}                                                      
+      273 +                        file={item.file}                      
+      274 +                        // Gated on `received`, which means `c
+          +omplete`: exactly                                             
+      275 +                        // the set the route agrees to serve, 
+          +so no button here                                             
+      276 +                        // can lead to a 404 of its own making
+          +.                                                             
+      277 +                        action={                              
+      278 +                          item.received ? (                   
+      279 +                            <Button                           
+      280 +                              variant="secondary"             
+      281 +                              // Same rule as the client's dep
+          +osit control: sm                                              
+      282 +                              // is 40px, and a finger wants m
+          +ore than that.                                                
+      283 +                              size={{ base: 'md', md: 'sm' }} 
+      284 +                              aria-label={TEXT.downloadAria(it
+          +em.label)}                                                    
+      285 +                              disabled={downloading !== null} 
+      286 +                              onClick={() => void onDownload(i
+          +tem.id)}                                                      
+      287 +                            >                                 
+      288 +                              {downloading === item.id ? TEXT.
+          +downloading : TEXT.download}                                  
+      289 +                            </Button>                         
+      290 +                          ) : undefined                       
+      291 +                        }                                     
+      292 +                      />                                      
+      293 +                    ))}                                       
+      294 +                  </Stack>                                    
+      295                  </Stack>
+      296                </Card.Body>
+      297              </Card.Root>
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● C'est un piège d'environnement : response.blob() rend un Blob de Node, pas
+  celui du global jsdom auquel expect.any(Blob) se réfère. J'assertis plutôt sur
+  le contenu réel, ce qui est d'ailleurs plus fort.
+
+● Update(frontend/src/pages/request-detail-page.test.tsx)
+  ⎿  Added 6 lines, removed 1 line
+      283        expect(fetchMock.mock.calls[1][0]).toBe(
+      284          '/api/v1/requests/r1/items/Contrat%20de%20bail%20signe
+           /file',
+      285        )
+      286 -      expect(saveBlob).toHaveBeenCalledWith(expect.any(Blob), 
+          -'contrat.pdf')                                                
+      286 +      // The bytes themselves, not `expect.any(Blob)`: respons
+          +e.blob() hands                                                
+      287 +      // back Node's Blob, which is not the jsdom global this 
+          +file would                                                    
+      288 +      // compare against -- and the content is what actually m
+          +atters.                                                       
+      289 +      const [blob, filename] = vi.mocked(saveBlob).mock.calls[
+          +0]                                                            
+      290 +      expect(filename).toBe('contrat.pdf')                    
+      291 +      expect(await blob.text()).toBe('%PDF-1.4')              
+      292      })
+      293  
+      294      // The accessible name carries the piece, not just the ver
+           b: a request with
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 124 tests passent, mais le lint échoue. Je regarde.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● La règle vitest(require-mock-type-parameters) exige un paramètre de type sur
+  vi.fn(). Je le donne explicitement, comme le reste du fichier.
+
+● Update(frontend/src/pages/request-detail-page.test.tsx)
+  ⎿  Added 3 lines, removed 1 line
+      12  // jsdom implements neither URL.createObjectURL nor a real down
+          load, so the
+      13  // handover to the browser is stubbed and asserted on instead. 
+          That it actually
+      14  // saves a file is checked in a real Chromium, not here.
+      15 -vi.mock('../save-blob', () => ({ saveBlob: vi.fn() }))         
+      15 +vi.mock('../save-blob', () => ({                               
+      16 +  saveBlob: vi.fn<(blob: Blob, filename: string) => void>(),   
+      17 +}))                                                            
+      18  
+      19  type FetchMock = (url: string, init: RequestInit) => Promise<Re
+          sponse>
+      20  
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Tout est vert : lint 0, build 0, 124 tests. Je passe à la vérification
+  navigateur — et d'abord la reconstruction de l'image, sans quoi je testerais
+  l'ancien écran.
+
+  Ran 2 shell commands (ctrl+o to expand)
+● Le bundle a changé : index-Dp5uOriT.js. La nouvelle version est déployée. Je
+  vérifie dans le navigateur.
+
+  Called plugin:playwright:playwright 3 times (ctrl+o to expand)
+
+● Le profil du navigateur MCP est verrouillé — probablement un Chromium résiduel
+  des contextes que j'ai ouverts. Je regarde avant de toucher quoi que ce soit.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Onze processus sur ce profil, lancés il y a 3 h — c'est le navigateur MCP de
+  cette session, dont le serveur a perdu la main. Le profil est jetable
+  (ms-playwright-mcp/mcp-chrome-dcc27cb), pas ton Chrome personnel. Je termine
+  l'arbre de processus pour que le MCP puisse en relancer un.
+
+  Called plugin:playwright:playwright, ran 2 shell commands (ctrl+o to expand)
+
+● Navigateur relancé. Je joue la vérification complète.
+
+  Called plugin:playwright:playwright 2 times (ctrl+o to expand)
+
+● La coupe échouait sur Pieces attendues : innerText rend le texte après
+  text-transform, donc la carte s'appelle PIECES ATTENDUES. Je corrige et je
+  rejoue.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Le téléchargement fonctionne : un seul bouton, sur la pièce reçue (« RIB » en
+  attente n'en a pas), libellé accessible « Telecharger Justificatif de domicile
+  », nom proposé piece-valide.pdf venu du serveur — et zéro violation CSP, ce
+  qui était l'inconnue. Je compare les octets.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Octet pour octet. Reste le test qui justifie toute la conception : le
+  téléchargement doit survivre à l'expiration du jeton d'accès. Je supprime le
+  cookie d'accès en gardant celui de rafraîchissement.
+
+  Called plugin:playwright:playwright (ctrl+o to expand)
+
+● Le tracé réseau est la preuve exacte de la conception :
+
+  GET  …/file        -> 401
+  POST /auth/refresh -> 200
+  GET  …/file        -> 200
+
+  Le jeton s'est renouvelé tout seul, portail_auth est réapparu, et le fichier
+  est arrivé. Un <a href> aurait enregistré le corps du 401. Je contrôle les
+  octets de ce second téléchargement.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Je vérifie enfin que le bouton ne casse pas la mise en page aux deux largeurs.
+
+  Read 1 file, called plugin:playwright:playwright (ctrl+o to expand)
+
+● Propre sur mobile : chaque pièce reçue porte son bouton, rien ne déborde. Je
+  ferme B4b dans le backlog.
+
+● Update(issue_backlog.md)
+  ⎿  Added 22 lines, removed 10 lines
+      460  
+      461  Dépendances : B2.
+      462  
+      463 -### B4b. Téléchargement des pièces déposées — P0 — **API faite
+          -, écran manquant**                                            
+      463 +### B4b. Téléchargement des pièces déposées — P0 — **fait**   
+      464  
+      465 -> **Rouvert le 10/08 par la passe navigateur.** Les trois crit
+          -ères ci-dessous portent tous sur                              
+      466 -> l'API, et ils tiennent : la route répond 200 et rend le fich
+          -ier **octet pour octet identique**                            
+      467 -> (SHA-256 concordant, vérifié à travers nginx). Mais **aucun 
+          -écran n'y mène** — le détail d'une                            
+      468 -> demande n'a ni bouton, ni lien, ni le mot « télécharger » ; 
+          -ses seuls boutons sont « Se                                   
+      469 -> déconnecter », « Régénérer le lien », « Révoquer l'accès ». 
+          -Un avocat ne peut donc pas récupérer                          
+      470 -> les pièces de son client, ce qui est la finalité du produit.
+          - Cocher l'issue « faite » sur ses                             
+      471 -> critères d'API était exact au niveau technique et faux au ni
+          -veau du produit — c'est précisément                           
+      472 -> le genre d'écart qu'aucune suite ne voit, les tests e2e appe
+          -lant la route directement.                                    
+      465 +> **Rouvert puis refermé le 10/08.** L'issue avait été cochée 
+          +« faite » sur ses trois critères, qui                         
+      466 +> portent tous sur l'API — exact techniquement, faux au niveau
+          + du produit : la passe navigateur a                           
+      467 +> montré qu'**aucun écran n'y menait**, donc qu'un avocat ne p
+          +ouvait pas récupérer les pièces de son                        
+      468 +> client. L'angle mort est nommé parce qu'il se reproduira : l
+          +es tests e2e appellent la route                               
+      469 +> directement, donc **aucune suite ne voit l'absence du bouton
+          + qui l'appelle**.                                             
+      470  >
+      474 -> - [ ] **Une action de téléchargement sur chaque pièce reçue 
+          -de l'écran de détail**                                        
+      471 +> - [x] **Une action de téléchargement sur chaque pièce reçue 
+          +de l'écran de détail** — bouton                               
+      472 +>       secondaire par ligne reçue, branché sur la prop `actio
+          +n` qu'`ItemRow` exposait déjà. Le                             
+      473 +>       libellé accessible porte le nom de la pièce (« Telecha
+          +rger Justificatif de domicile »), sans                        
+      474 +>       quoi trois pièces reçues donneraient trois boutons ind
+          +iscernables au lecteur d'écran                                
+      475  
+      476 +**Le téléchargement passe par `fetch` + blob, pas par un `<a h
+          +ref>`**, et c'est la seule décision                           
+      477 +non évidente ici. Le lien direct diffuserait le flux sans rien
+          + mettre en mémoire, mais il **ne                              
+      478 +traverse pas le renouvellement de session** : le jeton d'accès
+          + vit 15 min, donc un avocat qui laisse                        
+      479 +l'écran d'un dossier ouvert puis clique enregistrerait le corp
+          +s du 401 de Nest sous le nom du                               
+      480 +contrat de son client. Vérifié dans le navigateur en suppriman
+          +t le seul cookie d'accès —                                    
+      481 +`GET …/file → 401`, `POST /auth/refresh → 200`, `GET …/file → 
+          +200`, fichier identique. Ce qu'on paie                        
+      482 +en échange : **le fichier est mis en mémoire en entier**, born
+          +é par le plafond de 20 Mio de C2.                             
+      483 +                                                              
+      484 +Le nom vient de l'en-tête `Content-Disposition` relu côté clie
+          +nt, **pas** de `originalName` :                               
+      485 +`safeFileName` tronque à 40 caractères pour l'affichage et enr
+          +egistrerait `contrat-de-ba….pdf`.                             
+      486 +Relire l'en-tête garde une seule définition du nom, celle que 
+          +le contrôleur produit déjà.                                   
+      487 +                                                              
+      488  - [x] L'avocat récupère un fichier déposé — **flux à travers l
+           'API**, `GET
+      489        /requests/:id/items/:itemId/file`, servi en `StreamableF
+           ile` sur `getObjectStream`
+      490  - [x] Le lien ne fuit pas hors de la session avocat — il n'y a
+            **pas de lien** : la route passe par
+
+● Le fichier a été modifié entre-temps par l'autre session — je le relis avant
+  de toucher au tableau de tête.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(issue_backlog.md)  ⎿  Added 1 line, removed 1 line
+      36  | Reste | Nature |
+      37  |---|---|
+      38  | **H3** | Export des sessions IA et **caviardage**, à faire li
+          gne à ligne |
+      39 -| **B4b**, écran | **Nouveau, 10/08.** L'API de téléchargement 
+         -répond, **aucun écran n'y mène** : l'avocat ne peut pas récupér
+         -er les pièces déposées. Le plus grave de ce qu'a trouvé la pass
+         -e navigateur |                                                 
+      39 +| ~~**B4b**, écran~~ | **Fermé le 10/08, le jour même.** La pas
+         +se navigateur avait trouvé que l'API de téléchargement répondai
+         +t sans qu'aucun écran n'y mène. Le bouton est livré et vérifié 
+         +dans un vrai Chromium : nom du fichier venu du serveur, **octet
+         + pour octet identique**, renouvellement de session traversé, zé
+         +ro violation CSP |                                             
+      40  | ~~**E2** + passe navigateur~~ | **Passe faite le 10/08** — su
+          rvol mesuré, CSP à zéro violation, aucun débordement à 375 ni 1
+          440, parcours client rejoué sur mobile. Reste la densité du bou
+          ton de dépôt (190×40 contre 156×36) et les cibles tactiles à 18
+          –21 px. Voir `ai-plans/2026-08-10-passe-navigateur-playwright.m
+          d` |
+      41  | **D1** | La suite d'intégration du seed, seule case encore ou
+          verte |
+      42  
+
+● Maintenant la case A9 de docs/tests-manuels.md, qui devient vraie.
+
+● Update(docs/tests-manuels.md)
+  ⎿  Added 5 lines, removed 2 lines
+       96  - [ ] Déposer un PDF sur la première pièce → barre de progress
+           ion, puis la pièce passe à *reçue*
+       97  - [ ] Déposer les deux autres → la progression client affiche 
+           **3/3**
+       98  - [ ] Côté avocat, recharger `/dashboard` → la demande est **c
+           omplète**
+       99 -- [ ] Télécharger la pièce déposée depuis l'écran avocat, puis
+      100 -      `cmp fichier-original.pdf fichier-telecharge.pdf` → **au
+          -cune différence**, octet pour octet                           
+       99 +- [x] Télécharger la pièce déposée depuis l'écran avocat, puis
+      100 +      `cmp fichier-original.pdf fichier-telecharge.pdf` → **au
+          +cune différence**, octet pour octet.                          
+      101 +      Le bouton *Telecharger* n'apparaît que sur une pièce **r
+          +eçue** ; laisser l'écran ouvert plus de                       
+      102 +      15 minutes puis cliquer doit **quand même** rendre le fi
+          +chier — le jeton d'accès se renouvelle                        
+      103 +      en cours de route, ce qu'un lien HTML simple n'aurait pa
+          +s su faire                                                    
+      104  - [ ] `curl -i http://127.0.0.1:21600/api/v1/requests/<id>/ite
+           ms/<itemId>/file` sans cookie → **401**
+      105  
+      106  ---
+
+● Documents à jour. Per ta règle, je relis mon propre diff avant de proposer les
+  commits.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Implémentation terminée et vérifiée.
+
+  Ce qui a été construit
+
+  Un bouton Telecharger par pièce reçue, sur l'écran de détail d'une demande.
+  Trois pièces de code : une fonction de téléchargement dans la couche API, un
+  utilitaire qui remet le fichier au navigateur, et le bouton branché sur la
+  prop action qu'ItemRow exposait déjà — le composant n'a pas été modifié.
+
+  Vérifié, et avec quels résultats
+
+  En test : 124 tests, 19 fichiers, tous verts. Lint et build à zéro. J'ai
+  ajouté 11 cas — trois sur le parseur de nom (forme RFC 5987, décodage d'un nom
+  accentué, trois replis), trois sur apiDownload (octets et nom rendus,
+  renouvellement de session, refus typé plutôt qu'un JSON enregistré comme
+  fichier), et quatre sur l'écran (pas de bouton sur une pièce en attente, les
+  bons octets remis sous le bon nom, le nom de la pièce dans le libellé
+  accessible, un refus affiché plutôt qu'un clic muet).
+
+  Dans un vrai Chromium, après reconstruction de l'image — le bundle est passé
+  de index-Cpw9AE4p.js à index-Dp5uOriT.js, sans quoi j'aurais testé l'ancien
+  écran :
+
+  ┌────────────────┬────────────────────────────────────────────────────────┐
+  │                │                        Résultat                        │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ Boutons        │ 1 sur la pièce reçue, 0 sur « RIB » en attente         │
+  │ affichés       │                                                        │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ Nom proposé    │ piece-valide.pdf, venu du serveur                      │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ Octets         │ cmp → aucune différence                                │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ Violations CSP │ 0 — l'inconnue du plan, default-src 'self' ne bloque   │
+  │                │ pas le blob                                            │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ Mise en page   │ aucun débordement à 375 ni 1440 px                     │
+  └────────────────┴────────────────────────────────────────────────────────┘
+
+  Le test qui justifie la conception : cookie d'accès supprimé, seul le
+  rafraîchissement conservé, puis clic → GET …/file 401, POST /auth/refresh 200,
+  GET …/file 200, fichier identique. Un <a href> aurait enregistré le corps du
+  401 sous le nom du contrat du client.
+
+  Ce que la relecture a corrigé
+
+  Trois choses, toutes attrapées en cours de route : new Response(new Blob(...))
+  échoue en jsdom (son Blob n'a pas de .stream()) ; expect.any(Blob) compare au
+  mauvais constructeur, response.blob() rendant le Blob de Node — remplacé par
+  une assertion sur le contenu réel, plus forte ; et innerText rend le texte
+  après text-transform, d'où une coupe ratée sur « PIECES ATTENDUES ». J'ai
+  aussi donné son propre état à l'erreur de téléchargement : sur actionError,
+  elle se serait affichée dans la carte « Lien public », sous un paragraphe sur
+  le PIN.
+
+  Risque résiduel, nommé
+
+  originalName vient d'un client anonyme et finit dans l'attribut download. Les
+  navigateurs assainissent ce nom (les séparateurs de chemin sont retirés), donc
+  pas de traversée — et c'est la même exposition qu'aurait eue le lien simple
+  via Content-Disposition. À savoir plutôt qu'à corriger.
+
+  Un incident à signaler
+
+  Le navigateur MCP s'est retrouvé verrouillé en cours de vérification (11
+  processus orphelins sur son profil jetable après 3 h). Je les ai terminés pour
+  qu'il redémarre — profil ms-playwright-mcp, pas ton Chrome personnel.
+
+  Commits proposés — j'attends ton feu vert
+
+  Attention : ton arbre contient beaucoup de modifications de l'autre session
+  (backend, README.md, infra/README.md supprimé, docs/architecture.md). Rien de 
+  tout cela n'est dans ma liste, et je n'ai pas lancé les tests backend pour
+  cette raison.
+
+  #: 1
+  Message: feat(api): download a binary answer through the session renewal
+  Fichiers: frontend/src/api/client.ts (modifié),
+  frontend/src/api/client.test.ts
+  (modifié)
+  ────────────────────────────────────────
+  #: 2
+  Message: feat(api): expose the deposited file of an item to the lawyer
+  Fichiers: frontend/src/save-blob.ts (nouveau), frontend/src/api/requests.ts
+  (modifié)
+  ────────────────────────────────────────
+  #: 3
+  Message: feat(dashboard): let the lawyer download a piece their client 
+  deposited
+  Fichiers: frontend/src/pages/request-detail-page.tsx (modifié),
+  frontend/src/pages/request-detail-page.test.tsx (modifié)
+  ────────────────────────────────────────
+  #: 4
+  Message: docs(backlog): close B4b now the lawyer can reach the download
+  Fichiers: issue_backlog.md (modifié), docs/tests-manuels.md (modifié),
+  ai-plans/2026-08-10-telechargement-piece.md (nouveau)
+
+  Laissés de côté volontairement, à toi de décider :
+  ai-plans/2026-08-10-passe-navigateur-playwright.md (nouveau, le compte rendu
+  de la passe de ce soir), ai-logs/, et les captures enonce-full.png, uikit.png,
+  image*.png.
+
+✻ Cooked for 18m 18s
+
+※ recap: Goal was adding the lawyer download button; it's implemented and verified in a real browser (byte-identical file, session renewal works, no CSP violations). Next: I need your go-ahead on the four proposed commits before anything enters git history.
+
+❯ oui                                                                           
+
+● Je commite la série, chemins nommés un par un, sur main — c'est le flux du
+  dépôt. Je ne pousse pas.
+
+  Ran 6 shell commands (ctrl+o to expand)
+
+● Les quatre commits sont en place, chacun avec exactement les fichiers
+  annoncés.
+
+  ┌─────────────────────┬───────────────────────────────────────────────────┐
+  │       Commit        │                     Fichiers                      │
+  ├─────────────────────┼───────────────────────────────────────────────────┤
+  │ 8f86b5e feat(api):  │                                                   │
+  │ download a binary   │ client.ts, client.test.ts                         │
+  │ answer…             │                                                   │
+  ├─────────────────────┼───────────────────────────────────────────────────┤
+  │ 4009081 feat(api):  │                                                   │
+  │ expose the          │ save-blob.ts (nouveau), requests.ts               │
+  │ deposited file…     │                                                   │
+  ├─────────────────────┼───────────────────────────────────────────────────┤
+  │ 4ae738d             │                                                   │
+  │ feat(dashboard):    │ request-detail-page.tsx, .test.tsx                │
+  │ let the lawyer      │                                                   │
+  │ download…           │                                                   │
+  ├─────────────────────┼───────────────────────────────────────────────────┤
+  │ 5f10e83             │ issue_backlog.md, docs/tests-manuels.md,          │
+  │ docs(backlog):      │ ai-plans/2026-08-10-telechargement-piece.md       │
+  │ close B4b…          │ (nouveau)                                         │
+  └─────────────────────┴───────────────────────────────────────────────────┘
+
+  Rien de la session parallèle n'est parti avec — et l'explication est simple :
+  elle a commité son propre travail entre-temps (ab0b308 merge: nettoyage…,
+  juste avant mes quatre). Nos historiques ne se sont pas mélangés.
+
+  Rien n'est poussé, comme prévu.
+
+  Reste non suivi, à ta main :
+  ai-plans/2026-08-10-passe-navigateur-playwright.md (le compte rendu de la
+  passe de ce soir, qui documente comment ce défaut a été trouvé — il gagnerait
+  à être commité avec le reste), ai-logs/, et les captures enonce-full.png,
+  uikit.png, grafana-dashboard.png, image*.png.
+
+  Un point que je n'ai pas vérifié et qui n'est pas neutre : les tests backend.
+  Je n'y ai pas touché, mais l'autre session a modifié request.types.ts,
+  requests.service.ts et le schéma Prisma juste avant. Si tu veux la certitude
+  que l'ensemble est vert, il faut lancer pnpm -C backend test et test:e2e — je
+  ne l'ai pas fait pour ne pas rapporter comme miens des résultats qui ne le
+  sont pas.
+
+✻ Churned for 1m 17s
+
+❯ relance tous les tests                                                        
+
+● Je lance les quatre suites. Je commence par les deux rapides.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Les deux rapides sont vertes. Je lance les suites qui montent de vrais
+  conteneurs.
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Tout est vert. Je vérifie un point avant de conclure : j'avais signalé que
+  docs/tests-manuels.md affirmait à tort que les tests de recettes de thème
+  avaient été retirés. L'autre session a commité depuis.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Toutes les suites sont vertes.
+
+  ┌─────────────────────┬──────────┬───────┬────────────────────────────────┐
+  │        Suite        │ Fichiers │ Tests │       Dépendance réelle        │
+  ├─────────────────────┼──────────┼───────┼────────────────────────────────┤
+  │ backend test        │ 24       │ 240   │ aucune                         │
+  ├─────────────────────┼──────────┼───────┼────────────────────────────────┤
+  │                     │          │       │ vrai PostgreSQL (conteneur     │
+  │ backend test:e2e    │ 7        │ 98    │ monté, 3 migrations            │
+  │                     │          │       │ appliquées)                    │
+  ├─────────────────────┼──────────┼───────┼────────────────────────────────┤
+  │ backend             │ 1        │ 10    │ vrai MinIO, sous la policy     │
+  │ test:integration    │          │       │ restreinte                     │
+  ├─────────────────────┼──────────┼───────┼────────────────────────────────┤
+  │ frontend test       │ 19       │ 124   │ aucune                         │
+  ├─────────────────────┼──────────┼───────┼────────────────────────────────┤
+  │ Total               │ 51       │ 472   │                                │
+  └─────────────────────┴──────────┴───────┴────────────────────────────────┘
+
+  Les deux lints sortent à 0, et pnpm build construit les deux applications sans
+  erreur.
+
+  Le total est passé de 512 à 472, et ce n'est pas une régression : la session
+  parallèle a délibérément élagué la suite frontend (commit ab0b308 merge: 
+  nettoyage — tests essentiels…). Côté frontend, 171 → 124, dont +11 que je 
+  viens d'ajouter — donc environ 58 retirés par ce nettoyage. Côté backend, le
+  compte a légèrement augmenté (341 → 348).
+
+  Deux de mes trois signalements sur docs/tests-manuels.md tiennent toujours
+
+  - Le violet #7B2CFF est encore annoncé lignes 44 et 155, alors que le thème,
+  le rendu navigateur et le pixel du kit valent tous #5100FF.
+  - SameSite=Lax ligne 53, alors que les deux cookies sont posés en Strict.
+
+  Le troisième est devenu à moitié vrai : le nettoyage a bien supprimé
+  theme.test.ts et trois fichiers de recettes (button, card, pin-digit), mais
+  badge.test.tsx et field.test.tsx subsistent. La phrase « c'est pourquoi les
+  tests de recettes de thème ont été retirés » reste donc inexacte telle
+  qu'écrite.
+
+  Je ne les ai pas corrigés — c'est un fichier que tu viens d'écrire, et les
+  trois sont des corrections d'une ligne chacune. Dis-moi si tu veux que je les
+  applique.
+
+✻ Sautéed for 2m 21s
