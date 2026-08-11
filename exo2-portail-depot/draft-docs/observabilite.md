@@ -26,16 +26,14 @@ en panne. Son seul consommateur est Prometheus, sur le réseau interne.
 
 ---
 
-## Les sept métriques
+## Les cinq métriques
 
 | Métrique | Type | La question |
 |---|---|---|
 | `portal_deposits_total{outcome}` | compteur | le produit fait-il son seul travail ? Une pointe de `rejected_type` dit que les clients ne comprennent pas la liste des formats acceptés |
 | `portal_unlock_attempts_total{outcome}` | compteur | une pointe de `failure` est la signature d'une force brute sur les 10 000 combinaisons du PIN |
 | `portal_expired_link_hits_total` | compteur | des clients arrivent-ils après la mort du lien ? Un compte qui monte dit que la durée par défaut est trop courte — décision produit, pas incident |
-| `portal_upload_bytes` | histogramme | dimensionne le bucket ; une distribution qui se décale est ce à quoi ressemble un abus |
 | `portal_requests_completed_total` | compteur | combien de **dossiers** aboutissent — `deposits_total` compte des **fichiers** |
-| `portal_rejected_upload_bytes` | histogramme | de **combien** les fichiers refusés dépassent, donc si 20 Mio est le bon plafond |
 | `portal_http_request_duration_seconds{method,route,status}` | histogramme | la latence par route, base de toute alerte de disponibilité — et la seule qui voie une route que personne n'a instrumentée à la main |
 
 Plus les métriques par défaut de `prom-client` (retard de la boucle d'événements, tas, descripteurs,
@@ -57,17 +55,18 @@ constater « rien ne manque »** et incrémenter, donc sur-compter d'une unité.
 colonne marqueur ou une sérialisation de la transaction — un coût réel sur le chemin du dépôt, pour
 un écart de comptage sur une métrique de tendance. Assumé.
 
-**`portal_rejected_upload_bytes` observe une valeur déclarée par le client**, son `Content-Length` :
-Multer interrompt la lecture au plafond, donc la taille réelle est inconnue à ce moment. Elle sert à
-**dimensionner**, jamais à décider quoi que ce soit de sécurité.
+**Aucune série ne porte de taille de fichier, et c'est une décision.** Deux histogrammes ont existé —
+la taille des fichiers acceptés, celle déclarée pour les fichiers refusés — et tous deux ont été
+retirés. Le second doublait `deposits_total{outcome="rejected_size"}` ; le premier n'observait que
+les fichiers **acceptés**, donc il ne pouvait rien dire du plafond, alors que ce qui le calibre est
+le refus. Aucune alerte ne les lisait. Ce qu'on perd : plus rien ne dit à quelle vitesse le bucket
+grossit.
 
-Sa fenêtre est étroite, et il faut le dire : **nginx refuse au-delà de 25 Mo** (`client_max_body_size`)
-avant que le backend ne voie la requête. Mesuré sur la pile réelle — un fichier de 40 Mo produit un
-413 de nginx et **aucune** série ; un fichier de 22 Mo traverse et donne bien une observation. Les
-tranches de l'histogramme s'arrêtent donc à 26 Mio : au-delà elles resteraient vides par
-construction. Conséquence assumée : on ne distingue pas un envoi de 30 Mo d'un envoi de 500 Mo. Le
-plafond du proxy est conservé parce qu'il coupe l'envoi sur l'en-tête, sans bufferiser un octet — un
-compromis en faveur de la robustesse, contre l'information.
+**Le plafond du proxy reste plus haut que celui du produit** : nginx refuse au-delà de 25 Mo
+(`client_max_body_size`) avant que le backend ne voie la requête, alors que le produit s'arrête à
+20 Mio. Mesuré sur la pile réelle — un fichier de 40 Mo produit un 413 de nginx et le backend n'en
+sait rien ; un fichier de 22 Mo traverse et compte un `rejected_size`. Le plafond du proxy coupe
+l'envoi sur l'en-tête, sans bufferiser un octet.
 
 ### Le piège qui fait croire à une métrique cassée
 
@@ -81,7 +80,7 @@ tranches à zéro dès le démarrage.
 
 ## Le tableau de bord
 
-Onze panneaux, provisionnés depuis `infra/grafana/dashboards/portail.json` — **la source de vérité
+Neuf panneaux, provisionnés depuis `infra/grafana/dashboards/portail.json` — **la source de vérité
 est le fichier**. Le fournisseur interdit l'édition depuis l'interface : une modification cliquée
 serait perdue au prochain démarrage.
 
