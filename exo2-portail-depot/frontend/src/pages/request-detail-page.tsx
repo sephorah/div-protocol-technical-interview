@@ -2,7 +2,7 @@ import { Badge, Box, Button, Card, Heading, Input, Stack, Text } from '@chakra-u
 import { useState } from 'react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import { ApiError } from '../api/client'
-import { getRequest, regenerateLink, revokeLink } from '../api/requests'
+import { downloadItemFile, getRequest, regenerateLink, revokeLink } from '../api/requests'
 import type { IssuedLink } from '../api/requests'
 import { AppShell } from '../components/app-shell'
 import { IssuedLinkCard } from '../components/issued-link-card'
@@ -11,6 +11,7 @@ import { ErrorPanel, LoadingSkeleton } from '../components/screen-state'
 import { LinkStateBadge, StatusBadge } from '../components/status-badge'
 import { formatDate, pluralize } from '../format'
 import { useResource } from '../hooks/use-resource'
+import { saveBlob } from '../save-blob'
 
 const MIN_DAYS = 1
 const MAX_DAYS = 90
@@ -35,6 +36,11 @@ const TEXT = {
   revokeWarning:
     'Le lien actuel cessera de fonctionner immediatement et votre client ne pourra plus deposer de piece.',
   itemsEyebrow: 'Pieces attendues',
+  download: 'Telecharger',
+  // The piece, not just the verb: a request with three received pieces would
+  // otherwise expose three buttons a screen reader cannot tell apart.
+  downloadAria: (label: string) => `Telecharger ${label}`,
+  downloading: 'Telechargement...',
   notFound: 'Demande introuvable.',
   unexpected: 'Une erreur est survenue.',
   working: 'En cours...',
@@ -78,6 +84,28 @@ export const RequestDetailPage = () => {
       setActionError(messageFor(caught))
     } finally {
       setWorking(false)
+    }
+  }
+
+  // Keyed by item so only the row being fetched shows its own progress, and
+  // reported through the existing panel: a click that does nothing visible
+  // reads as a broken button.
+  const [downloading, setDownloading] = useState<string | null>(null)
+  // Its own error, not actionError: that one is rendered inside the public-link
+  // card, and a failed download reported there would sit under a paragraph
+  // about the PIN.
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+
+  const onDownload = async (itemId: string) => {
+    setDownloading(itemId)
+    setDownloadError(null)
+    try {
+      const { blob, filename } = await downloadItemFile(id, itemId)
+      saveBlob(blob, filename)
+    } catch (caught) {
+      setDownloadError(messageFor(caught))
+    } finally {
+      setDownloading(null)
     }
   }
 
@@ -230,18 +258,40 @@ export const RequestDetailPage = () => {
                 <Card.Title>{TEXT.itemsEyebrow}</Card.Title>
               </Card.Header>
               <Card.Body>
-                <Stack gap="0">
-                  {data.items.map((item) => (
-                    // THE line C2 will change: the API exposes no upload status,
-                    // so "received" means a file hangs off the piece. ItemRow
-                    // already draws the failed and uploading states.
-                    <ItemRow
-                      key={item.id}
-                      label={item.label}
-                      state={item.received ? 'received' : 'pending'}
-                      file={item.file}
-                    />
-                  ))}
+                <Stack gap="12px">
+                  {downloadError === null ? null : <ErrorPanel message={downloadError} />}
+
+                  <Stack gap="0">
+                    {data.items.map((item) => (
+                      // THE line C2 will change: the API exposes no upload status,
+                      // so "received" means a file hangs off the piece. ItemRow
+                      // already draws the failed and uploading states.
+                      <ItemRow
+                        key={item.id}
+                        label={item.label}
+                        state={item.received ? 'received' : 'pending'}
+                        file={item.file}
+                        // Gated on `received`, which means `complete`: exactly
+                        // the set the route agrees to serve, so no button here
+                        // can lead to a 404 of its own making.
+                        action={
+                          item.received ? (
+                            <Button
+                              variant="secondary"
+                              // Same rule as the client's deposit control: sm
+                              // is 40px, and a finger wants more than that.
+                              size={{ base: 'md', md: 'sm' }}
+                              aria-label={TEXT.downloadAria(item.label)}
+                              disabled={downloading !== null}
+                              onClick={() => void onDownload(item.id)}
+                            >
+                              {downloading === item.id ? TEXT.downloading : TEXT.download}
+                            </Button>
+                          ) : undefined
+                        }
+                      />
+                    ))}
+                  </Stack>
                 </Stack>
               </Card.Body>
             </Card.Root>

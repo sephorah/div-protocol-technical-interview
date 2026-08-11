@@ -5,8 +5,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DetailedItem, IssuedLink, RequestDetail } from '../api/requests'
 import { SessionContext } from '../auth/session'
 import type { SessionState } from '../auth/session'
+import { saveBlob } from '../save-blob'
 import { renderWithTheme } from '../test/render'
 import { RequestDetailPage } from './request-detail-page'
+
+// jsdom implements neither URL.createObjectURL nor a real download, so the
+// handover to the browser is stubbed and asserted on instead. That it actually
+// saves a file is checked in a real Chromium, not here.
+vi.mock('../save-blob', () => ({
+  saveBlob: vi.fn<(blob: Blob, filename: string) => void>(),
+}))
 
 type FetchMock = (url: string, init: RequestInit) => Promise<Response>
 
@@ -87,6 +95,9 @@ const renderDetail = () =>
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  // The saveBlob spy is module-level, so its calls would otherwise carry over
+  // and the "did not save" assertion would pass or fail on test ORDER.
+  vi.clearAllMocks()
 })
 
 describe('RequestDetailPage', () => {
@@ -242,5 +253,72 @@ describe('RequestDetailPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: /reessayer/i }))
 
     expect(await screen.findByText("Piece d'identite")).toBeInTheDocument()
+  })
+
+  // B4b shipped the route and no way to reach it: the lawyer could not get the
+  // pieces their client had deposited, which is what the product is for.
+  describe('downloading a piece', () => {
+    it('offers nothing on a piece nobody has deposited yet', async () => {
+      stubSequence([() => jsonResponse(detail({ items: [pending("Piece d'identite")] }))])
+      renderDetail()
+
+      expect(await screen.findByText("Piece d'identite")).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /telecharger/i })).not.toBeInTheDocument()
+    })
+
+    it('saves the bytes under the name the server chose', async () => {
+      const fetchMock = stubSequence([
+        () => jsonResponse(detail({ items: [received('contrat.pdf')] })),
+        () =>
+          new Response('%PDF-1.4', {
+            status: 200,
+            headers: {
+              'content-type': 'application/pdf',
+              'content-disposition': "attachment; filename*=UTF-8''contrat.pdf",
+            },
+          }),
+      ])
+      renderDetail()
+
+      await userEvent.click(await screen.findByRole('button', { name: /telecharger/i }))
+
+      expect(fetchMock.mock.calls[1][0]).toBe(
+        '/api/v1/requests/r1/items/Contrat%20de%20bail%20signe/file',
+      )
+      // The bytes themselves, not `expect.any(Blob)`: response.blob() hands
+      // back Node's Blob, which is not the jsdom global this file would
+      // compare against -- and the content is what actually matters.
+      const [blob, filename] = vi.mocked(saveBlob).mock.calls[0]
+      expect(filename).toBe('contrat.pdf')
+      expect(await blob.text()).toBe('%PDF-1.4')
+    })
+
+    // The accessible name carries the piece, not just the verb: a request with
+    // three received pieces would otherwise expose three identical buttons.
+    it('names the piece in the accessible label', async () => {
+      stubSequence([
+        () => jsonResponse(detail({ items: [received('contrat.pdf', 'Bail signe')] })),
+      ])
+      renderDetail()
+
+      expect(
+        await screen.findByRole('button', { name: 'Telecharger Bail signe' }),
+      ).toBeInTheDocument()
+    })
+
+    // The piece can vanish between the page load and the click. The screen has
+    // to say so: a click that does nothing reads as a broken button.
+    it('reports a refusal instead of failing silently', async () => {
+      stubSequence([
+        () => jsonResponse(detail({ items: [received('contrat.pdf')] })),
+        () => jsonResponse({ message: 'Not Found' }, 404),
+      ])
+      renderDetail()
+
+      await userEvent.click(await screen.findByRole('button', { name: /telecharger/i }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/introuvable/i)
+      expect(saveBlob).not.toHaveBeenCalled()
+    })
   })
 })
