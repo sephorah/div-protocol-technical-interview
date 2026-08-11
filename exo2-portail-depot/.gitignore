@@ -33,3 +33,7 @@ pnpm-debug.log*
 
 # Captures Playwright MCP, hors depot
 .playwright-mcp/
+
+# Journaux de session bruts (/export). Le livrable garde les plans d'ai-plans/,
+# pas les transcriptions : plusieurs Mo de texte qui rejouent chaque essai.
+ai-logs/
