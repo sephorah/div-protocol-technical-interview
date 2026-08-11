@@ -40,6 +40,19 @@ export const inputRecipe = defineRecipe({
   variants: {
     variant: {
       outline: { bg: 'bg', borderWidth: '1px', borderColor: 'border' },
+      // The generated link's field: the box around it carries the border, the
+      // fill and the focus ring. Left here, the ring would draw a second one
+      // inside that box.
+      bare: {
+        bg: 'transparent',
+        borderWidth: '0',
+        borderColor: 'transparent',
+        boxShadow: 'none',
+        color: 'brand.fg',
+        paddingInline: '0',
+        paddingBlock: '0',
+        _focusVisible: { borderColor: 'transparent', boxShadow: 'none', outline: 'none' },
+      },
     },
   },
 })

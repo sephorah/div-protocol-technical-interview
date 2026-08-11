@@ -152,6 +152,18 @@ l'accessibilité, pas du style). **Les cases ci-dessous sont donc la seule preuv
 - [ ] Survol du bouton principal → **inversion** des couleurs, et le libellé **ne bouge pas d'un
       pixel** (l'anneau est un `box-shadow: inset`, pas une bordure ; une bordure décalerait le
       texte)
+- [x] Survol d'un bouton **secondaire** (« Copier le code », « Créer une autre demande »,
+      « Annuler ») → texte **et** anneau passent au violet, pas seulement le fond. Mesuré au
+      navigateur le 10/08 : `color` `rgb(81,0,255)`, fond `rgb(247,246,255)`, anneau
+      `rgb(219,205,255)`, et **le gabarit ne bouge pas** (131×36 avant comme après)
+- [x] Un secondaire **désactivé** ne réagit pas au survol — « Précédent » de la pagination reste
+      gris. Vérifié le 10/08 : couleur, fond et anneau identiques au repos, `opacity` 0,5
+- [x] Bloc **« lien généré »** → **une seule boîte** : fond `#F7F6FF`, bordure 1 px `#E9E9E9`,
+      rayon 8 px, URL en monospace violette tronquée, « Copier » en texte violet **à l'intérieur**
+      de la boîte. Mesuré le 10/08, conforme au kit
+- [x] Écran client → « Deposer un fichier » en **violet plein** tant que la pièce manque,
+      « Remplacer le fichier » **à contour** après un dépôt réussi. Vérifié le 10/08 sur un dépôt
+      réel
 - [ ] Violet `#7B2CFF`, police Inter, rayons et espacements conformes au kit sur `/login`,
       `/dashboard`, `/requests/new`, le détail d'une demande et l'écran client
 - [ ] Largeur **375 px** (mobile) puis **1440 px** : la densité reste constante, rien ne déborde,

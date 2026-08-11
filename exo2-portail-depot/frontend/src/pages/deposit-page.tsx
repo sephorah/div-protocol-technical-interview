@@ -145,9 +145,13 @@ const stateOf = (
 
 const DepositButton = ({
   label,
+  variant,
   onPick,
 }: {
   label: string
+  /** The kit draws "Deposer" as the primary action; replacing a piece already
+   *  received is a second thought, so it stays secondary. */
+  variant: 'primary' | 'secondary'
   onPick: (file: File) => void
 }) => {
   const input = useRef<HTMLInputElement | null>(null)
@@ -168,7 +172,7 @@ const DepositButton = ({
           a ring they cannot see. Bigger on a phone, which is where this screen
           is actually opened: sm is 40px tall, and a finger wants more. */}
       <Button
-        variant="secondary"
+        variant={variant}
         size={{ base: 'md', md: 'sm' }}
         alignSelf="center"
         onClick={() => input.current?.click()}
@@ -396,6 +400,7 @@ export const DepositPage = () => {
                             state === 'uploading' ? null : (
                               <DepositButton
                                 label={state === 'received' ? TEXT.replace : TEXT.choose}
+                                variant={state === 'received' ? 'secondary' : 'primary'}
                                 onPick={(file) => void onPick(item, file)}
                               />
                             )

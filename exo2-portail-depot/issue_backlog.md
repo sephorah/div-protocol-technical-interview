@@ -844,6 +844,17 @@ Le rendu Chakra v3 est obligatoire (P0) ; le respect fin de la charte est en dif
 - [x] **Bouton primaire signature** : fond primary, texte blanc, 600, padding 24×14, radius full ;
       au hover, **inversion** — fond `#F7F6FF`, texte primary, contour inset 1px
 - [x] Cartes sans ombre, bordure 1px `#E9E9E9`
+- [x] **Bouton secondaire au survol** : fond `#F7F6FF`, texte `#5100FF`, anneau inset 1px `#DBCDFF`
+      — les trois, pas le fond seul. Écart relevé en test manuel le 10/08 et corrigé le même jour.
+      La variante n'avait alors **aucun bloc `_disabled`** : le survol violet aurait fait passer
+      « Précédent » désactivé pour un bouton cliquable, ce qui est corrigé dans le même geste
+- [x] **Bloc « lien généré »** : une seule boîte (fond `#F7F6FF`, bordure 1px `#E9E9E9`, rayon 8px)
+      portant l'URL en monospace violette tronquée **et** l'action « Copier » en texte violet à
+      l'intérieur. C'était deux objets — un champ au texte noir, puis un bouton à contour posé à
+      côté. Le champ reste un `input readOnly` : le repli « recopiez à la main » sélectionne son
+      contenu, et le lien n'est affiché qu'une fois
+- [x] **Bouton de dépôt côté client** : primaire tant que la pièce manque, secondaire une fois
+      reçue. Le kit dessine « Deposer » en primaire ; il était secondaire partout
 - [x] Reveal au scroll (opacity + translation) — **déplacé en B5, et livré là** (10/08), sur la
       liste des demandes, qui est la première page qui défile. `prefers-reduced-motion` respecté.
       Un défaut du plan a été corrigé au passage : le composant masquait dès l'`observe()`, donc un

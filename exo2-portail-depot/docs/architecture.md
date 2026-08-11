@@ -278,7 +278,7 @@ elles ne dépendent pas du déploiement. Le plafond de 90 jours borne la durée 
 styles de texte. Les écrans les consomment et **n'écrivent jamais une couleur, une police ou un
 rayon** — un composant manquant se crée dans le thème, pas dans la page.
 
-Quatre pièges de Chakra v3, tous trouvés au navigateur parce que **jsdom ne calcule aucun style** :
+Cinq pièges de Chakra v3, tous trouvés au navigateur parce que **jsdom ne calcule aucun style** :
 
 - **les variantes livrées avec Chakra battent le `base` d'une recette, en silence** — un titre écrit à
   11 px rendait 18 px. Ce que la charte fixe doit donc être répété dans les variantes susceptibles de
@@ -288,7 +288,27 @@ Quatre pièges de Chakra v3, tous trouvés au navigateur parce que **jsdom ne ca
 - **`height: 'auto'`** dans les recettes de bouton et de champ est porteur : Chakra fixe une hauteur
   par taille, qui l'emporterait sur les marges de la charte et écraserait le composant ;
 - **le contour au survol est un `boxShadow: inset`, jamais une bordure** : une bordure qui apparaît
-  décale le libellé d'un pixel, un anneau intérieur ne prend pas de place.
+  décale le libellé d'un pixel, un anneau intérieur ne prend pas de place ;
+- **`size` est déclaré après `variant` dans la recette de bouton, donc il l'emporte** : la taille et
+  la marge d'une nouvelle variante doivent vivre dans un `size`, pas dans la variante. La variante
+  `link` (l'action « Copier » posée dans la boîte du lien) a pour cette raison sa propre taille
+  `inline`, à marge nulle — écrites dans la variante, ses 13 px auraient été écrasés par `md` à
+  16 px, en silence.
+
+**Le survol d'un bouton secondaire prend le violet sur les trois plans** — fond `#F7F6FF`, texte
+`#5100FF`, anneau `#DBCDFF` — et pas seulement le fond. La variante porte aussi un bloc `_disabled`
+qui **neutralise ce survol** : sans lui, « Précédent » désactivé dans la pagination du tableau de
+bord virait au violet au passage de la souris et se lisait comme cliquable.
+
+**Le bloc « lien généré » est une seule boîte**, comme le kit le dessine : le conteneur porte la
+bordure, le fond, le rayon et l'anneau de focus (`_focusWithin`), et le champ à l'intérieur est
+transparent (variante `bare`). Le champ **reste un `<input readOnly>` et non un texte** : quand le
+presse-papier refuse, `CopyField` sélectionne son contenu, ce qui transforme « recopiez à la main »
+en un seul Ctrl+C — sur une valeur qui n'est affichée qu'une fois.
+
+**Le bouton de dépôt du client est primaire tant que la pièce manque**, secondaire une fois qu'elle
+est reçue (« Remplacer le fichier »). Le kit dessine « Deposer » en primaire ; tout passer en violet
+plein ferait d'une liste de vingt pièces un mur où plus rien ne ressort.
 
 **Clair uniquement, et le mécanisme est l'absence** : aucune condition `_dark` n'est déclarée et rien
 ne pose la classe `dark` sur le document. Ne pas réintroduire un bascule « pour rendre ça
