@@ -1,4 +1,4 @@
-import { apiRequest } from './client'
+import { apiDownload, apiRequest } from './client'
 
 // Mirrors backend/src/requests/request.types.ts. Nothing generates it, so a
 // field renamed there has to be renamed here by hand -- the same contract as
@@ -93,3 +93,19 @@ export const regenerateLink = (id: string, expiresInDays: number): Promise<Issue
 // 204, so apiRequest resolves to undefined rather than parsing an empty body.
 export const revokeLink = (id: string): Promise<void> =>
   apiRequest<void>(`/requests/${encodeURIComponent(id)}/link`, { method: 'DELETE' })
+
+/**
+ * The bytes of a deposited piece, and the name to save them under.
+ *
+ * Only ever called for an item whose `received` is true: request.types.ts
+ * counts a `complete` file alone as received, which is exactly the set the
+ * route agrees to serve -- a `failed` one answers 404. So there is no button
+ * on this screen that can lead to a refusal.
+ */
+export const downloadItemFile = (
+  requestId: string,
+  itemId: string,
+): Promise<{ blob: Blob; filename: string }> =>
+  apiDownload(
+    `/requests/${encodeURIComponent(requestId)}/items/${encodeURIComponent(itemId)}/file`,
+  )
