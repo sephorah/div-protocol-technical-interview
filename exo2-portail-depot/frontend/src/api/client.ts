@@ -135,17 +135,69 @@ const parse = async <T>(response: Response): Promise<T> => {
   return (await response.json()) as T
 }
 
-export const apiRequest = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
-  let response = await send(path, init)
+/**
+ * The access token lives 15 minutes. One renewal, one replay: without that
+ * bound, a refused renewal would loop.
+ *
+ * Shared with apiDownload rather than kept inside apiRequest: a download that
+ * skipped this would save Nest's 401 body under the name of a client's
+ * contract, for any lawyer who left the screen open past the token's life.
+ */
+const sendWithRenewal = async (path: string, init: RequestInit): Promise<Response> => {
+  const response = await send(path, init)
+  if (response.status !== 401 || isNeverRenewed(path)) return response
 
-  // The access token lives 15 minutes. One renewal, one replay: without that
-  // bound, a refused renewal would loop.
-  if (response.status === 401 && !isNeverRenewed(path)) {
-    const renewed = await send(REFRESH_PATH, { method: 'POST' })
-    if (renewed.ok) {
-      response = await send(path, init)
-    }
+  const renewed = await send(REFRESH_PATH, { method: 'POST' })
+  return renewed.ok ? await send(path, init) : response
+}
+
+/** Nothing in the product is called that, so a fallback name is recognisable. */
+const FALLBACK_FILENAME = 'piece'
+
+/**
+ * The name the server put in Content-Disposition, RFC 5987 form. Read back
+ * rather than rebuilt from originalName: the encoding rule already lives in
+ * the requests controller and an e2e case covers it, so a second rule here
+ * would be free to disagree with it without any test seeing the drift.
+ *
+ * `safeFileName` is NOT an alternative -- it truncates at 40 characters for
+ * display, and would save "contrat-de-ba….pdf".
+ */
+export const filenameFromDisposition = (header: string | null): string => {
+  const match = /filename\*=UTF-8''([^;]+)/i.exec(header ?? '')
+  if (match === null) return FALLBACK_FILENAME
+  try {
+    const decoded = decodeURIComponent(match[1])
+    return decoded === '' ? FALLBACK_FILENAME : decoded
+  } catch {
+    // A malformed percent-sequence throws; it must not abort the download.
+    return FALLBACK_FILENAME
   }
+}
+
+/**
+ * A binary answer, with the same session handling as apiRequest. Separate from
+ * it because `parse` demands JSON: a 200 that is not JSON is how that function
+ * detects a drifted /api prefix, and a PDF would trip exactly that check.
+ */
+export const apiDownload = async (
+  path: string,
+): Promise<{ blob: Blob; filename: string }> => {
+  const response = await sendWithRenewal(path, { headers: { accept: '*/*' } })
+
+  if (!response.ok) {
+    const raw = await response.text().catch(() => '')
+    throw apiErrorFor(response.status, response.headers.get('content-type') ?? '', raw)
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: filenameFromDisposition(response.headers.get('content-disposition')),
+  }
+}
+
+export const apiRequest = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+  const response = await sendWithRenewal(path, init)
 
   if (!response.ok) {
     // The body is read here because this is the last place that still holds the

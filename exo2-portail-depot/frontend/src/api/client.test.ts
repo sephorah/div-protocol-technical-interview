@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, apiRequest } from './client'
+import { ApiError, apiDownload, apiRequest, filenameFromDisposition } from './client'
 
 // Typed with its arguments, not just its return: the tests read back the URL
 // and the init of each call, which an argument-less signature types as [].
@@ -175,5 +175,78 @@ describe('apiRequest', () => {
       vi.fn<FetchMock>().mockResolvedValue(new Response(null, { status: 204 })),
     )
     await expect(apiRequest('/auth/logout', { method: 'POST' })).resolves.toBeUndefined()
+  })
+})
+
+describe('filenameFromDisposition', () => {
+  it('reads the RFC 5987 name the backend sends', () => {
+    expect(filenameFromDisposition("attachment; filename*=UTF-8''piece-valide.pdf")).toBe(
+      'piece-valide.pdf',
+    )
+  })
+
+  // The name comes from an anonymous client, so it carries whatever they typed.
+  it('decodes the percent-encoding, or an accented name is saved mangled', () => {
+    expect(
+      filenameFromDisposition("attachment; filename*=UTF-8''pi%C3%A8ce%20d%27identit%C3%A9.pdf"),
+    ).toBe("pièce d'identité.pdf")
+  })
+
+  // A header we cannot read must not throw in the middle of a download: the
+  // lawyer gets a dull name rather than no file at all.
+  it.each([
+    ['absent', null],
+    ['undecodable', "attachment; filename*=UTF-8''%E0%A4%A"],
+    ['empty', "attachment; filename*=UTF-8''"],
+  ])('falls back on a %s header', (_case, header) => {
+    expect(filenameFromDisposition(header)).toBe('piece')
+  })
+})
+
+// The body is a string, not a Blob: jsdom's Blob has no `stream()`, so passing
+// one to Response throws before the test even reaches the code under test.
+// `response.blob()` still hands back a real Blob, which is what is asserted.
+const pdfResponse = (status = 200) =>
+  new Response('%PDF-1.4', {
+    status,
+    headers: {
+      'content-type': 'application/pdf',
+      'content-disposition': "attachment; filename*=UTF-8''contrat.pdf",
+    },
+  })
+
+describe('apiDownload', () => {
+  it('returns the bytes and the name the server chose', async () => {
+    vi.stubGlobal('fetch', vi.fn<FetchMock>().mockResolvedValue(pdfResponse()))
+
+    const { blob, filename } = await apiDownload('/requests/r1/items/i1/file')
+
+    expect(filename).toBe('contrat.pdf')
+    expect(await blob.text()).toBe('%PDF-1.4')
+  })
+
+  // THE reason this does not go through a plain <a href>: the access token
+  // lives 15 minutes, and a lawyer who left the screen open would otherwise
+  // save Nest's 401 body under the name of their client's contract.
+  it('renews an expired session and replays, instead of downloading the refusal', async () => {
+    const fetchMock = vi
+      .fn<FetchMock>()
+      .mockResolvedValueOnce(jsonResponse({}, 401))
+      .mockResolvedValueOnce(jsonResponse({}, 200))
+      .mockResolvedValueOnce(pdfResponse())
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(apiDownload('/requests/r1/items/i1/file')).resolves.toMatchObject({
+      filename: 'contrat.pdf',
+    })
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/auth/refresh')
+  })
+
+  it('raises a typed error rather than handing a JSON body to the browser as a file', async () => {
+    vi.stubGlobal('fetch', vi.fn<FetchMock>().mockResolvedValue(jsonResponse({}, 404)))
+
+    await expect(apiDownload('/requests/r1/items/i1/file')).rejects.toMatchObject({
+      kind: 'notFound',
+    })
   })
 })
