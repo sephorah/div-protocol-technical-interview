@@ -37,7 +37,6 @@ describe('DepositsService', () => {
   let storage: { putObject: jest.Mock; deleteObject: jest.Mock };
   let metrics: {
     recordDeposit: jest.Mock;
-    observeUploadBytes: jest.Mock;
     recordRequestCompleted: jest.Mock;
   };
   let service: DepositsService;
@@ -71,7 +70,6 @@ describe('DepositsService', () => {
     };
     metrics = {
       recordDeposit: jest.fn(),
-      observeUploadBytes: jest.fn(),
       recordRequestCompleted: jest.fn(),
     };
     service = new DepositsService(
@@ -335,16 +333,13 @@ describe('DepositsService', () => {
    * "the call was dropped in a refactor".
    */
   describe('the counters', () => {
-    it('counts a stored file once, with its size', async () => {
+    it('counts a stored file once', async () => {
       withItem(null);
 
       await service.deposit(REQUEST_ID, ITEM_ID, PDF);
 
       expect(metrics.recordDeposit).toHaveBeenCalledTimes(1);
       expect(metrics.recordDeposit).toHaveBeenCalledWith('success');
-      expect(metrics.observeUploadBytes).toHaveBeenCalledWith(
-        PDF.buffer.length,
-      );
     });
 
     it('counts a format refusal apart from an error', async () => {
@@ -361,7 +356,6 @@ describe('DepositsService', () => {
       ).rejects.toBeInstanceOf(UnsupportedMediaTypeException);
 
       expect(metrics.recordDeposit).toHaveBeenCalledWith('rejected_type');
-      expect(metrics.observeUploadBytes).not.toHaveBeenCalled();
     });
 
     it('counts the loser of a race, and every other failure, as an error', async () => {

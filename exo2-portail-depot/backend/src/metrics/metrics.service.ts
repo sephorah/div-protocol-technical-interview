@@ -62,52 +62,12 @@ export class MetricsService {
   });
 
   /**
-   * Size of the accepted files. Sizes the bucket, and a shifted distribution is
-   * what abuse looks like. Buckets stop at the product's 20 MiB ceiling: above
-   * it the request is refused, so a wider bucket would always be empty.
-   */
-  private readonly uploadBytes = new Histogram({
-    name: 'portal_upload_bytes',
-    help: 'Size in bytes of an accepted deposited file',
-    buckets: [
-      64 * 1024,
-      256 * 1024,
-      1024 * 1024,
-      4 * 1024 * 1024,
-      8 * 1024 * 1024,
-      16 * 1024 * 1024,
-      20 * 1024 * 1024,
-    ],
-    registers: [this.registry],
-  });
-
-  /**
    * Requests that reached "complete". Answers "how many cases actually get
    * assembled?", which deposits_total cannot: that one counts files.
    */
   private readonly requestsCompleted = new Counter({
     name: 'portal_requests_completed_total',
     help: 'Deposit requests whose last expected piece arrived',
-    registers: [this.registry],
-  });
-
-  /**
-   * Size of the files refused for being too big -- by HOW MUCH they overrun,
-   * which is what says whether the 20 MiB ceiling is the right one.
-   *
-   * Buckets cover 20 to 26 MiB and nothing above: nginx refuses past 25 MB
-   * (client_max_body_size), so a bigger file never reaches this process.
-   * Measured -- see README § Limites connues.
-   */
-  private readonly rejectedUploadBytes = new Histogram({
-    name: 'portal_rejected_upload_bytes',
-    help: 'Size declared by the client for a file refused as too large',
-    buckets: [
-      20 * 1024 * 1024,
-      22 * 1024 * 1024,
-      24 * 1024 * 1024,
-      26 * 1024 * 1024,
-    ],
     registers: [this.registry],
   });
 
@@ -142,21 +102,8 @@ export class MetricsService {
     this.expiredLinkHits.inc();
   }
 
-  observeUploadBytes(bytes: number): void {
-    this.uploadBytes.observe(bytes);
-  }
-
   recordRequestCompleted(): void {
     this.requestsCompleted.inc();
-  }
-
-  /**
-   * `declaredBytes` is the client's Content-Length: multer aborts the read at
-   * the ceiling, so the real size is unknown here. Good enough to size a limit,
-   * never to be trusted for a security decision.
-   */
-  observeRejectedUploadBytes(declaredBytes: number): void {
-    this.rejectedUploadBytes.observe(declaredBytes);
   }
 
   observeHttpRequest(

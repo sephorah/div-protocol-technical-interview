@@ -63,9 +63,6 @@ export class DepositsService {
     try {
       const view = await this.store(requestId, itemId, file);
       this.metrics.recordDeposit('success');
-      // Only accepted files are measured: a refused one says nothing about
-      // what the bucket has to hold.
-      this.metrics.observeUploadBytes(view.sizeBytes);
       return view;
     } catch (error) {
       this.metrics.recordDeposit(
