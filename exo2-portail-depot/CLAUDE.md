@@ -486,8 +486,11 @@ Six things are non-obvious:
   (`set_env_default` only fills empties), so a machine would stay pinned to a stale version with
   nothing to signal it — and it would drag in the three-file rule (`.env.example`, `install.sh`,
   compose). Overriding still works, and that is the rollback — but **every rollback target here
-  removes something silently**, the stack starting normally either way — except `0.4.0`, whose
-  images are identical to `0.4.1`, documentation being all that separates them: `0.3.0` has **no screen**
+  removes something silently**, the stack starting normally either way — except `0.4.0`, which
+  contains **nothing less** than `0.4.1`, documentation being all that separates them. Their
+  published **digests still differ**: the layers are identical one for one (verified at the
+  registry), only the config blob changes, because `metadata-action` writes `revision` and `created`
+  into it on every build. A different digest is not proof of different content. Then: `0.3.0` has **no screen**
   past the login — no dashboard, no client journey, no upload — and no metrics; `0.2.0` has no client
   URL, no expiry enforcement and no link regeneration, and it writes the deposit token **in clear** to
   the proxy's and the frontend's logs; `0.1.0` predates authentication, so it has no login route and
