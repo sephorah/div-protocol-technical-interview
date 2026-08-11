@@ -4,37 +4,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Context
 
-https://exercice-stagiaire-div.vercel.app/exo/portail-depot
+"Exercice 2 — Portail dépôt", part of the `div-protocol-internship` delivery. Statement:
+https://exercice-stagiaire-div.vercel.app/exo/portail-depot — it is the source of truth, above this
+file and above `issue_backlog.md`. **The git repository is the parent directory
+(`div-protocol-internship/`), not this folder** — which is why `.github/workflows/` sits one level
+up.
 
-Un avocat monte un dossier et doit recuperer des pieces chez son client : contrats, factures, pieces d'identite. Aujourd'hui ca se passe par mail, en pieces jointes, sans tracabilite. Tu vas construire le portail qui remplace ca.
+**The product.** A lawyer collects documents from a client — contracts, invoices, identity papers —
+which today travels by e-mail with no traceability. Authenticated, the lawyer creates a deposit
+request, issues a public link protected by a PIN and expiring on a date, and watches a dashboard of
+each request's status: pending, complete, expired. Anonymous, the client opens the link, enters the
+PIN, deposits the pieces and sees the progress. No account, ever.
 
-Le produit a construire
-Cote avocat (authentifie)
-Il cree une demande de depot, par exemple “Dossier Martin, pieces 2026”. Il genere un lien public expirable protege par un PIN, et l'envoie a son client. Un dashboard lui montre le statut de chaque demande : en attente, complete, expiree.
+**The staging machine, and the four constraints it imposes.** Deployed at
+https://sephorah-aniambossou.stage2-div.rayan-drissi.com, on a machine **shared with other
+candidates** — that is why every choice here is defensive, and why nothing may reach around the
+proxy.
 
-Cote client (anonyme)
-Il ouvre le lien sans avoir de compte, saisit le PIN, depose ses pieces et voit sa progression. Le lien expire, le PIN protege l'acces, et c'est tout ce dont il a besoin.
-
-Ton sous-domaine : https://sephorah-aniambossou.stage2-div.rayan-drissi.com
-Ta plage de ports : 21600 a 21699
-
-Le proxy de la machine route vers toi ainsi :
-  port 80  (HTTP)  ->  127.0.0.1:21600
-  port 443 (HTTPS) ->  127.0.0.1:21601, en passthrough TLS
-
-Tes services doivent ecouter sur 127.0.0.1 uniquement, dans ta plage.
-Rien d autre n est joignable depuis l exterieur.
-
-Tu peux faire ton propre certbot : le challenge http-01 arrive sur le
-port 80 de la machine et t est relaye. Comme le 443 est en passthrough,
-c est bien ton nginx qui termine TLS avec ton certificat.
-
-Cette machine est PARTAGEE avec d autres candidats. Tu as techniquement
-les moyens de casser leur travail. Ne le fais pas. Tout est journalise.
-
-Ne mets pas de code source ici : construis ton image ailleurs, publie-la
-sur GitHub Container Registry ou Docker Hub, et ne garde sur la machine
-que ta configuration (compose, Makefile, env, conf nginx).
+- Assigned port range **21600-21699**; the machine's own proxy relays `:80` to `127.0.0.1:21600`
+  and `:443` to `127.0.0.1:21601` in **TLS passthrough** — so it is *our* nginx that terminates TLS
+  with *our* certificate (see § TLS).
+- Services **listen on `127.0.0.1` only**, inside that range. Nothing else is reachable from
+  outside. That is what `BIND_ADDRESS` and the explicit bind address on the published port exist
+  for.
+- Certbot is ours to run: the http-01 challenge lands on the machine's port 80 and is relayed.
+- **No source code on the machine.** Images are built elsewhere and published to a registry; the
+  machine keeps only the configuration — compose, `.env`, nginx conf (see § Images and registry).
 
 
 ## Status
@@ -1306,14 +1301,6 @@ Two host-level gotchas, if pnpm suddenly resolves to the wrong version: `/usr/lo
 shim from the *system* corepack (0.34.1, root-owned) which cannot launch pnpm 11 — the working shim
 is the one installed into nvm's Node 22 `bin/`. And the shell profile exports `PREFIX`, which makes
 `nvm use` refuse to run until it is unset.
-
-## Context
-
-"Exercice 2 — Portail dépôt", part of the `div-protocol-internship` delivery. The git repository is
-the parent directory (`div-protocol-internship/`), not this folder; it has no commits yet, so
-`exo2-portail-depot/` is currently untracked.
-
-Deployed at: https://sephorah-aniambossou.stage2-div.rayan-drissi.com
 
 ## Deliverable requirements
 
