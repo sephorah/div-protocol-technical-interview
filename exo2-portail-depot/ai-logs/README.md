@@ -14,7 +14,11 @@ d'export :
 | Remplacé par | Ce que c'était | Où |
 |---|---|---|
 | `JETON-CAVIARDE-43-CARACTERES-BASE64URL-xxxx` | un vrai jeton de lien de dépôt, produit contre la base de développement | `issue-B3.txt` |
-| `candidat@exemple-caviarde.test` | l'adresse personnelle du compte Claude, affichée par la bannière d'accueil | `fix-dev-version.txt`, `div-theme-missing-components.txt`, `redactor-ai-logs.txt` |
+| `candidat@exemple-caviarde.test` | l'adresse personnelle du compte Claude, affichée par la bannière d'accueil | `fix-dev-version.txt`, `div-theme-missing-components.txt`, `redactor-ai-logs.txt`, `remove-metrics.txt` |
+
+Dans `remove-metrics.txt` l'adresse n'était pas dans une bannière : la session auditait les journaux
+et **nommait en clair** l'adresse qu'elle demandait de remplacer ailleurs. Un caviardage qui se cite
+lui-même reste un caviardage à faire.
 
 Les substitutions font **exactement la longueur** de ce qu'elles remplacent : ces fichiers sont des
 rendus de terminal, où des boîtes et des accolades s'alignent sur le texte.
@@ -50,6 +54,7 @@ requête, comptes de jetons. Le `.md` à côté est la même session, lisible.
 | `issue-B5.txt` | B5 — écrans avocat |
 | `final-sprint.txt`, `test-final-sprint.txt` | Le sprint final mené par agents parallèles, puis sa recette |
 | `nettoyage-tests-commentaires.txt` | Élagage des tests et des commentaires, prose déplacée vers `docs/` |
+| `remove-metrics.txt` | Réécriture du README d'après les consignes, retrait de métriques, et l'audit de caviardage de ce dossier |
 | `div-theme-missing-components.txt`, `fix-buttons.txt` | Écarts à la charte relevés en testant l'application |
 | `grafana.txt` | Recette de Prometheus et Grafana |
 | `fix-dev-version.txt` | Un `ECONNREFUSED` en développement |
