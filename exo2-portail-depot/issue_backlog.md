@@ -36,7 +36,7 @@ téléchargement **octet pour octet identique** → 401 en anonyme, jeton absent
 | Reste | Nature |
 |---|---|
 | **H3** | Export des sessions IA et **caviardage**, à faire ligne à ligne |
-| **B4b**, écran | **Nouveau, 10/08.** L'API de téléchargement répond, **aucun écran n'y mène** : l'avocat ne peut pas récupérer les pièces déposées. Le plus grave de ce qu'a trouvé la passe navigateur |
+| ~~**B4b**, écran~~ | **Fermé le 10/08, le jour même.** La passe navigateur avait trouvé que l'API de téléchargement répondait sans qu'aucun écran n'y mène. Le bouton est livré et vérifié dans un vrai Chromium : nom du fichier venu du serveur, **octet pour octet identique**, renouvellement de session traversé, zéro violation CSP |
 | ~~**E2** + passe navigateur~~ | **Passe faite le 10/08** — survol mesuré, CSP à zéro violation, aucun débordement à 375 ni 1440, parcours client rejoué sur mobile. Reste la densité du bouton de dépôt (190×40 contre 156×36) et les cibles tactiles à 18–21 px. Voir `ai-plans/2026-08-10-passe-navigateur-playwright.md` |
 | **D1** | La suite d'intégration du seed, seule case encore ouverte |
 
@@ -460,18 +460,30 @@ paramètre de requête inconnu. Détail dans `ai-plans/2026-08-09-b4-dashboard.m
 
 Dépendances : B2.
 
-### B4b. Téléchargement des pièces déposées — P0 — **API faite, écran manquant**
+### B4b. Téléchargement des pièces déposées — P0 — **fait**
 
-> **Rouvert le 10/08 par la passe navigateur.** Les trois critères ci-dessous portent tous sur
-> l'API, et ils tiennent : la route répond 200 et rend le fichier **octet pour octet identique**
-> (SHA-256 concordant, vérifié à travers nginx). Mais **aucun écran n'y mène** — le détail d'une
-> demande n'a ni bouton, ni lien, ni le mot « télécharger » ; ses seuls boutons sont « Se
-> déconnecter », « Régénérer le lien », « Révoquer l'accès ». Un avocat ne peut donc pas récupérer
-> les pièces de son client, ce qui est la finalité du produit. Cocher l'issue « faite » sur ses
-> critères d'API était exact au niveau technique et faux au niveau du produit — c'est précisément
-> le genre d'écart qu'aucune suite ne voit, les tests e2e appelant la route directement.
+> **Rouvert puis refermé le 10/08.** L'issue avait été cochée « faite » sur ses trois critères, qui
+> portent tous sur l'API — exact techniquement, faux au niveau du produit : la passe navigateur a
+> montré qu'**aucun écran n'y menait**, donc qu'un avocat ne pouvait pas récupérer les pièces de son
+> client. L'angle mort est nommé parce qu'il se reproduira : les tests e2e appellent la route
+> directement, donc **aucune suite ne voit l'absence du bouton qui l'appelle**.
 >
-> - [ ] **Une action de téléchargement sur chaque pièce reçue de l'écran de détail**
+> - [x] **Une action de téléchargement sur chaque pièce reçue de l'écran de détail** — bouton
+>       secondaire par ligne reçue, branché sur la prop `action` qu'`ItemRow` exposait déjà. Le
+>       libellé accessible porte le nom de la pièce (« Telecharger Justificatif de domicile »), sans
+>       quoi trois pièces reçues donneraient trois boutons indiscernables au lecteur d'écran
+
+**Le téléchargement passe par `fetch` + blob, pas par un `<a href>`**, et c'est la seule décision
+non évidente ici. Le lien direct diffuserait le flux sans rien mettre en mémoire, mais il **ne
+traverse pas le renouvellement de session** : le jeton d'accès vit 15 min, donc un avocat qui laisse
+l'écran d'un dossier ouvert puis clique enregistrerait le corps du 401 de Nest sous le nom du
+contrat de son client. Vérifié dans le navigateur en supprimant le seul cookie d'accès —
+`GET …/file → 401`, `POST /auth/refresh → 200`, `GET …/file → 200`, fichier identique. Ce qu'on paie
+en échange : **le fichier est mis en mémoire en entier**, borné par le plafond de 20 Mio de C2.
+
+Le nom vient de l'en-tête `Content-Disposition` relu côté client, **pas** de `originalName` :
+`safeFileName` tronque à 40 caractères pour l'affichage et enregistrerait `contrat-de-ba….pdf`.
+Relire l'en-tête garde une seule définition du nom, celle que le contrôleur produit déjà.
 
 - [x] L'avocat récupère un fichier déposé — **flux à travers l'API**, `GET
       /requests/:id/items/:itemId/file`, servi en `StreamableFile` sur `getObjectStream`

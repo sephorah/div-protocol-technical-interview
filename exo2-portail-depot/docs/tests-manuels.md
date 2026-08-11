@@ -96,8 +96,11 @@ anonyme que l'énoncé décrit.
 - [ ] Déposer un PDF sur la première pièce → barre de progression, puis la pièce passe à *reçue*
 - [ ] Déposer les deux autres → la progression client affiche **3/3**
 - [ ] Côté avocat, recharger `/dashboard` → la demande est **complète**
-- [ ] Télécharger la pièce déposée depuis l'écran avocat, puis
-      `cmp fichier-original.pdf fichier-telecharge.pdf` → **aucune différence**, octet pour octet
+- [x] Télécharger la pièce déposée depuis l'écran avocat, puis
+      `cmp fichier-original.pdf fichier-telecharge.pdf` → **aucune différence**, octet pour octet.
+      Le bouton *Telecharger* n'apparaît que sur une pièce **reçue** ; laisser l'écran ouvert plus de
+      15 minutes puis cliquer doit **quand même** rendre le fichier — le jeton d'accès se renouvelle
+      en cours de route, ce qu'un lien HTML simple n'aurait pas su faire
 - [ ] `curl -i http://127.0.0.1:21600/api/v1/requests/<id>/items/<itemId>/file` sans cookie → **401**
 
 ---
