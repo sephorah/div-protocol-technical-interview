@@ -249,6 +249,8 @@ services:
       # `log_format` ne valent qu'au niveau `http`. Voir docs/exploitation.md.
       - ./nginx/portal-locations.conf:/etc/nginx/portal-locations.conf:ro
       - ./nginx/log-redact.conf:/etc/nginx/conf.d/00-log-redact.conf:ro
+      # Meme raison : la `map` de mise a niveau WebSocket est de niveau `http`.
+      - ./nginx/websocket-upgrade.conf:/etc/nginx/conf.d/00-websocket-upgrade.conf:ro
       - ./nginx/server-hardening.conf:/etc/nginx/server-hardening.conf:ro
       # Racine du challenge ACME, presente meme sans TLS : c'est par la pile en
       # clair que passe l'amorcage du certificat.
