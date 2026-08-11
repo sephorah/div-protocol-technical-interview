@@ -83,7 +83,7 @@ services:
     # IMAGE_TAG a son defaut ICI et pas dans .env : la version appartient au
     # code. Lire docs/exploitation.md avant tout retour arriere — chaque version
     # anterieure retire quelque chose en silence.
-    image: ghcr.io/sephorah/exo2-portail-depot-backend:${IMAGE_TAG:-0.4.0}
+    image: ghcr.io/sephorah/exo2-portail-depot-backend:${IMAGE_TAG:-0.4.1}
     init: true
     environment:
       NODE_ENV: production
@@ -150,7 +150,7 @@ services:
   frontend:
     # Meme tag que le backend, et c'est voulu : les deux images sont publiees par
     # le meme run, depuis le meme commit.
-    image: ghcr.io/sephorah/exo2-portail-depot-frontend:${IMAGE_TAG:-0.4.0}
+    image: ghcr.io/sephorah/exo2-portail-depot-frontend:${IMAGE_TAG:-0.4.1}
     init: true
     healthcheck:
       test:
