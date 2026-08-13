@@ -1,0 +1,1382 @@
+ ▐▛███▜▌   Claude Code v2.1.227
+▝▜█████▛▘  Opus 5 · Claude Pro
+  ▘▘ ▝▝    ~/delivery/div-protocol-internship/exo2-portail-depot
+
+
+❯ install.sh ne fonctionne pas lorsque l'env n'existe pas, aide moi à debug     
+  cela                                                                          
+
+● Skill(superpowers:systematic-debugging)
+  ⎿  Successfully loaded skill
+
+● Using superpowers:systematic-debugging. Phase 1 : reproduire et lire les
+  erreurs avant de proposer quoi que ce soit.
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● .env existe ici — il faut donc reproduire sans lui. D'abord lire le flux
+  principal du script.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Reproduisons proprement la génération de .env à neuf, isolée, sans lancer
+  docker :
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● La génération passe. Vérifions ce qu'elle produit face à ce que compose exige
+  :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● La génération de .env est saine (toutes les variables exigées par compose sont
+  remplies ; seules les trois clés TLS restent vides, ce qui est voulu). Le
+  problème est donc ailleurs. Regardons l'état réel de la machine :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● backend est en boucle de redémarrage. Lisons ses logs — l'erreur exacte, pas
+  une supposition :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Cause racine confirmée par les logs. Vérifions-la directement (et par le bon
+  chemin réseau, pas par le socket local qui est en trust) :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Diagnostic établi. Vérifions l'ampleur (MinIO subit-il la même divergence ?)
+  et qu'un correctif non destructif est possible :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● MinIO se re-provisionne à chaque démarrage, il ne diverge pas. Seul Postgres
+  est touché — et le rôle portail est joignable par le socket local (trust),
+  donc un correctif sans perte de données est possible.
+
+  Cause racine : supprimer .env fait régénérer tous les secrets par install.sh,
+  dont DB_PASSWORD. Or Postgres ne lit POSTGRES_PASSWORD qu'à l'initialisation 
+  d'un volume vide — exo2-portail-depot_pgdata date du 8 août et garde l'ancien
+  mot de passe, tandis que .env a été réécrit aujourd'hui. Le backend échoue en
+  P1000, boucle, proxy ne démarre jamais, et install.sh attend ses 300 s.
+
+  Je réaligne le mot de passe du rôle sur le .env actuel (les données locales
+  sont conservées) :
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Authentification rétablie. Vérifions le contrat de install.sh de bout en bout
+  :
+
+  Ran 1 shell command (ctrl+o to expand)
+● Nouvelle erreur, donc nouveau symptôme à instruire :
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Toujours en échec après le ALTER USER — comparons directement le mot de passe
+  que le conteneur porte à celui de .env :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Même mot de passe, même utilisateur. Testons depuis un autre conteneur, comme
+  le fait le backend, plutôt que depuis db lui-même :
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Le backend est reparti (le ALTER USER a pris effet ; les P1000 restants
+  venaient des tentatives déjà en vol). Il reste proxy arrêté, car install.sh
+  avait avorté. Relançons-le pour vérifier le contrat complet :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● ./install.sh rend la main en 0 et le portail répond. Voici le diagnostic.
+
+  Ce qui se passait
+
+  Ce n'est pas un bug de génération du .env : je l'ai reproduit isolément (copie
+  de .env.example + le bloc de configuration du script, hors docker), et le
+  fichier produit remplit bien les 21 variables que compose exige en ${VAR:?} —
+  seules DOMAIN, ACME_EMAIL, ACME_STAGING restent vides, ce qui est voulu.
+
+  La panne est en aval, et c'est le piège documenté dans CLAUDE.md § install.sh
+  :
+
+  1. Supprimer .env fait repartir install.sh d'un cp .env.example .env, donc
+  tous les secrets sont retirés au hasard, DB_PASSWORD compris.
+  2. Postgres ne lit POSTGRES_PASSWORD qu'à l'initialisation d'un volume vide.
+  Le volume exo2-portail-depot_pgdata date du 8 août ; le .env a été réécrit
+  aujourd'hui 15:38. Les deux ont divergé.
+  3. Le backend échoue en P1000: Authentication failed ... for user "portail",
+  boucle, proxy n'est jamais démarré (il attend backend sain), et install.sh
+  attend ses 300 s puis crache les journaux bruts.
+
+  Preuves rassemblées, dans l'ordre : les journaux du backend (P1000 en boucle)
+  ; une connexion TCP vers db avec le mot de passe du .env, refusée ; le rôle
+  portail bien présent (l'erreur dit « mot de passe invalide », pas « rôle
+  inconnu ») ; les dates volume/fichier ci-dessus.
+
+  Attention au piège de diagnostic : docker compose exec db psql -U portail
+  accepte n'importe quel mot de passe (socket local en trust) et innocente à
+  tort la configuration. Il faut tester par le chemin du vrai client — depuis un
+  autre conteneur, sur le réseau exo2-portail-depot_default.
+
+  Ce que j'ai fait
+
+  Correctif non destructif : réalignement du mot de passe du rôle sur le .env
+  actuel, via le socket local.
+
+  PW=$(grep -E '^DB_PASSWORD=' .env | cut -d= -f2-)
+  printf "ALTER USER portail PASSWORD '%s';\n" "$PW" \
+    | docker compose -f infra/docker-compose.yml --env-file .env exec -T db psql
+  -U portail -d portail_depot -f -
+
+  Vos données locales sont conservées. L'alternative documentée, down -v puis
+  ./install.sh, aurait détruit la base et les fichiers déposés.
+
+  MinIO ne souffre pas de la même divergence : minio-init recrée le bucket, la
+  politique et l'utilisateur restreint à chaque démarrage — vérifié dans ses
+  journaux.
+
+  Vérifications
+
+  - ./install.sh : exit 0, 6,5 s, portail 200, seed exécuté, bannière affichée.
+  - Tous les services healthy, proxy inclus ; minio-init sorti en 0 comme prévu.
+  - Authentification TCP depuis un conteneur tiers : select current_user →
+  portail.
+
+  Non vérifié : le cas d'une machine réellement vierge (volumes absents) — il ne
+  peut pas se produire ici puisque les volumes existent, et c'est justement le
+  seul cas où le contrat n'est pas en cause.
+
+  Ce qui reste ouvert
+
+  install.sh respecte son contrat sur une machine vierge, mais sur une machine
+  de dev dont le .env a été régénéré il attend 300 s pour finir sur des journaux
+  bruts. Le P1000 est reconnaissable : la boucle d'attente pourrait le détecter
+  et afficher directement la cause et les deux issues (down -v, ou ALTER USER)
+  au lieu de faire redécouvrir le piège. Dites-moi si vous voulez que je
+  l'implémente — c'est une modification de wait_for_services, avec le test
+  correspondant.
+
+✻ Churned for 4m 11s
+
+❯ "le contrat n'est pas en cause." c-à-d?                                       
+  comment supprimer les volumes pour que je puisse tester le cas où le          
+  lancement sur une machine vierge fonctionne correctement?                     
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● « le contrat n'est pas en cause »
+
+  Formulation trop elliptique de ma part. Le contrat de install.sh est : quand 
+  il rend la main en 0, le portail répond. Ce contrat porte sur la machine
+  vierge — le premier test des correcteurs, git clone puis ./install.sh.
+
+  Ce que vous avez rencontré n'est pas ce cas : .env était neuf mais les volumes
+  dataient du 8 août. Cette divergence ne peut pas exister sur une machine 
+  vierge, où .env et le volume Postgres naissent ensemble. C'est un état propre
+  aux machines de développement.
+
+  Donc : ce que j'ai vérifié (exit 0, portail 200) le prouve sur votre machine
+  après réparation, et non sur une machine vierge — que je n'avais pas testée.
+  D'où ma réserve. Elle ne disait pas que le script est correct, seulement que
+  je n'avais pas de preuve sur ce cas-là.
+
+  Supprimer les volumes
+
+  down -v ne supprime que les volumes déclarés dans les fichiers compose passés
+  — ici les cinq du projet exo2-portail-depot : pgdata, minio_data,
+  prometheus_data, grafana_data, certbot_www. Les volumes _dev appartiennent à
+  un autre projet et ne sont pas touchés.
+
+  docker compose -f infra/docker-compose.yml --env-file .env down -v
+  rm .env          # sinon les secrets actuels survivent : ce ne serait pas le 
+  cas vierge
+  ./install.sh
+
+  Ce que vous perdez, sans retour possible : la base (compte avocat, demandes,
+  liens), les fichiers déposés dans MinIO, l'historique Prometheus et la base
+  interne de Grafana. Les tableaux de bord, alertes et source de données Grafana
+  sont provisionnés depuis des fichiers et reviennent seuls — c'est écrit dans
+  le compose.
+
+  Le rm .env compte : sans lui vous testeriez un .env existant sur des volumes
+  neufs, soit encore un autre cas.
+
+  Le test vraiment fidèle
+
+  Cette manipulation ne simule pas une machine vierge, seulement des volumes
+  vides : votre machine a déjà Docker, les images en cache, curl. Le test fidèle
+  existe et ne touche à rien chez vous — il rejoue tout dans un conteneur,
+  depuis git archive HEAD et non depuis l'arbre de travail :
+
+  pnpm test:bare-machine              # ubuntu:24.04
+  ./scripts/test-bare-machine.sh debian:12
+
+  Il vérifie exit 0, / → 200, /api/v1/health → 403, .env en 600, et affiche la
+  durée. Comptez ~2 min.
+
+  Je peux lancer l'un ou l'autre — dites lequel. Pour le down -v, j'attends
+  votre feu vert : la perte est irréversible.
+
+✻ Churned for 29s
+
+※ recap: Goal was getting install.sh working from a missing .env; it now exits 0 and the portal responds after I realigned the Postgres password. Next: your call on running down -v plus rm .env to test a clean install, which is irreversible. (disable recaps in /config)
+
+❯ http://127.0.0.1:21600/deposit/<jeton>    
+  pourquoi le lien ne fonctionne pas bien que j'ai renseigné le bon mot de      
+  passe?                                                                        
+
+● Nouveau symptôme, nouvelle instruction. Le jeton de votre URL (tsPb2SBT…)
+  n'est pas celui qu'a imprimé le dernier install.sh (qDsL1P9_…) — première
+  piste à vérifier, pas à supposer. Regardons ce que la base dit de ce jeton
+  précis :
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Le jeton n'a aucune ligne dans cette base — il n'est pas révoqué, il est
+  inconnu. Cherchons d'où il vient (base de dev ?) et ce que l'API répond
+  réellement :
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Réponse observée : 401 « Lien ou code invalide. » — la réponse volontairement
+  indiscernable de C1, la même que le lien soit inconnu, révoqué ou expiré.
+  Testons le lien courant comme contrôle :
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Le contrôle échoue aussi : le lien courant, avec le PIN que install.sh vient
+  d'imprimer, répond 401. Ce n'est donc pas un lien périmé — la fonctionnalité
+  est cassée. Comparons le hachage du jeton courant à celui stocké :
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+● Le jeton, lui, correspond bien (hash identique). Le refus vient donc
+  d'ailleurs. Lisons le chemin de déverrouillage et les journaux de l'API
+  pendant l'appel :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Vérifions le PIN directement contre le hachage stocké, hors API :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Le backend est reparti en redémarrage — état à instruire avant de conclure :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● P1000 est de retour et db a redémarré il y a 40 s. Quelque chose a changé
+  l'état pendant qu'on débuguait — cherchons quoi :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Tous les conteneurs ont été détruits et recréés à 15:57:40, et .env a été
+  réécrit à 15:53 — un install.sh (ou un down/up) a tourné pendant le débogage.
+  Mesurons l'état actuel plutôt que de supposer :
+
+  Listed 1 directory, ran 2 shell commands (ctrl+o to expand)
+
+● Le conteneur db porte un mot de passe (<prefixe>…) que le .env de ce dossier ne
+  contient pas. Les étiquettes compose disent d'où il a été créé :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Cause trouvée. Une seconde copie du dépôt a repris la même stack :
+
+  config_files      = /home/sephorahaniambossou/delivery/test/exos/exo2-portail-
+  depot/infra/docker-compose.yml
+  environment_file  =
+  /home/sephorahaniambossou/delivery/test/exos/exo2-portail-depot/.env
+
+  Vérifions la conséquence sur le lien de démonstration :
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● La preuve est nette : le lien de démo 787f487a a été révoqué à 19:57:21 et
+  remplacé par fc491dcd — par le seed de l'autre copie. Mais mon test du PIN
+  3352 datait de 19:57:03, soit avant : ce refus-là reste inexpliqué. Je répare
+  la stack dans sa configuration courante (mot de passe du rôle aligné sur ce
+  que les conteneurs portent), puis je referai un test propre :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Backend sain. Démarrons le proxy, puis test propre : seed → PIN imprimé →
+  déverrouillage immédiat.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● db a de nouveau été recréé : mon up -d proxy (avec le .env de ce dépôt) a
+  détecté une dérive de configuration et a recréé toute la stack avec ces
+  secrets-ci — pendant que le rôle portait ceux de l'autre copie. C'est le
+  va-et-vient que produisent deux copies partageant un même projet compose.
+  Fixons-le sur cette copie :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Stack saine et rattachée à ce dépôt. Test propre du déverrouillage :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Le déverrouillage fonctionne : 200 avec le bon PIN, 401 avec un mauvais. Reste
+  à trancher le refus de 19:57:03. Les lignes révoquées sont conservées, donc
+  le hachage du PIN d'alors est encore là :
+
+  Ran 1 shell command (ctrl+o to expand)
+● PIN 3352 correspondait bien au lien alors actif. Le refus de 19:57:03 n'était
+  donc ni le jeton ni le PIN. Lisons resolve :
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Le code de resolve est sain. Prometheus a conservé les compteurs de cette
+  minute — interrogeons-les plutôt que de spéculer :
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● Compteurs décisifs : portal_expired_link_hits_total reste à 0 (aucune
+  expiration), et les échecs passent de 5 à 7 entre 19:57:30 et 19:58:00 — mon
+  test de contrôle a donc eu lieu après la révocation de 19:57:21, pas avant
+  comme je l'avais lu. Le lien était déjà révoqué. Vérifions enfin d'où vient
+  votre jeton — la base de dev est séparée :
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Diagnostic complet. Le déverrouillage n'est pas cassé — j'ai conclu trop vite
+  tout à l'heure : mon test de contrôle est tombé après la révocation du lien,
+  pas avant. Voici l'histoire réelle.
+
+  Pourquoi votre lien ne marche pas
+
+  Deux causes distinctes, aucune n'étant un bug du code.
+
+  1. Le lien de démonstration est révoqué et recréé à chaque exécution du seed.
+  C'est écrit dans la bannière : « Le PIN et le lien sont regeneres a chaque
+  execution : les precedents ne sont plus valables. » Le PIN est haché en
+  argon2id, donc un lien conservé ne pourrait pas voir son PIN réaffiché — il
+  est remplacé, pas retrouvé. Chaque ./install.sh rejoue le seed.
+
+  Votre jeton tsPb2SBT… n'a aucune ligne ni dans la base de production ni dans
+  celle de dev : il vient d'un état de base qui n'existe plus. Le PIN était
+  peut-être correct ; l'API répond la même chose — 401 « Lien ou code invalide. 
+  » — que le jeton soit inconnu, révoqué, expiré ou le PIN faux. C'est voulu
+  (C1) : distinguer ces cas donnerait à un anonyme de quoi énumérer les liens
+  vivants du cabinet.
+
+  2. Une seconde copie du dépôt se dispute la même stack. C'est le vrai
+  problème, et il explique aussi les P1000 revenus pendant qu'on débuguait. Les
+  étiquettes du conteneur db :
+
+  com.docker.compose.project           = exo2-portail-depot
+  com.docker.compose.project.config_files    =
+  …/delivery/test/exos/exo2-portail-depot/infra/docker-compose.yml
+  com.docker.compose.project.environment_file =
+  …/delivery/test/exos/exo2-portail-depot/.env
+
+  Le nom de projet est figé dans le fichier compose (name: exo2-portail-depot).
+  Les deux copies désignent donc les mêmes conteneurs et les mêmes volumes, avec
+  des .env aux secrets différents. Chaque commande compose lancée d'un côté
+  détecte une dérive de configuration et recrée toute la stack avec ses secrets
+  à lui, pendant que pgdata garde le mot de passe posé par l'autre → P1000. J'ai
+  moi-même relancé un tour de ce va-et-vient avec un up -d proxy.
+
+  À 19:57:21, le seed de l'autre copie a révoqué le lien 787f487a (celui du
+  dernier install.sh d'ici) et en a créé un autre. Mon contrôle est passé après.
+
+  Vérifications
+
+  - PIN 3352 contre le hachage du lien révoqué, en argon2 direct : true — le PIN
+  était bon, c'est la révocation qui refusait.
+  - portal_expired_link_hits_total sur la fenêtre : 0 — aucune expiration en
+  cause.
+  - portal_unlock_attempts_total{outcome="failure"} : 5 → 7 entre 19:57:30 et
+  19:58:00, ce qui date mes deux appels de contrôle après la révocation de
+  19:57:21.
+  - Test propre de bout en bout après réparation : seed, puis déverrouillage
+  avec le PIN imprimé → 200 ; avec un PIN faux → 401.
+  - Stack complète saine, proxy compris ; http://127.0.0.1:21600/ → 200.
+
+  État actuel
+
+  La stack est rattachée à cette copie et fonctionne. Lien de démonstration
+  valide :
+
+  http://127.0.0.1:21600/deposit/<jeton>
+  PIN <pin>    avocat@example.com / <mot-de-passe-demo>
+
+  J'ai réaligné le mot de passe du rôle Postgres (sans perte de données) et
+  arrêté la stack de dev que j'avais démarrée pour la recherche.
+
+  À décider
+
+  Tant que /home/sephorahaniambossou/delivery/test/exos/exo2-portail-depot
+  existe, toute commande compose ou tout ./install.sh lancé là-bas reprendra ces
+  conteneurs et ces volumes, et cassera la base à nouveau. Trois issues :
+
+  - Faire votre test vierge là-bas, mais isolé : COMPOSE_PROJECT_NAME ne suffit
+  pas, le name: du fichier compose l'emporte. Il faut soit y modifier le name:,
+  soit détruire les volumes avant (down -v) et accepter que les deux copies ne
+  coexistent jamais en marche.
+  - Supprimer cette copie de test si elle a fait son office.
+  - Ne garder qu'une copie en marche à la fois, en faisant down avant de passer
+  à l'autre.
+
+  Dites-moi laquelle vous voulez et je l'applique. Je n'ai touché à rien dans
+  l'autre copie.
+
+✻ Brewed for 9m 39s
+
+❯ Donc pour l'autre bug, si j'ai bien compris, c'est dû au fait que lorsque     
+  j'ai lancé install.sh dans un autre dossier, le fait de ne pas avoir d'env    
+  crée à nouveau tous les secrets, y compris POSTGRES_PASSWORD. Postgre ne lit  
+  le password qu'à l'initialisation d'un volume vide, or les volumes sur ma     
+  machine datent du 8 aout, donc il y a un mismtach des mots de passe, ce qui   
+  fait échouer le backend.                                                      
+  Dans le script, il faudrait supprimer les volumes existants dans le cas où on 
+  repart d'un nouvel .env pour éviter ce problème non?                          
+
+● Votre résumé est exact, à une nuance près qui change la portée du correctif :
+  sur une machine vraiment vierge, ce bug ne peut pas arriver — il n'y a pas de
+  volume. Il ne touche que les machines qui ont déjà fait tourner la stack, la
+  vôtre en l'occurrence. Le chemin que les correcteurs testent n'est donc pas en
+  cause ; c'est votre boucle de développement qui l'est.
+
+  Supprimer les volumes automatiquement : non
+
+  C'est le seul point où je ne vous suis pas, et la raison tient en une phrase :
+  sur la machine de staging, ce volume contient les pièces déposées par les 
+  clients de l'avocat et tout l'historique des dossiers. Un .env perdu, écrasé,
+  ou simplement absent parce qu'on a cloné le dépôt ailleurs — exactement ce qui
+  vient de vous arriver — déclencherait alors une destruction définitive, sans
+  question posée, sous couvert d'installation.
+
+  Trois objections plus concrètes :
+
+  - Le signal n'existe pas. install.sh complète un .env existant
+  (append_missing_keys) et ne remplit que les clés vides. « On repart d'un .env
+  neuf » n'est pas un état que le script sait distinguer de « on a ajouté une
+  variable ».
+  - Le cas légitime tombe dedans. Restaurer un .env depuis une sauvegarde ou un
+  coffre à secrets, sur une machine dont les volumes sont intacts, est
+  précisément l'opération de reprise après incident. Elle effacerait les données
+  qu'elle vient réparer.
+  - Postgres n'est pas seul. Grafana lit GRAFANA_ADMIN_PASSWORD uniquement à
+  l'initialisation de son volume, MinIO garde son utilisateur applicatif dans le
+  sien. Un correctif qui ne traite que pgdata laisse la même classe de panne
+  ailleurs.
+
+  Un installateur qui peut détruire des données de production sans qu'on le lui
+  demande est une panne plus grave que celle qu'il corrige.
+
+  Ce que je recommande à la place
+
+  Détecter la divergence et échouer vite, en la nommant. Aujourd'hui le script
+  attend ses 300 s puis affiche des journaux bruts où il faut repérer P1000 —
+  c'est ce qui vous a coûté la soirée. La boucle wait_for_services peut
+  reconnaître ce code dans les journaux du backend et s'arrêter en quelques
+  secondes sur un message qui dit la cause (.env et volume désaccordés), puis
+  les deux issues :
+
+  - down -v puis ./install.sh — repart propre, détruit les données ;
+  - ALTER USER — réaligne le mot de passe du rôle, conserve les données : c'est
+  ce que j'ai fait deux fois ce soir, et cela tient en une commande.
+
+  Et un drapeau explicite --reset qui fait le down -v pour vous, puisque c'est
+  ce que vous voulez en développement. La destruction reste alors une chose que
+  vous tapez, pas un effet de bord.
+
+  Une troisième voie existe — que le script fasse lui-même l'ALTER USER quand il
+  détecte la divergence, réparation automatique sans perte. Elle est séduisante
+  mais je la mets de côté : elle masquerait la cause réelle, qui dans votre cas
+  n'était pas le mot de passe mais deux copies du dépôt partageant un même 
+  projet compose. Vous auriez vu la stack se réparer et le lien de démo
+  continuer à se faire révoquer par l'autre copie, sans jamais savoir pourquoi.
+
+  Je peux implémenter la détection plus --reset — c'est une modification de
+  wait_for_services et de l'analyse des arguments, avec le test correspondant
+  dans scripts/test-bare-machine.sh. Dites-moi si je m'y mets, et si vous voulez
+  --reset ou seulement le message.
+
+✻ Churned for 46s
+
+❯ sur la machine de déploiement, en supprimant l'env, j'ai eu cette erreur      
+  "WARN[0000] Found orphan containers (exo2-portail-depot-certbot-1) for this   
+  project. If you removed or renamed this service in your compose file, you can 
+  run this command with the --remove-orphans flag to clean it up. "             
+
+● Cet avertissement en dit plus qu'il n'en a l'air, et sur la machine de
+  déploiement il est le symptôme visible d'un problème sérieux. Vérifions
+  d'abord l'état réel du portail public :
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● /api/v1/health devrait répondre 403 (règle deny all) et un login erroné 401.
+  Deux 200 : ce n'est probablement pas notre nginx qui répond. Regardons les
+  corps :
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Correction : le 200 en HTTP ne venait pas de votre portail. Le corps le dit —
+
+  Le routage vers ton environnement fonctionne, mais rien n ecoute sur ton port.
+
+  C'est le proxy de la machine partagée. Rien n'écoute sur 21600 : le portail
+  est entièrement à terre, pas seulement le HTTPS. Le deny all sur
+  /api/v1/health et le 401 de login n'ont jamais été contournés, ces routes ne
+  sont simplement pas arrivées jusqu'à nous.
+
+  Ce que l'avertissement certbot signale
+
+  certbot n'existe que dans infra/docker-compose.tls.yml, et ce calque n'est
+  ajouté que si DOMAIN est renseigné dans .env. Vous avez supprimé le .env ;
+  install.sh l'a régénéré depuis .env.example, où DOMAIN est vide. Le script a
+  donc démarré la pile en clair, sans le calque : le conteneur certbot, resté du
+  déploiement précédent, appartient toujours au projet mais n'est plus décrit
+  par aucun fichier — d'où « orphan ».
+
+  C'est le témoin d'un basculement silencieux : la machine est repassée en HTTP,
+  21601 n'est plus publié, et le passthrough TLS de la machine n'aboutit plus.
+  Et il ne vient pas seul :
+
+  - PUBLIC_BASE_URL est revenu à http://127.0.0.1:21600. Tout lien client créé
+  dans cet état pointe vers la boucle locale du serveur — inutilisable, alors
+  que l'API répond 201.
+  - Tous les secrets ont été retirés au hasard, DB_PASSWORD compris, face à des
+  volumes qui, eux, ont survécu. C'est très probablement le P1000 que vous
+  connaissez maintenant, et il explique que rien n'écoute : backend boucle,
+  proxy attend un backend sain et n'est jamais démarré.
+  - GRAFANA_ADMIN_PASSWORD ne correspond plus à la base interne de Grafana,
+  initialisée avec l'ancien.
+
+  MinIO s'en sort : minio-init recrée l'utilisateur applicatif à chaque
+  démarrage avec les nouvelles clés, et les objets déposés ne sont pas touchés.
+
+  Deux choses à ne pas faire
+
+  Ne lancez pas --remove-orphans. Il supprimerait certbot alors que le vrai
+  correctif est de remettre le calque TLS, qui le redéclare.
+
+  Surtout, pas de down -v sur cette machine. Il détruirait les pièces déposées
+  par les clients, l'historique des dossiers, et le volume letsencrypt — Let's
+  Encrypt plafonne à 5 certificats identiques par semaine, et vous repartiriez
+  de zéro sur ce quota.
+
+  Remise en état, dans cet ordre
+
+  1. Cherchez d'abord une sauvegarde du .env sur la machine : ls -la .env*. S'il
+  en existe une, la restaurer règle tout d'un coup — mot de passe base, DOMAIN,
+  PUBLIC_BASE_URL, Grafana.
+
+  2. Sinon, confirmez la cause avant de toucher quoi que ce soit :
+
+  docker compose -f infra/docker-compose.yml --env-file .env ps -a
+  docker compose -f infra/docker-compose.yml --env-file .env logs backend --tail
+  20
+
+  3. Réalignez le mot de passe du rôle (les données sont conservées) :
+
+  PW=$(grep -E '^DB_PASSWORD=' .env | cut -d= -f2-)
+  printf "ALTER USER portail PASSWORD '%s';\n" "$PW" \
+    | docker compose -f infra/docker-compose.yml --env-file .env exec -T db psql
+  -U portail -d portail_depot -f -
+
+  4. Rétablissez le HTTPS : remettez
+  DOMAIN=sephorah-aniambossou.stage2-div.rayan-drissi.com et ACME_EMAIL=<votre 
+  adresse> dans .env, puis ./install.sh. PUBLIC_BASE_URL vaut actuellement la
+  valeur par défaut, donc le script le réalignera seul sur https://$DOMAIN. Le
+  certificat étant déjà dans le volume letsencrypt, aucune émission nouvelle,
+  aucun quota consommé — et certbot cesse d'être orphelin.
+
+  5. Grafana : docker compose … exec grafana grafana cli admin 
+  reset-admin-password "<le nouveau GRAFANA_ADMIN_PASSWORD>".
+
+  Si vous avez un accès shell à cette machine depuis ici, tapez la commande avec
+  le préfixe ! et je lis la sortie directement — je pourrai vous guider pas à
+  pas plutôt qu'à l'aveugle.
+
+  Ce que ça change pour le script
+
+  Votre intuition de départ était la bonne sur un point que je n'avais pas vu
+  venir : le vrai danger n'est pas le mot de passe, c'est que install.sh 
+  désactive HTTPS en silence dès que DOMAIN est vide, sur une machine qui
+  servait en HTTPS. Le garde-fou est cheap et ne détruit rien : si le volume
+  letsencrypt existe alors que DOMAIN est vide, s'arrêter et le dire. Cela
+  transforme votre soirée en un message d'une ligne.
+
+  Cela fait deux protections à ajouter, toutes deux non destructives :
+
+  - détecter la divergence .env / volume Postgres (P1000) et échouer en quelques
+  secondes en nommant la cause et les deux issues ;
+  - refuser de repasser en clair une machine qui possède déjà un certificat.
+
+  Plus --reset si vous voulez la destruction en développement, explicitement.
+  Dites-moi si je les implémente.
+
+✻ Churned for 1m 43s
+
+※ recap: Goal is getting install.sh reliable after a deleted .env. Local stack is repaired and working; the staging machine is down and needs its .env restored plus the ALTER USER fix. Next: run those recovery steps there, or tell me to implement the two script guards. (disable recaps in /config)
+
+❯ oui fais cela                                                                 
+
+● Je lance l'implémentation. D'abord la skill imposée avant d'écrire du code.
+
+● Skill(superpowers:test-driven-development)
+  ⎿  Successfully loaded skill
+
+  Ran 2 shell commands (ctrl+o to expand)
+  ⎿  Interrupted · What should Claude do instead?
+❯ pour info, cela s'était déroulé sur la machine partagée de déploiement        
+  j'avais juste renommé l'.env pour forcer le script à regénérer un env         
+
+● Information importante, et elle simplifie beaucoup la reprise sur la machine
+  de staging.
+
+  Le .env d'origine est toujours là, sous son nouveau nom. Il porte l'ancien
+  DB_PASSWORD (celui du volume), DOMAIN, ACME_EMAIL, GRAFANA_ADMIN_PASSWORD et
+  PUBLIC_BASE_URL. Le rétablir règle tout d'un coup — pas d'ALTER USER, pas de
+  réinitialisation Grafana :
+
+  ls -la .env*                 # retrouver le nom sous lequel vous l'avez range
+  mv .env .env.regenere        # ecarter celui que le script vient de creer
+  mv <l-ancien-nom> .env
+  chmod 600 .env
+  ./install.sh                 # complete les cles manquantes, remonte le TLS
+
+  install.sh ne remplit que les clés vides, donc vos valeurs d'origine sont
+  conservées, et il ajoutera celles que .env.example a gagnées depuis. Le
+  certificat étant dans le volume letsencrypt, aucune réémission.
+
+  Je continue l'implémentation des garde-fous. Lecture du reste des zones
+  concernées :
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Le harnais de test d'abord (rouge avant vert). Il rejoue le vrai install.sh
+  avec un docker et un curl simulés, donc sans toucher à votre stack :
+
+● Write(scripts/test-install-guards.sh)
+  ⎿  Wrote 191 lines to scripts/test-install-guards.sh
+       1 #!/usr/bin/env bash
+       3 #
+       4 #   ./scripts/test-install-guards.sh
+       5 #
+         une machine
+       7 # vierge — elles demandent un volume survivant d'une installatio
+       8 # donc test-bare-machine.sh ne peut pas les voir. Elles ont pour
+         tant coute une
+       9 # base de production muette et un portail repasse en clair sans 
+      10 #
+     … +215 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Deux défauts du harnais (substitution de commande → sous-shell, variables
+  perdues). Correction :
+
+● Update(scripts/test-install-guards.sh)
+  ⎿  Added 12 lines, removed 6 lines
+      109    printf '%s' "$dir"
+      110  }
+      111  
+      112 -# Lance install.sh dans l'arbre simule. Renvoie le code de sor
+          -tie ; la sortie                                               
+      113 -# complete est dans $OUTPUT, la liste des commandes docker dan
+          -s $STUB_LOG.                                                  
+      112 +# Lance install.sh dans l'arbre simule et renseigne trois glob
+          +ales : STATUS,                                                
+      113 +# OUTPUT et CALLS (les commandes docker recues). Pas de substi
+          +tution de                                                     
+      114 +# commande a l'appel : elle ouvrirait un sous-shell et les glo
+          +bales seraient                                                
+      115 +# perdues au retour.                                          
+      116 +STUB_LOG="$WORKDIR/docker.log"                                
+      117 +STATUS=0                                                      
+      118 +OUTPUT=""                                                     
+      119 +CALLS=""                                                      
+      120 +                                                              
+      121  run_install() {
+      122    local dir; dir="$(prepare_tree)"
+      116 -  STUB_LOG="$WORKDIR/docker.log"                              
+      123    : > "$STUB_LOG"
+      118 -  local status=0                                              
+      124 +  STATUS=0                                                    
+      125    OUTPUT="$(PATH="$WORKDIR/bin:$PATH" STUB_LOG="$STUB_LOG" \
+      126      STUB_LETSENCRYPT="${STUB_LETSENCRYPT:-0}" STUB_P1000="${ST
+           UB_P1000:-0}" \
+      121 -    "$dir/install.sh" "$@" 2>&1)" || status=$?                
+      122 -  printf '%s' "$status"                                       
+      127 +    "$dir/install.sh" "$@" 2>&1)" || STATUS=$?                
+      128 +  CALLS="$(cat "$STUB_LOG")"                                  
+      129  }
+      130  
+      131  assert_contains() {
+
+● Update(scripts/test-install-guards.sh)
+  ⎿  Added 14 lines, removed 14 lines
+      147  
+      148  # --- 1. Aucune destruction sans --reset ---------------------
+           ------------------
+      149  step "sans --reset, aucun volume n'est supprime"
+      150 -status="$(run_install)"                                       
+      151 -[ "$status" = 0 ] || die "install.sh devait reussir (code $sta
+          -tus) :                                                        
+      150 +run_install                                                   
+      151 +[ "$STATUS" = 0 ] || die "install.sh devait reussir (code $STA
+          +TUS) :                                                        
+      152  $OUTPUT"
+      153 -assert_absent "down -v" "$(cat "$STUB_LOG")" "aucun 'down -v' 
+          -lance"                                                        
+      153 +assert_absent "down -v" "$CALLS" "aucun 'down -v' lance"      
+      154  
+      155  # --- 2. --reset detruit, explicitement ----------------------
+           -------------------
+      156  step "--reset supprime les volumes avant de demarrer"
+      157 -status="$(run_install --reset)"                               
+      158 -[ "$status" = 0 ] || die "install.sh --reset devait reussir (c
+          -ode $status) :                                                
+      157 +run_install --reset                                           
+      158 +[ "$STATUS" = 0 ] || die "install.sh --reset devait reussir (c
+          +ode $STATUS) :                                                
+      159  $OUTPUT"
+      160 -assert_contains "down -v" "$(cat "$STUB_LOG")" "'down -v' lanc
+          -e"                                                            
+      160 +assert_contains "down -v" "$CALLS" "'down -v' lance"          
+      161  
+      162  # --- 3. Le certificat interdit --reset ----------------------
+           -------------------
+      163  # Sinon un `down -v` emporterait le volume letsencrypt, et Let
+           's Encrypt
+      164  # plafonne a 5 certificats identiques par semaine.
+      165  step "--reset refuse quand un certificat existe"
+      166 -STUB_LETSENCRYPT=1 status="$(STUB_LETSENCRYPT=1 run_install --
+          -reset)"                                                       
+      167 -[ "$status" != 0 ] || die "install.sh --reset devait s'arreter
+          - :                                                            
+      166 +STUB_LETSENCRYPT=1 run_install --reset                        
+      167 +[ "$STATUS" != 0 ] || die "install.sh --reset devait s'arreter
+          + :                                                            
+      168  $OUTPUT"
+      169  assert_contains "certificat" "$OUTPUT" "la cause nommee est le
+            certificat"
+      170 -assert_absent "down -v" "$(cat "$STUB_LOG")" "rien n'a ete det
+          -ruit"                                                         
+      170 +assert_absent "down -v" "$CALLS" "rien n'a ete detruit"       
+      171  
+      172  # --- 4. Pas de retour au clair en silence -------------------
+           -------------------
+      173  # Le cas vecu : .env renomme, DOMAIN redevenu vide, la pile re
+           part en HTTP et
+      174  # le 21601 n'est plus publie — sans un mot.
+      175  step "un certificat existant + DOMAIN vide arrete le script"
+      176 -status="$(STUB_LETSENCRYPT=1 run_install)"                    
+      177 -[ "$status" != 0 ] || die "install.sh devait refuser de repass
+          -er en clair :                                                 
+      176 +STUB_LETSENCRYPT=1 run_install                                
+      177 +[ "$STATUS" != 0 ] || die "install.sh devait refuser de repass
+          +er en clair :                                                 
+      178  $OUTPUT"
+      179  assert_contains "DOMAIN" "$OUTPUT" "la cause nommee est DOMAIN
+           "
+      180 -assert_absent "up -d" "$(cat "$STUB_LOG")" "la pile n'a pas et
+          -e demarree en clair"                                          
+      180 +assert_absent "up -d" "$CALLS" "la pile n'a pas ete demarree e
+          +n clair"                                                      
+      181  
+      182  # --- 5. La divergence .env / volume est nommee, et vite -----
+           -------------------
+      183  step "un backend en P1000 echoue vite, en nommant la cause"
+      184  start="$(date +%s)"
+      185 -status="$(STUB_P1000=1 run_install)"                          
+      185 +STUB_P1000=1 run_install                                      
+      186  elapsed=$(( $(date +%s) - start ))
+      187 -[ "$status" != 0 ] || die "install.sh devait echouer :        
+      187 +[ "$STATUS" != 0 ] || die "install.sh devait echouer :        
+      188  $OUTPUT"
+      189  [ "$elapsed" -lt 60 ] || die "echec en ${elapsed}s : le script
+            attend encore son
+      190         delai complet au lieu de reconnaitre P1000."
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● RED obtenu au bon endroit : le test 1 (aucune destruction) passe déjà — c'est
+  un garde anti-régression — et le test 2 échoue sur argument inconnu : --reset.
+  J'implémente.
+
+● Update(install.sh)
+  ⎿  Added 13 lines, removed 8 lines
+      55  info() { printf '    %s\n' "$*"; }
+      56  
+      57  usage() {
+      58 -  echo "Usage : ./install.sh [--from-source]"                  
+      58 +  echo "Usage : ./install.sh [--from-source] [--reset]"        
+      59    echo "  (sans argument)  tire les images publiees, monte la s
+          tack, affiche les URLs"
+      60    echo "  --from-source    construit les images en local au lie
+          u de les tirer"
+      61    echo "                   (necessite le code source ; sert a e
+          ssayer le compose"
+      62    echo "                    de production avant de publier)"
+      63 +  echo "  --reset          DETRUIT les volumes avant de demarre
+         +r : base, pieces"                                              
+      64 +  echo "                   deposees, metriques. Repart d'une st
+         +ack vierge."                                                   
+      65  }
+      66  
+      67  # Arguments valides en tete de script : sinon une faute de frap
+          pe se paie apres
+      68  # plusieurs minutes, et demarre la stack au lieu de s'arreter.
+      69  FROM_SOURCE=0
+      68 -[ "$#" -le 1 ] || die "un seul argument est accepte (recu : $*)
+         -."                                                             
+      69 -case "${1:-}" in                                               
+      70 -  '')            ;;                                            
+      71 -  --from-source) FROM_SOURCE=1 ;;                              
+      72 -  -h|--help)     usage; exit 0 ;;                              
+      73 -  *)             die "argument inconnu : $1 (attendu : --from-s
+         -ource, --help, ou aucun)." ;;                                  
+      74 -esac                                                           
+      70 +RESET=0                                                        
+      71 +while [ "$#" -gt 0 ]; do                                       
+      72 +  case "$1" in                                                 
+      73 +    --from-source) FROM_SOURCE=1 ;;                            
+      74 +    --reset)       RESET=1 ;;                                  
+      75 +    -h|--help)     usage; exit 0 ;;                            
+      76 +    *)             die "argument inconnu : $1 (attendu : --from
+         +-source, --reset, --help, ou aucun)." ;;                       
+      77 +  esac                                                         
+      78 +  shift                                                        
+      79 +done                                                           
+      80  
+      81  # === Docker ===
+      82  # On ne sait pas ce qu'il y a sur la machine de test, ni si l'u
+          tilisateur a les
+
+❯ revert et fais d'abord un plan avant d'apporter les modifications             
+
+● Compris. Je passe en planification. Je ne peux pas modifier de fichier en mode
+  plan, donc l'annulation de mes modifications devient l'étape 0 du plan —
+  voici d'abord leur état exact :
+
+  Searched for 1 pattern, listed 3 directories, ran 1 shell command (ctrl+o to expand)
+
+● J'ai tout ce qu'il me faut (les docs sont dans draft-dev-docs/, pas docs/ —
+  CLAUDE.md est en retard là-dessus). Deux décisions changent ce que j'écris :
+
+● User answered Claude's questions:
+  ⎿  · Faut-il ajouter un troisième garde-fou contre le scénario « deux copies 
+     du dépôt sur le même projet compose » (celui qui a cassé la base ce soir) ?
+     → pas besoin je vois pas dans quel cas ça peut arriver; de mon côté j'ai 
+     juste clone le repo ailleurs pour tester si ça marchait
+     · `--reset` détruit la base et les pièces déposées. Faut-il une 
+     confirmation interactive en plus du drapeau ? → pas besoin
+
+● Updated plan
+  ⎿  /plan to preview
+
+❯ mais donc, le fait que sur la machine de déploiement, le script ne fonctionne 
+  pas après avoir changé de nom l'env, c'est normal?                            
+
+● Bonne question, et la réponse est en deux moitiés.
+
+  Ce qui est normal. Régénérer les secrets quand .env est absent est le
+  comportement voulu : c'est ce qui fait qu'un correcteur clone le dépôt sur une
+  machine nue, lance ./install.sh, et obtient un portail qui répond. Le script
+  n'a aucun moyen de deviner que le fichier a été renommé plutôt qu'absent. Et
+  que Postgres refuse ensuite le nouveau mot de passe est le comportement
+  documenté de Postgres : il ne lit POSTGRES_PASSWORD qu'en initialisant un
+  volume vide. Jusque-là, personne n'a tort.
+
+  Ce qui ne l'est pas. Trois choses sont de vrais défauts du script :
+
+  1. Il échoue tard et mal. 300 secondes d'attente, puis des journaux bruts où
+  il faut repérer P1000 soi-même. Son contrat est « quand je rends la main en 0,
+  le portail répond » — il le respecte, mais il ne dit pas pourquoi il échoue,
+  alors que la cause est reconnaissable en une ligne.
+  2. Il a coupé le HTTPS tout seul, sans le dire. Ça, ce n'est pas une
+  conséquence subie : c'est une action que le script a décidée. DOMAIN vide → il
+  monte la pile sans le calque TLS, le 21601 n'est plus publié, certbot devient
+  orphelin. Sur un portail dont l'argument est la traçabilité des pièces d'un
+  dossier, repasser en clair en silence est une régression de confidentialité.
+  3. Il a réécrit PUBLIC_BASE_URL vers 127.0.0.1. Tout lien client émis ensuite
+  aurait été inutilisable, l'API répondant 201 comme si de rien n'était.
+
+  Autrement dit : la panne était prévisible, la façon dont elle s'est manifestée
+  ne l'était pas — et les volumes présents sur la machine étaient justement la
+  preuve, disponible dès la première seconde, que cette machine n'était pas
+  vierge. C'est ce signal que les deux garde-fous exploitent.
+
+  Le plan est écrit.
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ Garde-fous install.sh : divergence .env / volumes, et retour au clair   │
+     │ silencieux                                                              │
+     │                                                                         │
+     │ Contexte                                                                │
+     │                                                                         │
+     │ Deux pannes vécues aujourd'hui, même origine : install.sh régénère tous │
+     │ les secrets quand                                                       │
+     │ .env est absent, alors que les volumes, eux, survivent.                 │
+     │                                                                         │
+     │ Sur la machine de dev. Postgres ne lit POSTGRES_PASSWORD qu'à           │
+     │ l'initialisation d'un volume                                            │
+     │ vide. Un .env neuf face à un pgdata du 8 août donne P1000, le backend   │
+     │ boucle, proxy n'est                                                     │
+     │ jamais démarré, et le script attend ses 300 s avant de cracher des      │
+     │ journaux bruts où il faut                                               │
+     │ repérer le code d'erreur soi-même. Diagnostic : plus d'une heure.       │
+     │                                                                         │
+     │ Sur la machine de staging partagée. .env renommé pour forcer une        │
+     │ régénération → DOMAIN                                                   │
+     │ redevient vide → install.sh monte la pile sans le calque TLS. Le        │
+     │ portail repasse en HTTP,                                                │
+     │ le 21601 n'est plus publié, certbot devient un conteneur orphelin, et   │
+     │ PUBLIC_BASE_URL revient                                                 │
+     │ à http://127.0.0.1:21600 — tout lien client créé ensuite pointe vers la │
+     │ boucle locale du serveur                                                │
+     │ pendant que l'API répond 201. Aucun message.                            │
+     │                                                                         │
+     │ Objectif : que ces deux situations produisent un arrêt immédiat qui     │
+     │ nomme la cause et les                                                   │
+     │ issues, et donner le drapeau --reset pour la remise à zéro volontaire   │
+     │ en développement.                                                       │
+     │                                                                         │
+     │ Aucun de ces cas ne peut se produire sur une machine vierge — ils       │
+     │ demandent un volume survivant.                                          │
+     │ Le chemin des correcteurs n'est donc pas modifié.                       │
+     │                                                                         │
+     │ Étape 0 — Annuler mes modifications en cours                            │
+     │                                                                         │
+     │ git checkout -- install.sh                                              │
+     │ rm scripts/test-install-guards.sh                                       │
+     │                                                                         │
+     │ Le travail repart du plan.                                              │
+     │                                                                         │
+     │ Décisions, et ce qu'elles écartent                                      │
+     │                                                                         │
+     │ Détecter la divergence en lisant P1000 dans les journaux du backend,    │
+     │ pendant la boucle                                                       │
+     │ d'attente, plutôt que :                                                 │
+     │ - sonder Postgres avant up — il faudrait un client psql, donc tirer une │
+     │ image de plus sur une                                                   │
+     │ machine peut-être hors ligne, et démarrer db seul avant tout le reste ; │
+     │ - réparer tout seul par ALTER USER — séduisant, mais cela masque la     │
+     │ cause réelle : ce soir, ce                                              │
+     │ n'était pas le mot de passe, c'était deux copies du dépôt agissant sur  │
+     │ le même projet compose.                                                 │
+     │ La stack se serait réparée en boucle sans que rien ne le dise. Et cela  │
+     │ ne couvrirait ni Grafana                                                │
+     │ ni MinIO.                                                               │
+     │                                                                         │
+     │ Le motif reconnu est le code P1000 seul, pas la phrase anglaise qui     │
+     │ l'accompagne : c'est la                                                 │
+     │ partie stable du message de Prisma.                                     │
+     │                                                                         │
+     │ Détecter le certificat par la présence de son volume                    │
+     │ (<projet>_letsencrypt), plutôt que par un                               │
+     │ certbot certificates (qui demande de lancer un conteneur, donc le       │
+     │ calque TLS, donc justement ce                                           │
+     │ qu'on cherche à savoir) ou par un marqueur maison dans .env (qui        │
+     │ dériverait du réel).                                                    │
+     │                                                                         │
+     │ Le nom du projet est lu dans infra/docker-compose.yml (^name:), pas     │
+     │ écrit en dur : c'est                                                    │
+     │ déjà la source de vérité, et le dupliquer créerait une cinquième place  │
+     │ à tenir synchronisée.                                                   │
+     │                                                                         │
+     │ --reset s'appuie sur docker compose down -v, qui dérive la liste des    │
+     │ volumes du fichier                                                      │
+     │ compose, plutôt que sur des docker volume rm nommés un par un — une     │
+     │ liste de plus à maintenir,                                              │
+     │ qui oublierait le prochain volume ajouté.                               │
+     │                                                                         │
+     │ Modifications                                                           │
+     │                                                                         │
+     │ install.sh                                                              │
+     │                                                                         │
+     │ 1. Analyse des arguments — boucle while au lieu du case à un seul       │
+     │ argument, pour accepter                                                 │
+     │ --from-source et --reset ensemble. Message d'argument inconnu et        │
+     │ usage() mis à jour ;                                                    │
+     │ --reset y est décrit comme destructeur, en nommant ce qu'il détruit.    │
+     │ 2. Helper certificate_volume — compose le nom du volume à partir du     │
+     │ name: du compose, et                                                    │
+     │ certificate_exists() qui fait docker volume inspect (silencieux, code   │
+     │ de retour seul).                                                        │
+     │ 3. Bloc --reset, placé après l'étape .env (il faut un .env valide pour  │
+     │ que compose                                                             │
+     │ parse) et avant la section TLS et la vérification des ports (il libère  │
+     │ le port) :                                                              │
+     │   - refuse si un certificat existe — down -v emporterait le volume      │
+     │ letsencrypt, et Let's                                                   │
+     │ Encrypt plafonne à 5 certificats identiques par semaine ; le message    │
+     │ donne le                                                                │
+     │ docker volume rm à taper si c'est vraiment l'intention ;                │
+     │   - sinon annonce ce qui va disparaître (base, pièces déposées,         │
+     │ métriques, Grafana) puis                                                │
+     │ $DOCKER compose $COMPOSE down -v.                                       │
+     │ 4. Garde du retour au clair — dans la branche else du test sur DOMAIN   │
+     │ (là où TLS=0) : si                                                      │
+     │ un certificat existe alors que DOMAIN est vide, arrêt. Le message donne │
+     │ les deux issues :                                                       │
+     │ remettre DOMAIN et ACME_EMAIL dans .env, ou supprimer le volume à la    │
+     │ main pour un retour                                                     │
+     │ au clair assumé.                                                        │
+     │ 5. Détection P1000 dans wait_for_services — une fonction                │
+     │ credentials_diverged()                                                  │
+     │ (docker compose logs --tail=20 backend | grep -q P1000), appelée depuis │
+     │ la boucle uniquement                                                    │
+     │ quand backend est en attente et toutes les 10 s, pas à chaque tour de 2 │
+     │ s. Le message nomme :                                                   │
+     │ la cause (Postgres ne lit son mot de passe qu'à la création d'un volume │
+     │ vide), la commande                                                      │
+     │ ALTER USER qui conserve les données, et ./install.sh --reset qui repart │
+     │ de zéro en                                                              │
+     │ détruisant. Il ne recopie aucune valeur de .env, conformément à la      │
+     │ règle du dépôt sur les                                                  │
+     │ messages d'erreur.                                                      │
+     │                                                                         │
+     │ scripts/test-install-guards.sh (nouveau)                                │
+     │                                                                         │
+     │ Rejoue le vrai install.sh avec un docker et un curl simulés en tête de  │
+     │ PATH, dans un                                                           │
+     │ arbre temporaire (install.sh, .env.example, infra/docker-compose.yml).  │
+     │ Le faux docker                                                          │
+     │ journalise chaque appel : c'est ce qui permet d'affirmer qu'une         │
+     │ commande destructrice n'a pas                                           │
+     │ été lancée, ce qu'aucune assertion sur la sortie ne prouverait. Deux    │
+     │ variables le pilotent :                                                 │
+     │ STUB_LETSENCRYPT et STUB_P1000.                                         │
+     │                                                                         │
+     │ Cinq cas, chacun cassable par une modification plausible du script :    │
+     │                                                                         │
+     │ ┌─────────────────────────────────────────┬──────────────────────────── │
+     │ ───┐                                                                    │
+     │ │                   Cas                   │   Ce qui doit tomber si on  │
+     │   │                                                                     │
+     │ │                                         │           l'enlève          │
+     │   │                                                                     │
+     │ ├─────────────────────────────────────────┼──────────────────────────── │
+     │ ───┤                                                                    │
+     │ │ sans --reset, aucun down -v             │ quelqu'un implémente la     │
+     │   │                                                                     │
+     │ │                                         │ destruction automatique     │
+     │   │                                                                     │
+     │ ├─────────────────────────────────────────┼──────────────────────────── │
+     │ ───┤                                                                    │
+     │ │ --reset lance down -v                   │ le drapeau devient          │
+     │ inopérant  │                                                            │
+     │ ├─────────────────────────────────────────┼──────────────────────────── │
+     │ ───┤                                                                    │
+     │ │ --reset + certificat → refus, rien      │ le quota Let's Encrypt part │
+     │   │                                                                     │
+     │ │ détruit                                 │ en fumée                    │
+     │   │                                                                     │
+     │ ├─────────────────────────────────────────┼──────────────────────────── │
+     │ ───┤                                                                    │
+     │ │ certificat + DOMAIN vide → arrêt, aucun │ retour au clair silencieux  │
+     │   │                                                                     │
+     │ │  up -d                                  │                             │
+     │   │                                                                     │
+     │ ├─────────────────────────────────────────┼──────────────────────────── │
+     │ ───┤                                                                    │
+     │ │ P1000 → échec en moins de 60 s, message │ on retombe sur l'attente de │
+     │   │                                                                     │
+     │ │  citant ALTER USER et --reset           │ 300 s                       │
+     │   │                                                                     │
+     │ └─────────────────────────────────────────┴──────────────────────────── │
+     │ ───┘                                                                    │
+     │                                                                         │
+     │ Câblé dans package.json : "test:install-guards":                        │
+     │ "./scripts/test-install-guards.sh".                                     │
+     │                                                                         │
+     │ scripts/test-bare-machine.sh n'est pas touché : sur une machine vierge  │
+     │ il n'existe aucun                                                       │
+     │ volume, donc aucun de ces chemins ne s'y exerce.                        │
+     │                                                                         │
+     │ Documentation                                                           │
+     │                                                                         │
+     │ - draft-dev-docs/exploitation.md § « La panne qui ressemble à un bug du │
+     │ projet » (l. 370) : la                                                  │
+     │ panne est désormais détectée — remplacer la procédure manuelle par le   │
+     │ message du script, et                                                   │
+     │ ajouter le cas du retour au clair ainsi que --reset.                    │
+     │ - CLAUDE.md § install.sh : les deux garde-fous, et la raison pour       │
+     │ laquelle la destruction n'est                                           │
+     │ pas automatique.                                                        │
+     │ - README.md § limitations : la divergence reste possible sur Grafana    │
+     │ (voir risques résiduels).                                               │
+     │ - draft-dev-docs/ai-plans/2026-08-13-garde-fous-install.md : ce plan,   │
+     │ sa vérification et la revue                                             │
+     │ de code, comme les autres features.                                     │
+     │                                                                         │
+     │ Sécurité                                                                │
+     │                                                                         │
+     │ Ce que les garde-fous protègent :                                       │
+     │                                                                         │
+     │ - Le retour au clair est la vraie faille fermée ici. Le jeton de dépôt  │
+     │ voyage dans l'URL ; en                                                  │
+     │ HTTP il traverse le réseau en clair, et la redaction des journaux nginx │
+     │ ne protège que la                                                       │
+     │ machine. Un portail qui repasse en clair sans le dire est une           │
+     │ régression de confidentialité, pas                                      │
+     │ une gêne de confort.                                                    │
+     │ - La destruction reste un acte tapé. --reset n'est jamais déduit d'un   │
+     │ état ; il refuse en                                                     │
+     │ présence d'un certificat ; il annonce ce qu'il détruit.                 │
+     │ - Aucun secret dans les messages. Le message P1000 nomme les variables  │
+     │ et donne la forme de                                                    │
+     │ la commande, jamais une valeur — même règle que validateEnv.            │
+     │                                                                         │
+     │ Risques résiduels, à écrire dans le README :                            │
+     │                                                                         │
+     │ - Grafana diverge en silence : son mot de passe admin n'est lu qu'à     │
+     │ l'initialisation de son                                                 │
+     │ volume, comme Postgres, mais aucun healthcheck ne le révèle — on s'en   │
+     │ aperçoit à la connexion.                                                │
+     │ MinIO, lui, se répare seul (minio-init recrée l'utilisateur applicatif  │
+     │ à chaque démarrage).                                                    │
+     │ - Deux copies du dépôt sur un même projet compose restent non détectées │
+     │ : c'est votre décision,                                                 │
+     │ le cas venant d'un clone de test volontaire. Le diagnostic est consigné │
+     │ dans exploitation.md                                                    │
+     │ (étiquettes com.docker.compose.project.* d'un conteneur).               │
+     │ - La détection repose sur un motif de journal (P1000) : si Prisma       │
+     │ cessait de l'émettre, on                                                │
+     │ retomberait sur l'attente de 300 s — sans régression de comportement,   │
+     │ mais sans le message.                                                   │
+     │                                                                         │
+     │ Vérification                                                            │
+     │                                                                         │
+     │ 1. ./scripts/test-install-guards.sh — les cinq cas au vert, en quelques │
+     │ secondes, sans toucher à                                                │
+     │ la stack réelle (docker simulé).                                        │
+     │ 2. Casser chaque invariant volontairement et voir le test correspondant │
+     │ tomber : retirer le                                                     │
+     │ refus sur certificat, retirer la détection P1000, retirer la garde      │
+     │ DOMAIN. Un test qui ne                                                  │
+     │ fait plus tomber personne a perdu son gardien.                          │
+     │ 3. pnpm test:bare-machine — le chemin machine vierge est inchangé :     │
+     │ sortie 0, / → 200,                                                      │
+     │ /api/v1/health → 403, .env en 600.                                      │
+     │ 4. Sur la stack locale réelle, une fois : ./install.sh normal doit      │
+     │ toujours rendre la main en 0                                            │
+     │ et le portail répondre 200.                                             │
+     │ 5. Revue de code du diff complet avant fusion, findings classés par     │
+     │ gravité.                                                                │
+     │                                                                         │
+     │ Hors périmètre                                                          │
+     │                                                                         │
+     │ - Réparation automatique du mot de passe (ALTER USER joué par le        │
+     │ script).                                                                │
+     │ - Confirmation interactive pour --reset.                                │
+     │ - Détection du dépôt étranger.                                          │
+     │ - La remise en état de la machine de staging, qui se fait à la main en  │
+     │ restaurant le .env renommé                                              │
+     │ (procédure déjà donnée en conversation).                                │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+● Question légitime, et la réponse honnête est : pas en l'état. Laissez-moi
+  vérifier ce qui reste ouvert avant de trancher.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Non, pas en l'état. Voici ce que je vois en pesant honnêtement.
+
+  Ce que ça ne rapporte pas. Aucune des deux pannes ne peut se produire sur une
+  machine vierge — elles exigent un volume survivant. Le premier test des
+  correcteurs, git clone puis ./install.sh, est donc rigoureusement inchangé.
+  Ces garde-fous ne figurent dans aucune issue du backlog, et rien dans l'énoncé
+  ne les demande.
+
+  Ce que ça coûte. Toucher à install.sh, c'est-à-dire au seul fichier dont
+  dépend la note d'installation. Une régression sur le chemin nominal — analyse
+  des arguments réécrite, deux blocs insérés avant le démarrage — coûterait bien
+  plus que ce que les garde-fous font gagner. Comptez une bonne heure avec les
+  tests, la doc, le plan et la revue.
+
+  Ce qui reste ouvert, lui, est noté. H3 (export des sessions IA) est P0 et non
+  fait. E2 (densité UI mobile/desktop) est P1, critère ATTENDU. D1 (tests Jest
+  sur la logique métier) est P1. À temps égal, ces trois-là pèsent sur
+  l'évaluation ; les garde-fous, non.
+
+  La seule pièce que je défendrais quand même est le garde du retour au clair :
+  une dizaine de lignes, aucun effet possible sur machine vierge (il ne se
+  déclenche qu'en présence du volume letsencrypt), et il protège un déploiement
+  HTTPS réel que vous allez continuer à manipuler d'ici la remise. Le reste —
+  détection P1000, --reset — vous fait gagner du temps de debug que vous ne
+  perdrez plus : vous connaissez la cause par cœur maintenant, et la commande
+  ALTER USER est dans l'historique de cette conversation.
+
+  Ce qui vaut mieux que du code, dans tous les cas : trois lignes dans 
+  draft-dev-docs/exploitation.md disant que renommer .env sur une machine déjà
+  installée casse la base et coupe le HTTPS, avec les deux commandes de reprise.
+  Coût quasi nul, et c'est là que vous irez regarder.
+
+● User answered Claude's questions:
+  ⎿  · On fait quoi de ces garde-fous ? → Rien, sauf la doc (recommandé)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Décision notée. Je réduis le plan à la documentation.
+
+● Updated plan
+  ⎿  /plan to preview
+
+● Plan réduit à la documentation : install.sh revient à HEAD, le fichier de test
+  est supprimé, et seul draft-dev-docs/exploitation.md change — avec une
+  correction de fond, puisqu'il présente aujourd'hui down -v comme le seul
+  remède alors qu'il détruit les pièces déposées.
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ Documenter la panne du .env renommé : base cassée et HTTPS coupé        │
+     │                                                                         │
+     │ Changements par rapport à la version précédente de ce plan              │
+     │                                                                         │
+     │ - Aucune ligne de code n'est modifiée. install.sh n'est plus touché :   │
+     │ ni analyse des arguments                                                │
+     │ réécrite, ni détection P1000, ni garde contre le retour au clair, ni    │
+     │ drapeau --reset.                                                        │
+     │ - scripts/test-install-guards.sh n'est plus créé, et package.json n'est │
+     │ plus modifié.                                                           │
+     │ - Mes modifications en cours sont annulées : install.sh revient à HEAD, │
+     │ le fichier de test                                                      │
+     │ écrit tout à l'heure est supprimé.                                      │
+     │ - Le périmètre se limite à draft-dev-docs/exploitation.md, avec une     │
+     │ correction de fond : la                                                 │
+     │ documentation actuelle présente down -v comme le remède, alors qu'il    │
+     │ détruit les pièces                                                      │
+     │ déposées ; l'issue non destructive existe et n'y figure pas.            │
+     │ - Une seconde panne, absente de la doc, y entre : le retour silencieux  │
+     │ au HTTP.                                                                │
+     │                                                                         │
+     │ Ce qui n'a pas bougé : le constat des deux pannes, leur cause, et les   │
+     │ commandes de reprise — ce sont                                          │
+     │ les mêmes, elles passent simplement dans la documentation au lieu du    │
+     │ code.                                                                   │
+     │                                                                         │
+     │ Contexte                                                                │
+     │                                                                         │
+     │ Sur la machine de staging, un .env renommé pour forcer sa régénération  │
+     │ a produit deux pannes                                                   │
+     │ simultanées, dont une seule est documentée aujourd'hui :                │
+     │                                                                         │
+     │ 1. La base refuse le backend (P1000). Postgres ne lit POSTGRES_PASSWORD │
+     │ qu'en initialisant un                                                   │
+     │ volume vide : un .env neuf face à un volume existant ne se réconcilie   │
+     │ jamais tout seul.                                                       │
+     │ 2. Le portail repasse en HTTP sans le dire. DOMAIN redevenu vide,       │
+     │ install.sh monte la pile                                                │
+     │ sans le calque TLS : le port 21601 n'est plus publié, certbot devient   │
+     │ un conteneur orphelin                                                   │
+     │ (c'est l'avertissement visible), et PUBLIC_BASE_URL retombe sur         │
+     │ http://127.0.0.1:21600 — tout                                           │
+     │ lien client émis ensuite pointe vers la boucle locale du serveur        │
+     │ pendant que l'API répond 201.                                           │
+     │                                                                         │
+     │ Aucune des deux ne peut arriver sur une machine vierge : elles exigent  │
+     │ des volumes survivants. Le                                              │
+     │ chemin des correcteurs est donc hors de cause, et c'est précisément     │
+     │ pourquoi la documentation est le                                        │
+     │ bon endroit plutôt que le code.                                         │
+     │                                                                         │
+     │ Étape 0 — Annuler les modifications en cours                            │
+     │                                                                         │
+     │ git checkout -- install.sh                                              │
+     │ rm scripts/test-install-guards.sh                                       │
+     │                                                                         │
+     │ Modifications                                                           │
+     │                                                                         │
+     │ draft-dev-docs/exploitation.md § « La panne qui ressemble à un bug du   │
+     │ projet » (l. 370)                                                       │
+     │                                                                         │
+     │ - Ajouter le déclencheur réel, qui manque : renommer ou supprimer .env  │
+     │ sur une machine déjà                                                    │
+     │ installée. Le texte actuel dit « un .env régénéré » sans nommer le      │
+     │ geste qui régénère.                                                     │
+     │ - Remplacer « Le remède est down -v » par les deux issues, dans cet     │
+     │ ordre :                                                                 │
+     │   a. restaurer le .env d'origine s'il existe encore sous un autre nom — │
+     │ il porte l'ancien mot de                                                │
+     │ passe, DOMAIN, ACME_EMAIL et GRAFANA_ADMIN_PASSWORD, donc il règle tout │
+     │ d'un coup ;                                                             │
+     │   b. réaligner le rôle sans perdre les données :                        │
+     │                                                                         │
+     │ PW=$(grep -E '^DB_PASSWORD=' .env | cut -d= -f2-)                       │
+     │ printf "ALTER USER portail PASSWORD '%s';\n" "$PW" \                    │
+     │   | docker compose -f infra/docker-compose.yml --env-file .env exec -T  │
+     │ db psql -U portail -d portail_depot -f -                                │
+     │   c. down -v en dernier, avec ce qu'il détruit écrit noir sur blanc :   │
+     │ base, pièces déposées des                                               │
+     │ clients, métriques, et le volume letsencrypt — Let's Encrypt plafonne à │
+     │ 5 certificats                                                           │
+     │ identiques par semaine.                                                 │
+     │ - Une phrase sur ce que la panne fait ailleurs : Grafana diverge        │
+     │ pareillement et en silence (son                                         │
+     │ mot de passe admin n'est lu qu'à l'initialisation de son volume, on     │
+     │ s'en aperçoit à la connexion) ;                                         │
+     │ MinIO, lui, se répare seul, minio-init recréant l'utilisateur           │
+     │ applicatif à chaque démarrage.                                          │
+     │                                                                         │
+     │ draft-dev-docs/exploitation.md § TLS (l. 206)                           │
+     │                                                                         │
+     │ Un court paragraphe, à la suite des cinq points non évidents déjà       │
+     │ présents :                                                              │
+     │                                                                         │
+     │ - DOMAIN est l'interrupteur du HTTPS, et le vider éteint le HTTPS sans  │
+     │ aucun message. Sur une                                                  │
+     │ machine qui servait en TLS, le symptôme visible est l'avertissement     │
+     │ Found orphan containers (…-certbot-1) : certbot n'existe que dans le    │
+     │ calque, qui n'est plus                                                  │
+     │ chargé.                                                                 │
+     │ - Ce qu'il faut vérifier alors, dans l'ordre : le 21601 n'est plus      │
+     │ publié, PUBLIC_BASE_URL est                                             │
+     │ revenu à 127.0.0.1, et les liens émis entre-temps sont inutilisables.   │
+     │ - La reprise : remettre DOMAIN et ACME_EMAIL dans .env, puis            │
+     │ ./install.sh. PUBLIC_BASE_URL                                           │
+     │ se réaligne seul tant qu'il vaut la valeur par défaut, et le certificat │
+     │ étant dans le volume                                                    │
+     │ letsencrypt, aucune réémission — donc aucun quota consommé.             │
+     │ - Ne pas lancer --remove-orphans pour faire taire l'avertissement : il  │
+     │ supprimerait certbot                                                    │
+     │ alors que le correctif est de remonter le calque, qui le redéclare.     │
+     │                                                                         │
+     │ Vérification                                                            │
+     │                                                                         │
+     │ Le livrable est du texte : la vérification consiste à ce que quelqu'un  │
+     │ puisse rejouer la reprise                                               │
+     │ en la lisant seule, sans cette conversation.                            │
+     │                                                                         │
+     │ 1. Relire les deux sections d'affilée et vérifier qu'aucune commande    │
+     │ n'y suppose un contexte absent                                          │
+     │ (noms de volumes, chemin des fichiers compose, les deux drapeaux -f et  │
+     │ --env-file).                                                            │
+     │ 2. Vérifier que la commande ALTER USER du document est bien celle qui a │
+     │ fonctionné ce soir —                                                    │
+     │ copie exacte, pas une reconstruction de mémoire.                        │
+     │ 3. git diff limité à draft-dev-docs/exploitation.md, et install.sh      │
+     │ identique à HEAD.                                                       │
+     │                                                                         │
+     │ Hors périmètre                                                          │
+     │                                                                         │
+     │ - Tout garde-fou dans install.sh (détection P1000, refus de repasser en │
+     │ clair, --reset).                                                        │
+     │ - La remise en état de la machine de staging elle-même, qui se fait à   │
+     │ la main.                                                                │
+     │ - Les issues ouvertes qui, elles, sont notées : H3 (P0), E2 (P1,        │
+     │ critère attendu), D1 (P1).                                              │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+● Compris, j'arrête là.
+
+  Une chose à ne pas laisser traîner : l'arbre de travail porte encore mes
+  modifications d'avant votre demande d'annulation — install.sh modifié (usage +
+  analyse des arguments pour --reset) et scripts/test-install-guards.sh en
+  fichier non suivi. Le mode plan m'interdit d'écrire, donc je ne les ai pas
+  annulées. Quand vous voulez :
+
+  git checkout -- install.sh
+  rm scripts/test-install-guards.sh
+
+  Pour mémoire, ce qui reste vrai sans aucun code : sur une machine déjà
+  installée, renommer .env casse l'authentification Postgres et coupe le HTTPS
+  en silence. La reprise sur le staging est de restaurer le .env renommé, puis
+  ./install.sh.
+
+✻ Brewed for 8m 0s
