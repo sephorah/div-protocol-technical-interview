@@ -112,3 +112,4 @@ navigateur ──▶ nginx (seul port publié) ──┬──▶ frontend  (SPA
 - **Pas d'antivirus** bien que l'application vérifie le type des fichiers déposés.
 - **L'alerte de dépendance ne distingue pas Postgres de MinIO**.
 - **Pas d'URL pré-signées** : les fichiers transitent par l'API.
+- **Régénérer `.env` sur une machine déjà installée désaccorde les secrets et les volumes** : Postgres ne lit `POSTGRES_PASSWORD` qu'en initialisant un volume vide, donc le backend échoue en `P1000` ; et un `DOMAIN` redevenu vide éteint le HTTPS sans aucun message. Impossible sur une machine vierge, où `.env` et les volumes naissent ensemble. Pour régler le problème, restaurer l'ancien `.env`, ou de réaligner le rôle par `ALTER USER` sans perdre les données.
